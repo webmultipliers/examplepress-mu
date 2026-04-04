@@ -17,7 +17,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // ─── Platform Constants ──────────────────────────────────────────────
-define( 'EXAMPLEPRESS_MU_VERSION', '1.0.0' );
+define( 'EXAMPLEPRESS_MU_VERSION', '1.0.1' );
 define( 'EXAMPLEPRESS_MU_DIR', __DIR__ );
 define( 'EXAMPLEPRESS_MU_FILE', __DIR__ . '/bootstrap.php' );
 
