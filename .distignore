@@ -1,0 +1,9 @@
+.git
+.github
+.distignore
+.gitignore
+README.md
+node_modules
+composer.lock
+package-lock.json
+staging
