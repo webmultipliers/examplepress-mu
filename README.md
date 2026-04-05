@@ -14,7 +14,24 @@ mu-plugins/
     │   ├── class-fse-guard.php      # FSE lockdown (redirect, REST, resolution)
     │   ├── class-app-validator.php  # Zero-trust plugin governance
     │   ├── class-platform-policy.php # Fleet-wide policies (caps, permalinks, managed options, 404)
+    │   ├── class-admin-policy.php   # Admin policies (dashboard widgets, post-lock window)
+    │   ├── class-editor-policy.php  # Editor policies (block patterns, block types, Openverse)
+    │   ├── class-helpers.php        # Filesystem utilities (copy/delete dir)
+    │   ├── class-app-discovery.php  # Plugin scanning for examplepress.json
+    │   ├── class-app-registry.php   # ep_app CPT + CRUD + merged queries
+    │   ├── class-dependencies.php   # Dependency resolution from theme config
+    │   ├── class-github.php         # GitHub App auth, repo creation, push, Troy
+    │   ├── class-scaffolder.php     # Template repo scaffolding + placeholder replacement
+    │   ├── class-notifications.php  # Notification aggregation + archive REST
+    │   ├── class-plugin-manager.php # Updater/demo plugin install + stale dir cleanup
+    │   ├── class-cli.php            # WP-CLI: wp examplepress init
     │   └── api-apps.php             # Agent REST API (GET /examplepress-mu/v1/apps)
+    ├── api/
+    │   ├── apps.php                 # App CRUD, scaffold, connect, destroy, health
+    │   ├── connections.php          # GitHub/Troy connection settings + tests
+    │   ├── demo.php                 # Demo plugin install/update/settings
+    │   ├── updater.php              # Updater plugin install/update/settings
+    │   └── filesystem.php           # In-browser editor: tree, read, write
     └── admin/
         ├── plugins-view.php         # "ExamplePress Apps" tab on plugins.php
         └── admin-registry.php       # Top-level menu + extensible subpage API
@@ -28,7 +45,18 @@ mu-plugins/
    - **FSE Guards** lock down the Site Editor across three vectors (page redirect, REST API, template resolution). Bypassed when `EP_DEV_MODE` is defined.
    - **App Validator** filters `option_active_plugins` to enforce manifest-based governance before plugins load.
    - **Platform Policy** strips dangerous capabilities, enforces `/%postname%/` permalinks, locks managed options, disables 404 redirect guessing, and defines `DISALLOW_FILE_EDIT`.
-   - **Agent REST API** exposes `GET /wp-json/examplepress-mu/v1/apps` (admin-only) so external tools and AI agents can query validated apps and their permissions.
+   - **Admin Policy** removes default dashboard widgets (At a Glance, Activity, Quick Draft, Site Health, Welcome) and sets the post-lock window to 30 seconds.
+   - **Editor Policy** disables remote and core block patterns, provides an opt-in block type whitelist via `examplepress_mu_allowed_block_types`, and controls the Openverse media category.
+   - **App Discovery** scans plugin directories for `examplepress.json` manifests to discover companion apps.
+   - **App Registry** persists app records as `ep_app` CPT posts, merging live filesystem state with persistent GitHub/Troy metadata.
+   - **Dependency Checker** resolves plugin, class, and function dependencies declared in the theme's `examplepress.json`.
+   - **GitHub Integration** handles GitHub App JWT auth, repo creation, scaffold pushing, and Troy provisioning.
+   - **Scaffolder** creates companion plugins from GitHub template repos with placeholder replacement.
+   - **Notifications** aggregates system warnings (missing deps, dev mode, health failures) with per-user archive support.
+   - **Plugin Manager** installs/updates the updater and demo companion plugins from GitHub, with stale directory cleanup.
+   - **REST API** exposes the full platform API under `examplepress/v1` — app CRUD, scaffold, connections, demo/updater management, and filesystem access for the in-browser editor.
+   - **Agent REST API** exposes `GET /wp-json/examplepress-mu/v1/apps` (admin-only) for external tools and AI agents.
+   - **WP-CLI** provides `wp examplepress init` to generate starter configuration.
    - **Self-Updater** checks GitHub releases every 12 hours via `admin_init` and silently upgrades when a new version is available.
    - **Admin UI** adds an "ExamplePress Apps" tab to `plugins.php` and an extensible top-level menu.
 
