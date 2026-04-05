@@ -11,3 +11,5 @@ package-lock.json
 assets/src
 vite.config.js
 package.json
+staging
+examplepress.json
