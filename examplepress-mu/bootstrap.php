@@ -29,6 +29,8 @@ define( 'EP_MU_ACTIVE', true );
 require_once __DIR__ . '/includes/class-updater.php';
 require_once __DIR__ . '/includes/class-fse-guard.php';
 require_once __DIR__ . '/includes/class-app-validator.php';
+require_once __DIR__ . '/includes/class-platform-policy.php';
+require_once __DIR__ . '/includes/api-apps.php';
 
 // ─── Boot Subsystems ─────────────────────────────────────────────────
 // FSE guards must register as early as possible so no plugin can unhook them.
@@ -36,6 +38,9 @@ ExamplePress_MU_FSE_Guard::init();
 
 // App validator filters the active plugins list before WordPress loads them.
 ExamplePress_MU_App_Validator::init();
+
+// Apply fleet-wide platform policies
+ExamplePress_MU_Platform_Policy::init();
 
 // The updater hooks into admin_init (dashboard requests only).
 ExamplePress_MU_Updater::init();
