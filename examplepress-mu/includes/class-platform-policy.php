@@ -3,7 +3,8 @@
  * ExamplePress MU — Platform Policy Engine
  *
  * Enforces fleet-wide policies: strips dangerous capabilities globally,
- * enforces permalink structures, and locks specific wp_options.
+ * enforces permalink structures, locks specific wp_options, and disables
+ * 404 redirect guessing.
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -35,6 +36,19 @@ class ExamplePress_MU_Platform_Policy {
         // Hard disable file editing
         if ( ! defined( 'DISALLOW_FILE_EDIT' ) ) {
             define( 'DISALLOW_FILE_EDIT', true );
+        }
+
+        // 3. Managed Options
+        $managed_options = apply_filters( 'examplepress_mu_managed_options', [] );
+        foreach ( $managed_options as $option => $value ) {
+            add_filter( "pre_option_{$option}", function() use ( $value ) {
+                return $value;
+            } );
+        }
+
+        // 4. Disable 404 Redirect Guessing
+        if ( apply_filters( 'examplepress_mu_disable_redirect_guess_404', true ) ) {
+            add_filter( 'do_redirect_guess_404_permalink', '__return_false' );
         }
     }
 

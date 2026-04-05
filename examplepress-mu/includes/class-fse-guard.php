@@ -19,6 +19,10 @@ class ExamplePress_MU_FSE_Guard {
      * Register all three guards.
      */
     public static function init() {
+        if ( defined( 'EP_DEV_MODE' ) && EP_DEV_MODE ) {
+            return; // Bypass guards during development
+        }
+
         // Guard 1: Block direct navigation to the Site Editor admin page.
         add_action( 'admin_init', [ __CLASS__, 'guard_template_redirect' ], 0 );
 

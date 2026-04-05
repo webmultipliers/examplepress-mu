@@ -35,7 +35,7 @@ class ExamplePress_MU_Admin_Registry {
             __( 'ExamplePress Settings', 'examplepress-mu' ),
             'ExamplePress',
             'manage_options',
-            'examplepress',
+            EP_ADMIN_MENU_SLUG, // Use the shared constant
             [ __CLASS__, 'render_main_page' ],
             'dashicons-layout',
             55
@@ -43,25 +43,25 @@ class ExamplePress_MU_Admin_Registry {
 
         // Rename the first subpage to "Dashboard"
         add_submenu_page(
-            'examplepress',
+            EP_ADMIN_MENU_SLUG,
             __( 'Dashboard', 'examplepress-mu' ),
             __( 'Dashboard', 'examplepress-mu' ),
             'manage_options',
-            'examplepress',
+            EP_ADMIN_MENU_SLUG,
             [ __CLASS__, 'render_main_page' ]
         );
 
-        // 2. Fire an action to let MU features and the Theme register their subpages
-        do_action( 'examplepress_mu_register_admin_pages' );
+        // 2. Fire the unified action to let the Theme and Companion Apps register subpages
+        do_action( 'examplepress_register_admin_pages' );
 
-        // 3. Loop through registered subpages and attach them
+        // 3. Loop through MU-registered subpages and attach them
         foreach ( self::$subpages as $slug => $page ) {
             add_submenu_page(
-                'examplepress',
+                EP_ADMIN_MENU_SLUG,
                 $page['title'],
                 $page['title'],
                 $page['capability'],
-                'examplepress-' . $slug,
+                EP_ADMIN_MENU_SLUG . '-' . $slug,
                 $page['callback']
             );
         }

@@ -13,13 +13,11 @@ mu-plugins/
     │   ├── class-updater.php        # Self-updater (12h transient, SHA-256 verified)
     │   ├── class-fse-guard.php      # FSE lockdown (redirect, REST, resolution)
     │   ├── class-app-validator.php  # Zero-trust plugin governance
-    │   ├── class-platform-policy.php # Fleet-wide capability stripping & permalink enforcement
+    │   ├── class-platform-policy.php # Fleet-wide policies (caps, permalinks, managed options, 404)
     │   └── api-apps.php             # Agent REST API (GET /examplepress-mu/v1/apps)
     └── admin/
         ├── plugins-view.php         # "ExamplePress Apps" tab on plugins.php
-        ├── admin-registry.php       # Top-level menu + extensible subpage API
-        └── features/
-            └── strict-mode.php      # Fleet-wide policy configuration
+        └── admin-registry.php       # Top-level menu + extensible subpage API
 ```
 
 ## How It Works
@@ -27,9 +25,9 @@ mu-plugins/
 1. WordPress automatically loads `examplepress-mu.php` from the `mu-plugins/` root.
 2. The loader checks for `examplepress-mu/bootstrap.php`. If missing, it fetches the latest release from GitHub, extracts it, and places the files.
 3. The kernel boots and initializes all subsystems:
-   - **FSE Guards** lock down the Site Editor across three vectors (page redirect, REST API, template resolution).
+   - **FSE Guards** lock down the Site Editor across three vectors (page redirect, REST API, template resolution). Bypassed when `EP_DEV_MODE` is defined.
    - **App Validator** filters `option_active_plugins` to enforce manifest-based governance before plugins load.
-   - **Platform Policy** strips dangerous capabilities (`edit_themes`, `install_plugins`, `update_core`, etc.), enforces `/%postname%/` permalinks, and defines `DISALLOW_FILE_EDIT`.
+   - **Platform Policy** strips dangerous capabilities, enforces `/%postname%/` permalinks, locks managed options, disables 404 redirect guessing, and defines `DISALLOW_FILE_EDIT`.
    - **Agent REST API** exposes `GET /wp-json/examplepress-mu/v1/apps` (admin-only) so external tools and AI agents can query validated apps and their permissions.
    - **Self-Updater** checks GitHub releases every 12 hours via `admin_init` and silently upgrades when a new version is available.
    - **Admin UI** adds an "ExamplePress Apps" tab to `plugins.php` and an extensible top-level menu.
@@ -60,16 +58,24 @@ Plugins that fail validation are silently removed from the active plugins array 
 
 ## Admin Registry
 
-The MU kernel registers a top-level "ExamplePress" menu and fires the `examplepress_mu_register_admin_pages` action. Both the kernel and the theme can add subpages:
+The MU kernel registers a top-level "ExamplePress" menu (using the shared `EP_ADMIN_MENU_SLUG` constant) and fires the `examplepress_register_admin_pages` action. Both the kernel and the theme can add subpages:
 
 ```php
-add_action( 'examplepress_mu_register_admin_pages', function() {
+add_action( 'examplepress_register_admin_pages', function() {
     ExamplePress_MU_Admin_Registry::add_subpage(
         'my-feature',
         __( 'My Feature', 'my-plugin' ),
         'my_render_callback'
     );
 } );
+```
+
+## Developer Mode
+
+Define `EP_DEV_MODE` in `wp-config.php` to bypass FSE guards while building companion plugins:
+
+```php
+define( 'EP_DEV_MODE', true );
 ```
 
 ## Development

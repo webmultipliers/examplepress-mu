@@ -21,9 +21,9 @@ define( 'EXAMPLEPRESS_MU_VERSION', '1.0.1' );
 define( 'EXAMPLEPRESS_MU_DIR', __DIR__ );
 define( 'EXAMPLEPRESS_MU_FILE', __DIR__ . '/bootstrap.php' );
 
-// Theme hand-off signal. When the theme sees this constant it should
-// disable its own soft guards and defer governance to the MU kernel.
+// Theme hand-off signal and shared admin menu slug
 define( 'EP_MU_ACTIVE', true );
+define( 'EP_ADMIN_MENU_SLUG', 'examplepress' );
 
 // ─── Includes ────────────────────────────────────────────────────────
 require_once __DIR__ . '/includes/class-updater.php';
@@ -49,7 +49,4 @@ ExamplePress_MU_Updater::init();
 if ( is_admin() ) {
     require_once __DIR__ . '/admin/plugins-view.php';
     require_once __DIR__ . '/admin/admin-registry.php';
-
-    // Feature subpages
-    require_once __DIR__ . '/admin/features/strict-mode.php';
 }
