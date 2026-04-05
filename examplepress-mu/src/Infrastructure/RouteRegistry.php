@@ -155,7 +155,7 @@ final class RouteRegistry
         $knownDirs = ['blockstudio', 'demo', 'docs', 'inc', 'languages', 'templates', 'vendor'];
         $knownRootFiles = [
             'blockstudio.json', 'composer.json', 'composer.lock', 'examplepress.json',
-            'functions.php', 'screenshot.png', 'style.css', 'theme.json',
+            'functions.php', 'README.md', 'readme.txt', 'screenshot.png', 'style.css', 'theme.json',
         ];
 
         $themePath = defined('EP_THEME_PATH') ? EP_THEME_PATH : get_template_directory();

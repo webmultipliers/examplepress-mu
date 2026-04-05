@@ -176,31 +176,43 @@ async function openFile(path, data) {
 	}
 }
 
+/**
+ * Monaco version pinned for CDN loading.
+ * Update this when bumping the monaco-editor dependency.
+ */
+const MONACO_VERSION = '0.52.2';
+const MONACO_CDN = `https://cdn.jsdelivr.net/npm/monaco-editor@${MONACO_VERSION}`;
+
+let monacoModule = null;
+
+async function loadMonaco() {
+	if (monacoModule) return monacoModule;
+
+	// Load Monaco from CDN — keeps it out of our Vite bundle entirely.
+	monacoModule = await import(/* @vite-ignore */ `${MONACO_CDN}/+esm`);
+
+	self.MonacoEnvironment = {
+		getWorkerUrl(_, label) {
+			// Monaco workers are loaded from the CDN as well.
+			const base = `${MONACO_CDN}/esm/vs`;
+			if (label === 'json') return `${base}/language/json/json.worker.js`;
+			if (label === 'css' || label === 'scss' || label === 'less') return `${base}/language/css/css.worker.js`;
+			if (label === 'html' || label === 'handlebars' || label === 'razor') return `${base}/language/html/html.worker.js`;
+			if (label === 'typescript' || label === 'javascript') return `${base}/language/typescript/ts.worker.js`;
+			return `${base}/editor/editor.worker.js`;
+		},
+	};
+
+	return monacoModule;
+}
+
 async function initMonaco(content, language) {
 	const container = document.getElementById('ep-editor-container');
 	if (!container) return;
 
+	const monaco = await loadMonaco();
+
 	if (!editor) {
-		const monaco = await import('monaco-editor');
-
-		self.MonacoEnvironment = {
-			getWorker(_, label) {
-				if (label === 'json') {
-					return new Worker(new URL('monaco-editor/esm/vs/language/json/json.worker.js', import.meta.url), { type: 'module' });
-				}
-				if (label === 'css' || label === 'scss' || label === 'less') {
-					return new Worker(new URL('monaco-editor/esm/vs/language/css/css.worker.js', import.meta.url), { type: 'module' });
-				}
-				if (label === 'html' || label === 'handlebars' || label === 'razor') {
-					return new Worker(new URL('monaco-editor/esm/vs/language/html/html.worker.js', import.meta.url), { type: 'module' });
-				}
-				if (label === 'typescript' || label === 'javascript') {
-					return new Worker(new URL('monaco-editor/esm/vs/language/typescript/ts.worker.js', import.meta.url), { type: 'module' });
-				}
-				return new Worker(new URL('monaco-editor/esm/vs/editor/editor.worker.js', import.meta.url), { type: 'module' });
-			},
-		};
-
 		editor = monaco.editor.create(container, {
 			value: content,
 			language: language,
@@ -221,7 +233,6 @@ async function initMonaco(content, language) {
 			if (saveBtn) saveBtn.disabled = false;
 		});
 	} else {
-		const monaco = await import('monaco-editor');
 		editor.setValue(content);
 		monaco.editor.setModelLanguage(editor.getModel(), language);
 	}
