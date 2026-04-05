@@ -75,6 +75,20 @@ final class Kernel
             AssetManager::init();
             PageController::init();
             ConnectionsController::initCallbacks();
+
+            // Theme immutability — warn if unexpected files land in the theme.
+            add_action('admin_notices', static function (): void {
+                $unexpected = RouteRegistry::checkThemeImmutability();
+                if (empty($unexpected)) {
+                    return;
+                }
+                printf(
+                    '<div class="notice notice-warning"><p><strong>ExamplePress:</strong> '
+                    . 'Unexpected files detected in the theme directory: <code>%s</code>. '
+                    . 'The theme is an immutable foundation — add custom templates in a companion plugin instead.</p></div>',
+                    esc_html(implode(', ', $unexpected))
+                );
+            });
         }
 
         // ── WP-CLI ──────────────────────────────────────────────

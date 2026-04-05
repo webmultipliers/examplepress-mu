@@ -58,9 +58,8 @@ final class MenuManager
         // The first page (lowest position) shares the parent slug to avoid
         // WordPress's duplicate first-submenu behaviour.
         $firstId = array_key_first($pages);
-        $firstPage = $pages[$firstId];
 
-        add_menu_page(
+        $topHook = add_menu_page(
             __('ExamplePress', 'examplepress-mu'),
             'ExamplePress',
             'manage_options',
@@ -69,6 +68,12 @@ final class MenuManager
             'dashicons-layout',
             55
         );
+
+        // Capture the top-level hook suffix so isExamplePressPage() and
+        // pageIdFromHook() work for the parent menu page as well.
+        if (is_string($topHook)) {
+            self::$hookSuffixes[$firstId] = $topHook;
+        }
 
         foreach ($pages as $id => $page) {
             $menuSlug = self::pageSlug($id);

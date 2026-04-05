@@ -48,7 +48,7 @@ final class AssetManager
         // Admin settings stylesheet (shared across all EP pages).
         wp_enqueue_style(
             'ep-admin-settings',
-            EXAMPLEPRESS_MU_URI . '/assets/css/admin-settings.css',
+            EXAMPLEPRESS_MU_URI . '/assets/src/css/admin-settings.css',
             [],
             EXAMPLEPRESS_MU_VERSION
         );

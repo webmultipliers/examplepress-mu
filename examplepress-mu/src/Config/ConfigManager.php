@@ -16,8 +16,14 @@ final class ConfigManager
     private static ?array $config = null;
 
     /**
-     * Return the parsed examplepress.json configuration.
+     * Return the parsed, merged examplepress.json configuration.
      * Cached for the lifetime of the request.
+     *
+     * The MU plugin's examplepress.json is the infrastructure baseline
+     * (features, dependencies, updater). The theme's examplepress.json
+     * supplies design tokens (colors, typography, layout) and Blockstudio
+     * settings. Theme values win via deep merge so the theme retains full
+     * control over the visual design system.
      */
     public static function get(): array
     {
@@ -25,16 +31,25 @@ final class ConfigManager
             return self::$config;
         }
 
-        // CRITICAL FIX: Read from the MU plugin directory, not the theme.
-        $path = dirname(__DIR__, 2) . '/examplepress.json';
-
-        if (!file_exists($path)) {
-            self::$config = [];
-            return self::$config;
+        // 1. MU plugin baseline (infrastructure, features, dependencies).
+        $muPath = dirname(__DIR__, 2) . '/examplepress.json';
+        $muData = [];
+        if (file_exists($muPath)) {
+            $decoded = json_decode((string) file_get_contents($muPath), true);
+            $muData = is_array($decoded) ? $decoded : [];
         }
 
-        $data = json_decode((string) file_get_contents($path), true);
-        self::$config = is_array($data) ? $data : [];
+        // 2. Theme layer (design tokens, blockstudio, overrides).
+        $themePath = (defined('EP_THEME_PATH') ? EP_THEME_PATH : get_template_directory())
+            . '/examplepress.json';
+        $themeData = [];
+        if (file_exists($themePath)) {
+            $decoded = json_decode((string) file_get_contents($themePath), true);
+            $themeData = is_array($decoded) ? $decoded : [];
+        }
+
+        // Deep merge: theme wins so it controls design tokens.
+        self::$config = array_replace_recursive($muData, $themeData);
 
         self::$config = self::normaliseDesign(self::$config);
         self::$config = self::normaliseBlockstudio(self::$config);

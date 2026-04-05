@@ -113,7 +113,14 @@ final class AppsController
             'methods'             => 'DELETE',
             'callback'            => [self::class, 'destroy'],
             'permission_callback' => [self::class, 'permissionCheck'],
-            'args'                => $slug_args,
+            'args'                => array_merge($slug_args, [
+                'confirm' => [
+                    'required'          => true,
+                    'type'              => 'string',
+                    'description'       => 'Confirmation nonce (wp_create_nonce "ep_destroy_{slug}").',
+                    'sanitize_callback' => 'sanitize_text_field',
+                ],
+            ]),
         ]);
     }
 
@@ -488,9 +495,20 @@ final class AppsController
 
     // ── Destroy ─────────────────────────────────────────────────────
 
-    public static function destroy(\WP_REST_Request $request): \WP_REST_Response
+    public static function destroy(\WP_REST_Request $request): \WP_REST_Response|\WP_Error
     {
-        $slug   = $request->get_param('slug');
+        $slug    = $request->get_param('slug');
+        $confirm = $request->get_param('confirm');
+
+        // Verify the destruction nonce to confirm explicit user intent.
+        if (!wp_verify_nonce($confirm, 'ep_destroy_' . $slug)) {
+            return new \WP_Error(
+                'invalid_nonce',
+                'Confirmation nonce is invalid or expired. Please refresh and try again.',
+                ['status' => 403]
+            );
+        }
+
         $result = AppRegistry::destroy($slug);
 
         $all_deleted = empty($result['failed']);

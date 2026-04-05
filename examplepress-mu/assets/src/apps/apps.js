@@ -377,9 +377,14 @@ async function handleDestroy(slug, link) {
 	if (link) { link.textContent = 'Deleting...'; link.style.pointerEvents = 'none'; }
 
 	try {
+		const destroyNonce = (data.destroyNonces || {})[slug] || '';
 		const res = await fetch(`${data.appsBaseUrl}/${slug}/destroy`, {
 			method: 'DELETE',
-			headers: { 'X-WP-Nonce': data.nonce },
+			headers: {
+				'X-WP-Nonce': data.nonce,
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({ confirm: destroyNonce }),
 		});
 		const result = await res.json();
 		if (result.success) {

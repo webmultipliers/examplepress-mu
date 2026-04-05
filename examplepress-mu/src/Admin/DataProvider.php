@@ -87,8 +87,17 @@ final class DataProvider
      */
     private static function appsData(): array
     {
+        $apps = AppDiscovery::scan();
+
+        // Generate per-app destroy nonces so the JS can confirm deletions.
+        $destroyNonces = [];
+        foreach ($apps as $app) {
+            $destroyNonces[$app['slug']] = wp_create_nonce('ep_destroy_' . $app['slug']);
+        }
+
         return [
-            'apps'                => AppDiscovery::scan(),
+            'apps'                => $apps,
+            'destroyNonces'      => $destroyNonces,
             'appsBaseUrl'         => esc_url_raw(rest_url('examplepress-mu/v1/apps')),
             'appsScaffoldUrl'     => esc_url_raw(rest_url('examplepress-mu/v1/apps/scaffold')),
             'editorUrl'           => MenuManager::pageUrl('editor', ['app' => '__SLUG__']),
