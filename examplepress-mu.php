@@ -2,54 +2,50 @@
 /**
  * Plugin Name: ExamplePress MU Bootstrapper
  * Description: Thin loader that fetches and executes the ExamplePress platform kernel from GitHub.
- * Version:     1.1.0
+ * Version:     2.0.0
  * Author:      Web Multipliers
  * Author URI:  https://github.com/webmultipliers
  */
+
+declare(strict_types=1);
 
 // Exit if accessed directly.
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-class ExamplePress_MU_Bootstrapper {
+/**
+ * Thin MU loader. Checks if the kernel bootstrap exists.
+ * If not, falls back to a minimal GitHub API call to download the ZIP.
+ * No other logic.
+ */
+final class ExamplePress_MU_Bootstrapper {
 
-    private static $repo_owner = 'webmultipliers';
-    private static $repo_name  = 'examplepress-mu';
+    private static string $repoOwner = 'webmultipliers';
+    private static string $repoName  = 'examplepress-mu';
 
-    public static function boot() {
-        // Because this file sits at the root of mu-plugins/, __DIR__ is the mu-plugins folder.
-        $mu_dir    = __DIR__ . '/examplepress-mu';
-        $boot_file = $mu_dir . '/bootstrap.php';
+    public static function boot(): void {
+        $muDir    = __DIR__ . '/examplepress-mu';
+        $bootFile = $muDir . '/bootstrap.php';
 
-        // 1. Download and extract if the core application directory is missing.
-        if ( ! file_exists( $boot_file ) ) {
-            self::fetch_latest_from_github( __DIR__ );
+        if ( ! file_exists( $bootFile ) ) {
+            self::fetchLatestFromGithub( __DIR__ );
         }
 
-        // 2. Execute the kernel if available.
-        if ( file_exists( $boot_file ) ) {
-            require_once $boot_file;
+        if ( file_exists( $bootFile ) ) {
+            require_once $bootFile;
         } else {
             error_log( 'ExamplePress MU Bootstrapper: Failed to load or download the core application.' );
         }
     }
 
-    /**
-     * Fetch the latest release from GitHub using the updates.json manifest
-     * attached to the release, then download and extract the built ZIP.
-     *
-     * @param string $target_mu_dir  The mu-plugins directory path.
-     * @return bool
-     */
-    private static function fetch_latest_from_github( $target_mu_dir ) {
+    private static function fetchLatestFromGithub( string $targetMuDir ): bool {
         require_once ABSPATH . 'wp-admin/includes/file.php';
         WP_Filesystem();
         global $wp_filesystem;
 
-        // --- Resolve the download URL from updates.json in the latest release ---
-        $api_url  = 'https://api.github.com/repos/' . self::$repo_owner . '/' . self::$repo_name . '/releases/latest';
-        $response = wp_remote_get( $api_url, [
+        $apiUrl  = 'https://api.github.com/repos/' . self::$repoOwner . '/' . self::$repoName . '/releases/latest';
+        $response = wp_remote_get( $apiUrl, [
             'headers' => [
                 'Accept'     => 'application/vnd.github.v3+json',
                 'User-Agent' => 'ExamplePress-Bootstrapper',
@@ -64,100 +60,91 @@ class ExamplePress_MU_Bootstrapper {
 
         $release = json_decode( wp_remote_retrieve_body( $response ) );
 
-        // Find the updates.json asset to get the built ZIP URL and checksum.
-        $package_url = null;
-        $checksum    = '';
+        $packageUrl = null;
+        $checksum   = '';
 
         if ( ! empty( $release->assets ) && is_array( $release->assets ) ) {
-            $updates_url = null;
+            $updatesUrl = null;
             foreach ( $release->assets as $asset ) {
                 if ( $asset->name === 'updates.json' ) {
-                    $updates_url = $asset->browser_download_url;
+                    $updatesUrl = $asset->browser_download_url;
                     break;
                 }
             }
 
-            if ( $updates_url ) {
-                $updates_response = wp_remote_get( $updates_url, [
+            if ( $updatesUrl ) {
+                $updatesResponse = wp_remote_get( $updatesUrl, [
                     'headers' => [ 'User-Agent' => 'ExamplePress-Bootstrapper' ],
                     'timeout' => 10,
                 ] );
 
-                if ( ! is_wp_error( $updates_response ) && wp_remote_retrieve_response_code( $updates_response ) === 200 ) {
-                    $updates = json_decode( wp_remote_retrieve_body( $updates_response ), true );
+                if ( ! is_wp_error( $updatesResponse ) && wp_remote_retrieve_response_code( $updatesResponse ) === 200 ) {
+                    $updates = json_decode( wp_remote_retrieve_body( $updatesResponse ), true );
                     if ( ! empty( $updates['packages'][0]['package'] ) ) {
-                        $package_url = $updates['packages'][0]['package'];
-                        $checksum    = $updates['packages'][0]['checksum'] ?? '';
+                        $packageUrl = $updates['packages'][0]['package'];
+                        $checksum   = $updates['packages'][0]['checksum'] ?? '';
                     }
                 }
             }
         }
 
-        // Fallback: use the zipball_url (source archive) if no release asset found.
-        if ( ! $package_url ) {
+        if ( ! $packageUrl ) {
             if ( empty( $release->zipball_url ) ) {
                 error_log( 'ExamplePress MU Bootstrapper: No download URL found in release.' );
                 return false;
             }
-            $package_url = $release->zipball_url;
+            $packageUrl = $release->zipball_url;
         }
 
-        // --- Download and extract ---
-        $temp_file = download_url( $package_url );
-        if ( is_wp_error( $temp_file ) ) {
-            error_log( 'ExamplePress MU Bootstrapper: Download failed — ' . $temp_file->get_error_message() );
+        $tempFile = download_url( $packageUrl );
+        if ( is_wp_error( $tempFile ) ) {
+            error_log( 'ExamplePress MU Bootstrapper: Download failed — ' . $tempFile->get_error_message() );
             return false;
         }
 
-        // Verify checksum if available.
-        if ( $checksum && hash_file( 'sha256', $temp_file ) !== $checksum ) {
-            unlink( $temp_file );
+        if ( $checksum && hash_file( 'sha256', $tempFile ) !== $checksum ) {
+            unlink( $tempFile );
             error_log( 'ExamplePress MU Bootstrapper: Checksum mismatch. Install aborted.' );
             return false;
         }
 
-        $temp_extract_dir = $target_mu_dir . '/_ep_mu_temp';
-        $wp_filesystem->mkdir( $temp_extract_dir );
+        $tempExtractDir = $targetMuDir . '/_ep_mu_temp';
+        $wp_filesystem->mkdir( $tempExtractDir );
 
-        $unzip_result = unzip_file( $temp_file, $temp_extract_dir );
-        unlink( $temp_file );
+        $unzipResult = unzip_file( $tempFile, $tempExtractDir );
+        unlink( $tempFile );
 
-        if ( is_wp_error( $unzip_result ) ) {
-            $wp_filesystem->delete( $temp_extract_dir, true );
-            error_log( 'ExamplePress MU Bootstrapper: Unzip failed — ' . $unzip_result->get_error_message() );
+        if ( is_wp_error( $unzipResult ) ) {
+            $wp_filesystem->delete( $tempExtractDir, true );
+            error_log( 'ExamplePress MU Bootstrapper: Unzip failed — ' . $unzipResult->get_error_message() );
             return false;
         }
 
-        // Determine the layout of the extracted archive.
-        // Built release ZIPs place files at the root (examplepress-mu.php + examplepress-mu/).
-        // Source zipballs nest everything under an `owner-repo-hash` folder.
-        $has_loader_at_root = file_exists( $temp_extract_dir . '/examplepress-mu.php' );
+        $hasLoaderAtRoot = file_exists( $tempExtractDir . '/examplepress-mu.php' );
 
-        if ( $has_loader_at_root ) {
-            // Built release ZIP — files are at the root of the archive.
-            if ( is_dir( $temp_extract_dir . '/examplepress-mu' ) ) {
-                $wp_filesystem->move( $temp_extract_dir . '/examplepress-mu', $target_mu_dir . '/examplepress-mu', true );
+        if ( $hasLoaderAtRoot ) {
+            if ( is_dir( $tempExtractDir . '/examplepress-mu' ) ) {
+                $wp_filesystem->move( $tempExtractDir . '/examplepress-mu', $targetMuDir . '/examplepress-mu', true );
             }
-            if ( file_exists( $temp_extract_dir . '/examplepress-mu.php' ) ) {
-                $wp_filesystem->move( $temp_extract_dir . '/examplepress-mu.php', $target_mu_dir . '/examplepress-mu.php', true );
+            if ( file_exists( $tempExtractDir . '/examplepress-mu.php' ) ) {
+                $wp_filesystem->move( $tempExtractDir . '/examplepress-mu.php', $targetMuDir . '/examplepress-mu.php', true );
             }
         } else {
-            // Source zipball — files are nested inside a GitHub-generated folder.
-            $extracted_folders = $wp_filesystem->dirlist( $temp_extract_dir );
-            if ( ! empty( $extracted_folders ) ) {
-                $github_folder_name = array_keys( $extracted_folders )[0];
-                $github_folder_path = $temp_extract_dir . '/' . $github_folder_name;
+            $extractedFolders = $wp_filesystem->dirlist( $tempExtractDir );
+            if ( ! empty( $extractedFolders ) ) {
+                $githubFolderName = array_keys( $extractedFolders )[0];
+                $githubFolderPath = $tempExtractDir . '/' . $githubFolderName;
 
-                if ( is_dir( $github_folder_path . '/examplepress-mu' ) ) {
-                    $wp_filesystem->move( $github_folder_path . '/examplepress-mu', $target_mu_dir . '/examplepress-mu', true );
+                if ( is_dir( $githubFolderPath . '/examplepress-mu' ) ) {
+                    $wp_filesystem->move( $githubFolderPath . '/examplepress-mu', $targetMuDir . '/examplepress-mu', true );
                 }
-                if ( file_exists( $github_folder_path . '/examplepress-mu.php' ) ) {
-                    $wp_filesystem->move( $github_folder_path . '/examplepress-mu.php', $target_mu_dir . '/examplepress-mu.php', true );
+                if ( file_exists( $githubFolderPath . '/examplepress-mu.php' ) ) {
+                    $wp_filesystem->move( $githubFolderPath . '/examplepress-mu.php', $targetMuDir . '/examplepress-mu.php', true );
                 }
             }
         }
 
-        $wp_filesystem->delete( $temp_extract_dir, true );
+        $wp_filesystem->delete( $tempExtractDir, true );
 
         return true;
     }

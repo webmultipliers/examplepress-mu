@@ -3,3 +3,4 @@ examplepress-mu/node_modules/
 examplepress-mu/dist/
 .vscode/
 .claude/
+vendor/

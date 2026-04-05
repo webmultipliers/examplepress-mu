@@ -1,0 +1,17 @@
+{
+    "name": "webmultipliers/examplepress-mu",
+    "description": "ExamplePress MU Platform Kernel",
+    "type": "wordpress-muplugin",
+    "license": "proprietary",
+    "autoload": {
+        "psr-4": {
+            "ExamplePress\\MU\\": "src/"
+        }
+    },
+    "require": {
+        "php": ">=8.1"
+    },
+    "config": {
+        "optimize-autoloader": true
+    }
+}
