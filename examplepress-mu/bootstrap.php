@@ -6,12 +6,13 @@
  * Called by the thin loader (examplepress-mu.php) in the mu-plugins root.
  *
  * Execution order:
- *  1. Define constants (including EP_MU_ACTIVE for theme hand-off).
- *  2. Load includes.
- *  3. Initialize subsystems on `muplugins_loaded`.
+ *  1. Define constants.
+ *  2. Load all subsystems.
+ *  3. Initialize governance classes.
+ *  4. Schedule feature boot for after_setup_theme.
+ *  5. Load admin layer (admin requests only).
  */
 
-// Exit if accessed directly.
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
@@ -19,59 +20,72 @@ if ( ! defined( 'ABSPATH' ) ) {
 // ─── Platform Constants ──────────────────────────────────────────────
 define( 'EXAMPLEPRESS_MU_VERSION', '1.0.1' );
 define( 'EXAMPLEPRESS_MU_DIR', __DIR__ );
+define( 'EXAMPLEPRESS_MU_URI', plugins_url( '', __FILE__ ) );
 
-// Theme hand-off signal and shared admin menu slug
 define( 'EP_MU_ACTIVE', true );
 define( 'EP_ADMIN_MENU_SLUG', 'examplepress' );
 
-// ─── Includes — Security & Policy ────────────────────────────────────
-require_once __DIR__ . '/includes/class-updater.php';
-require_once __DIR__ . '/includes/class-fse-guard.php';
-require_once __DIR__ . '/includes/class-app-validator.php';
-require_once __DIR__ . '/includes/class-platform-policy.php';
-require_once __DIR__ . '/includes/class-admin-policy.php';
-require_once __DIR__ . '/includes/class-editor-policy.php';
+// Bridge: theme directory for reading theme-owned files
+// (examplepress.json design tokens, theme.json, blockstudio.json)
+if ( ! defined( 'EP_THEME_PATH' ) ) {
+    define( 'EP_THEME_PATH', get_template_directory() );
+}
 
-// ─── Includes — Platform Infrastructure ─────────────────────────────
-require_once __DIR__ . '/includes/class-helpers.php';
-require_once __DIR__ . '/includes/class-app-discovery.php';
-require_once __DIR__ . '/includes/class-app-registry.php';
-require_once __DIR__ . '/includes/class-dependencies.php';
-require_once __DIR__ . '/includes/class-github.php';
-require_once __DIR__ . '/includes/class-scaffolder.php';
-require_once __DIR__ . '/includes/class-notifications.php';
-require_once __DIR__ . '/includes/class-plugin-manager.php';
-require_once __DIR__ . '/includes/class-cli.php';
+// ─── Governance (non-toggleable) ────────────────────────────────────
+require_once __DIR__ . '/inc/class-updater.php';
+require_once __DIR__ . '/inc/class-fse-guard.php';
+require_once __DIR__ . '/inc/class-app-validator.php';
+require_once __DIR__ . '/inc/class-platform-policy.php';
 
-// ─── Includes — REST API ────────────────────────────────────────────
-require_once __DIR__ . '/includes/api-apps.php';
+// ─── Infrastructure ─────────────────────────────────────────────────
+require_once __DIR__ . '/inc/helpers.php';
+require_once __DIR__ . '/inc/app-discovery.php';
+require_once __DIR__ . '/inc/app-registry.php';
+require_once __DIR__ . '/inc/dependencies.php';
+require_once __DIR__ . '/inc/github.php';
+require_once __DIR__ . '/inc/scaffolder.php';
+require_once __DIR__ . '/inc/notifications.php';
+require_once __DIR__ . '/inc/plugin-manager.php';
+require_once __DIR__ . '/inc/class-cli.php';
+
+// ─── REST API ───────────────────────────────────────────────────────
+require_once __DIR__ . '/api/agent.php';
 require_once __DIR__ . '/api/apps.php';
 require_once __DIR__ . '/api/connections.php';
 require_once __DIR__ . '/api/demo.php';
 require_once __DIR__ . '/api/updater.php';
 require_once __DIR__ . '/api/filesystem.php';
 
-// ─── Boot Subsystems ─────────────────────────────────────────────────
-// FSE guards must register as early as possible so no plugin can unhook them.
+// ─── Config, Features & Routing ─────────────────────────────────────
+require_once __DIR__ . '/inc/config.php';
+require_once __DIR__ . '/inc/feature-registry.php';
+require_once __DIR__ . '/inc/features.php';
+require_once __DIR__ . '/inc/route-registry.php';
+require_once __DIR__ . '/inc/router.php';
+
+// ─── Boot ───────────────────────────────────────────────────────────
 ExamplePress_MU_FSE_Guard::init();
-
-// App validator filters the active plugins list before WordPress loads them.
 ExamplePress_MU_App_Validator::init();
-
-// Apply fleet-wide platform policies
 ExamplePress_MU_Platform_Policy::init();
-
-// Admin policies: dashboard cleanup, post-lock window
-ExamplePress_MU_Admin_Policy::init();
-
-// Editor policies: block patterns, block types, Openverse
-ExamplePress_MU_Editor_Policy::init();
-
-// The updater hooks into admin_init (dashboard requests only).
 ExamplePress_MU_Updater::init();
 
-// ─── Admin Enhancements ──────────────────────────────────────────────
+add_action( 'after_setup_theme', 'examplepress_boot_features' );
+
+// ─── Admin ──────────────────────────────────────────────────────────
 if ( is_admin() ) {
-    require_once __DIR__ . '/admin/plugins-view.php';
-    require_once __DIR__ . '/admin/admin-registry.php';
+    require_once __DIR__ . '/inc/admin/plugins-view.php';
+    require_once __DIR__ . '/inc/admin/admin-assets.php';
+    require_once __DIR__ . '/inc/admin/settings-data.php';
+    require_once __DIR__ . '/inc/admin/pages/shared.php';
+    require_once __DIR__ . '/inc/admin/pages/apps.php';
+    require_once __DIR__ . '/inc/admin/pages/theme.php';
+    require_once __DIR__ . '/inc/admin/pages/navigation.php';
+    require_once __DIR__ . '/inc/admin/pages/dependencies.php';
+    require_once __DIR__ . '/inc/admin/pages/library.php';
+    require_once __DIR__ . '/inc/admin/pages/settings.php';
+    require_once __DIR__ . '/inc/admin/pages/notifications.php';
+    require_once __DIR__ . '/inc/admin/pages/system.php';
+    require_once __DIR__ . '/inc/admin/pages/docs.php';
+    require_once __DIR__ . '/inc/admin/pages/editor.php';
+    require_once __DIR__ . '/inc/admin/admin-registry.php';
 }

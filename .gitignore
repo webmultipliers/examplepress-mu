@@ -1,2 +1,5 @@
-.vscode/sftp.json
-.claude/settings.json
+node_modules/
+examplepress-mu/node_modules/
+examplepress-mu/dist/
+.vscode/
+.claude/

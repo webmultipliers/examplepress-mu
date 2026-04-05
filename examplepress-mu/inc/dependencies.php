@@ -3,39 +3,10 @@
  * ExamplePress MU — Dependency Checker
  *
  * Resolves the status of declared dependencies from examplepress.json.
- * Reads the active theme's config to find dependency declarations.
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
-}
-
-/**
- * Read and cache the active theme's examplepress.json configuration.
- *
- * This is a minimal config bridge — the MU kernel only needs the
- * dependencies and updater sections from the theme's config file.
- *
- * @return array Parsed config or empty array.
- */
-function examplepress_mu_get_theme_config(): array {
-    static $config = null;
-
-    if ( $config !== null ) {
-        return $config;
-    }
-
-    $path = get_template_directory() . '/examplepress.json';
-
-    if ( ! file_exists( $path ) ) {
-        $config = [];
-        return $config;
-    }
-
-    $data   = json_decode( file_get_contents( $path ), true );
-    $config = is_array( $data ) ? $data : [];
-
-    return $config;
 }
 
 /**
@@ -44,14 +15,8 @@ function examplepress_mu_get_theme_config(): array {
  * Returns the full dependency array enriched with runtime status.
  */
 function examplepress_get_dependencies() {
-    // Prefer the theme's own config function if available.
-    if ( function_exists( 'examplepress_get_config' ) ) {
-        $config = examplepress_get_config();
-    } else {
-        $config = examplepress_mu_get_theme_config();
-    }
-
-    $deps = $config['dependencies'] ?? [];
+    $config = examplepress_get_config();
+    $deps   = $config['dependencies'] ?? [];
 
     if ( empty( $deps ) ) {
         return [];

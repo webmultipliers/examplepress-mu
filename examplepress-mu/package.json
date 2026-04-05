@@ -1,0 +1,16 @@
+{
+  "name": "examplepress-mu",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "devDependencies": {
+    "vite": "^6.3.5"
+  },
+  "dependencies": {
+    "monaco-editor": "^0.52.2",
+    "nanostores": "^0.11.4"
+  }
+}

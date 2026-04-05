@@ -1,0 +1,845 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://www.examplepress.com/schema/examplepress-theme",
+	"title": "ExamplePress Theme Configuration",
+	"description": "Declarative configuration for the ExamplePress WordPress theme. Overrides registration defaults; PHP filters still take highest priority.",
+	"type": "object",
+	"additionalProperties": false,
+	"properties": {
+		"$schema": {
+			"type": "string",
+			"description": "JSON Schema reference for IDE autocompletion."
+		},
+		"admin_tabs": {
+			"type": "object",
+			"description": "Control which tabs are visible on the ExamplePress settings page. Companion plugins can also use the examplepress_admin_tabs_hidden filter.",
+			"additionalProperties": false,
+			"properties": {
+				"hidden": {
+					"type": "array",
+					"description": "Tab IDs to hide from the settings page navigation.",
+					"items": {
+						"type": "string",
+						"enum": ["features", "design", "connections", "build", "routes", "blocks", "dependencies", "notifications", "library", "navigation", "config", "health", "docs", "support"]
+					},
+					"uniqueItems": true,
+					"default": []
+				}
+			}
+		},
+		"features": {
+			"type": "object",
+			"description": "Toggle or configure registered theme features. Keys are feature IDs. Values can be a boolean (toggle) or an object with 'enabled' and 'options'.",
+			"additionalProperties": {
+				"$ref": "#/$defs/featureToggle"
+			},
+			"properties": {
+				"title-tag": {
+					"description": "Add <title> tag support via add_theme_support.",
+					"$ref": "#/$defs/featureToggle"
+				},
+				"responsive-embeds": {
+					"description": "Enable responsive embed wrappers.",
+					"$ref": "#/$defs/featureToggle"
+				},
+				"post-thumbnails": {
+					"description": "Enable featured images (post thumbnails).",
+					"$ref": "#/$defs/featureToggle"
+				},
+				"wp-block-styles": {
+					"description": "Load core block stylesheets.",
+					"$ref": "#/$defs/featureToggle"
+				},
+				"html5": {
+					"description": "Enable HTML5 markup for core elements. Options: features (array of markup types).",
+					"$ref": "#/$defs/featureToggle"
+				},
+				"disable-remote-block-patterns": {
+					"description": "Prevent loading remote block patterns from the pattern directory.",
+					"$ref": "#/$defs/featureToggle"
+				},
+				"disable-core-block-patterns": {
+					"description": "Remove core block patterns.",
+					"$ref": "#/$defs/featureToggle"
+				},
+				"restrict-block-types": {
+					"description": "Restrict which blocks are available in the editor. Options: types (array of block names).",
+					"$ref": "#/$defs/featureToggle"
+				},
+				"openverse": {
+					"description": "Show/hide the Openverse media category in the editor.",
+					"$ref": "#/$defs/featureToggle"
+				},
+				"post-lock-window": {
+					"description": "Set the post lock heartbeat duration in seconds. Options: duration (int).",
+					"$ref": "#/$defs/featureToggle"
+				},
+				"remove-dashboard-widgets": {
+					"description": "Remove default WordPress dashboard widgets.",
+					"$ref": "#/$defs/featureToggle"
+				},
+				"login-branding": {
+					"description": "Apply custom branding to the WordPress login screen.",
+					"$ref": "#/$defs/featureToggle"
+				},
+				"theme-colors": {
+					"description": "Inject a colour palette into theme.json at runtime. Prefer using design.colors instead.",
+					"$ref": "#/$defs/featureToggle"
+				},
+				"theme-layout": {
+					"description": "Inject layout dimensions into theme.json at runtime. Prefer using design.layout instead.",
+					"$ref": "#/$defs/featureToggle"
+				},
+				"theme-typography": {
+					"description": "Inject font families, sizes, and typography flags into theme.json at runtime. Prefer using design.typography instead.",
+					"$ref": "#/$defs/featureToggle"
+				},
+				"design-strict": {
+					"description": "Lock down all appearance tools in the editor. Prefer using design.strict instead.",
+					"$ref": "#/$defs/featureToggle"
+				},
+				"theme-spacing": {
+					"description": "Inject spacing presets, scale, and units into theme.json at runtime. Prefer using design.spacing instead.",
+					"$ref": "#/$defs/featureToggle"
+				},
+				"theme-borders": {
+					"description": "Inject border controls and radius presets into theme.json at runtime. Prefer using design.borders instead.",
+					"$ref": "#/$defs/featureToggle"
+				},
+				"theme-shadows": {
+					"description": "Inject shadow presets into theme.json at runtime. Prefer using design.shadows instead.",
+					"$ref": "#/$defs/featureToggle"
+				},
+				"theme-global-styles": {
+					"description": "Inject global styles (background, text, font, padding) into theme.json at runtime. Prefer using design.globalStyles instead.",
+					"$ref": "#/$defs/featureToggle"
+				},
+				"blockstudio-assets": {
+					"description": "Control whether Blockstudio assets are enqueued. Prefer using blockstudio.assets instead.",
+					"$ref": "#/$defs/featureToggle"
+				},
+				"blockstudio-asset-reset": {
+					"description": "Control Blockstudio CSS reset and full-width overrides. Prefer using blockstudio.assetReset instead.",
+					"$ref": "#/$defs/featureToggle"
+				},
+				"blockstudio-minify": {
+					"description": "Control Blockstudio CSS/JS minification. Prefer using blockstudio.minify instead.",
+					"$ref": "#/$defs/featureToggle"
+				},
+				"blockstudio-scss": {
+					"description": "Control Blockstudio SCSS processing. Prefer using blockstudio.scss instead.",
+					"$ref": "#/$defs/featureToggle"
+				},
+				"blockstudio-tailwind": {
+					"description": "Control Blockstudio Tailwind CSS integration. Prefer using blockstudio.tailwind instead.",
+					"$ref": "#/$defs/featureToggle"
+				},
+				"blockstudio-editor": {
+					"description": "Control Blockstudio editor settings (format on save, assets, markup). Prefer using blockstudio.editor instead.",
+					"$ref": "#/$defs/featureToggle"
+				},
+				"blockstudio-block-editor": {
+					"description": "Control Blockstudio block editor settings (loading, CSS classes/variables). Prefer using blockstudio.blockEditor instead.",
+					"$ref": "#/$defs/featureToggle"
+				},
+				"blockstudio-ai-context": {
+					"description": "Toggle Blockstudio AI context generation. Prefer using blockstudio.aiContext instead.",
+					"$ref": "#/$defs/featureToggle"
+				},
+				"blockstudio-block-tags": {
+					"description": "Control Blockstudio block tag rendering (allow/deny lists). Prefer using blockstudio.blockTags instead.",
+					"$ref": "#/$defs/featureToggle"
+				},
+				"blockstudio-dev": {
+					"description": "Control Blockstudio developer tools (grab, perf, canvas). Prefer using blockstudio.dev instead.",
+					"$ref": "#/$defs/featureToggle"
+				},
+				"blockstudio-users": {
+					"description": "Control which users/roles can access Blockstudio. Prefer using blockstudio.users instead.",
+					"$ref": "#/$defs/featureToggle"
+				}
+			}
+		},
+		"design": {
+			"type": "object",
+			"description": "Design tokens injected into WordPress theme.json at runtime via wp_theme_json_data_theme.",
+			"additionalProperties": false,
+			"properties": {
+				"strict": {
+					"type": "boolean",
+					"description": "Lock down all appearance tools (custom colors, font sizes, spacing) in the block editor. Forces appearanceTools to false.",
+					"default": false
+				},
+				"colors": {
+					"type": "array",
+					"description": "Colour palette entries. Each maps to a CSS custom property --wp--preset--color--{slug}.",
+					"items": {
+						"type": "object",
+						"required": ["name", "slug", "color"],
+						"additionalProperties": false,
+						"properties": {
+							"name": {
+								"type": "string",
+								"description": "Human-readable colour name shown in the editor."
+							},
+							"slug": {
+								"type": "string",
+								"description": "Slug used in CSS custom properties and class names.",
+								"pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+							},
+							"color": {
+								"type": "string",
+								"description": "CSS colour value (hex, rgb, hsl, etc.)."
+							}
+						}
+					}
+				},
+				"layout": {
+					"type": "object",
+					"description": "Global layout dimensions.",
+					"additionalProperties": false,
+					"properties": {
+						"wideSize": {
+							"type": "string",
+							"description": "Maximum width for wide-aligned blocks (e.g. '1200px').",
+							"pattern": "^\\d+(\\.\\d+)?(px|rem|em|vw|%)$"
+						},
+						"contentSize": {
+							"type": "string",
+							"description": "Maximum width for default content blocks (e.g. '800px').",
+							"pattern": "^\\d+(\\.\\d+)?(px|rem|em|vw|%)$"
+						}
+					}
+				},
+				"typography": {
+					"type": "object",
+					"description": "Typography settings injected into theme.json at runtime.",
+					"additionalProperties": false,
+					"properties": {
+						"fontFamilies": {
+							"type": "array",
+							"description": "Font family definitions.",
+							"items": {
+								"type": "object",
+								"required": ["name", "slug", "fontFamily"],
+								"additionalProperties": false,
+								"properties": {
+									"name": { "type": "string", "description": "Human-readable font name." },
+									"slug": { "type": "string", "description": "Slug for CSS custom property." },
+									"fontFamily": { "type": "string", "description": "CSS font-family stack." }
+								}
+							}
+						},
+						"fontSizes": {
+							"type": "array",
+							"description": "Font size presets.",
+							"items": {
+								"type": "object",
+								"required": ["slug", "size", "name"],
+								"additionalProperties": false,
+								"properties": {
+									"slug": { "type": "string" },
+									"size": { "type": "string", "description": "CSS size value (e.g. '1rem')." },
+									"name": { "type": "string", "description": "Human-readable size name." }
+								}
+							}
+						},
+						"fluid": {
+							"type": "boolean",
+							"description": "Enable fluid typography scaling.",
+							"default": false
+						},
+						"lineHeight": {
+							"type": "boolean",
+							"description": "Allow custom line-height in the editor.",
+							"default": false
+						},
+						"textColumns": {
+							"type": "boolean",
+							"description": "Allow text columns in the editor.",
+							"default": false
+						},
+						"writingMode": {
+							"type": "boolean",
+							"description": "Allow writing mode changes in the editor.",
+							"default": false
+						},
+						"dropCap": {
+							"type": "boolean",
+							"description": "Show drop cap toggle in the editor.",
+							"default": true
+						},
+						"defaultFontSizes": {
+							"type": "boolean",
+							"description": "Include WordPress default font size presets.",
+							"default": true
+						}
+					}
+				},
+				"spacing": {
+					"type": "object",
+					"description": "Spacing settings injected into theme.json at runtime.",
+					"additionalProperties": false,
+					"properties": {
+						"spacingSizes": {
+							"type": "array",
+							"description": "Custom spacing size presets.",
+							"items": {
+								"type": "object",
+								"required": ["slug", "size", "name"],
+								"additionalProperties": false,
+								"properties": {
+									"slug": { "type": "string" },
+									"size": { "type": "string", "description": "CSS size value (e.g. '1rem')." },
+									"name": { "type": "string", "description": "Human-readable size name." }
+								}
+							}
+						},
+						"spacingScale": {
+							"type": "object",
+							"description": "Spacing scale configuration.",
+							"additionalProperties": true
+						},
+						"blockGap": {
+							"type": "boolean",
+							"description": "Enable block gap controls.",
+							"default": true
+						},
+						"units": {
+							"type": "array",
+							"description": "Allowed CSS units for spacing values.",
+							"items": { "type": "string" },
+							"default": ["px", "em", "rem", "vh", "vw", "%"]
+						}
+					}
+				},
+				"borders": {
+					"type": "object",
+					"description": "Border controls injected into theme.json at runtime.",
+					"additionalProperties": false,
+					"properties": {
+						"radiusSizes": {
+							"type": "array",
+							"description": "Custom border radius presets.",
+							"items": {
+								"type": "object",
+								"required": ["slug", "size", "name"],
+								"additionalProperties": false,
+								"properties": {
+									"slug": { "type": "string" },
+									"size": { "type": "string" },
+									"name": { "type": "string" }
+								}
+							}
+						},
+						"color": {
+							"type": "boolean",
+							"description": "Enable border color controls.",
+							"default": true
+						},
+						"radius": {
+							"type": "boolean",
+							"description": "Enable border radius controls.",
+							"default": true
+						},
+						"style": {
+							"type": "boolean",
+							"description": "Enable border style controls.",
+							"default": true
+						},
+						"width": {
+							"type": "boolean",
+							"description": "Enable border width controls.",
+							"default": true
+						}
+					}
+				},
+				"shadows": {
+					"type": "object",
+					"description": "Shadow presets injected into theme.json at runtime.",
+					"additionalProperties": false,
+					"properties": {
+						"presets": {
+							"type": "array",
+							"description": "Custom shadow presets.",
+							"items": {
+								"type": "object",
+								"required": ["slug", "shadow", "name"],
+								"additionalProperties": false,
+								"properties": {
+									"slug": { "type": "string" },
+									"shadow": { "type": "string", "description": "CSS shadow value." },
+									"name": { "type": "string", "description": "Human-readable shadow name." }
+								}
+							}
+						},
+						"defaultPresets": {
+							"type": "boolean",
+							"description": "Include WordPress default shadow presets.",
+							"default": true
+						}
+					}
+				},
+				"globalStyles": {
+					"type": "object",
+					"description": "Global styles (styles.* in theme.json) injected at runtime.",
+					"additionalProperties": false,
+					"properties": {
+						"background": {
+							"type": "string",
+							"description": "Global background colour (CSS value or preset reference)."
+						},
+						"text": {
+							"type": "string",
+							"description": "Global text colour (CSS value or preset reference)."
+						},
+						"fontFamily": {
+							"type": "string",
+							"description": "Global font family (CSS value or preset reference)."
+						},
+						"fontSize": {
+							"type": "string",
+							"description": "Global font size (CSS value or preset reference)."
+						},
+						"padding": {
+							"type": "object",
+							"description": "Global padding values (top, right, bottom, left).",
+							"additionalProperties": { "type": "string" }
+						}
+					}
+				}
+			}
+		},
+		"blockstudio": {
+			"type": "object",
+			"description": "Blockstudio runtime settings. Values here are normalised into features.blockstudio-* and applied via blockstudio/settings/* filters.",
+			"additionalProperties": false,
+			"properties": {
+				"assets": {
+					"type": "object",
+					"description": "Control Blockstudio asset enqueueing.",
+					"additionalProperties": false,
+					"properties": {
+						"enqueue": {
+							"type": "boolean",
+							"description": "Whether to enqueue Blockstudio assets.",
+							"default": true
+						}
+					}
+				},
+				"assetReset": {
+					"type": "object",
+					"description": "Blockstudio CSS reset settings.",
+					"additionalProperties": false,
+					"properties": {
+						"enabled": {
+							"type": "boolean",
+							"description": "Enable the CSS reset.",
+							"default": false
+						},
+						"fullWidth": {
+							"type": "array",
+							"description": "Post types where blocks render full-width.",
+							"items": { "type": "string" },
+							"default": []
+						}
+					}
+				},
+				"minify": {
+					"type": "object",
+					"description": "Blockstudio CSS/JS minification.",
+					"additionalProperties": false,
+					"properties": {
+						"css": {
+							"type": "boolean",
+							"description": "Minify CSS output.",
+							"default": false
+						},
+						"js": {
+							"type": "boolean",
+							"description": "Minify JS output.",
+							"default": false
+						}
+					}
+				},
+				"scss": {
+					"type": "object",
+					"description": "Blockstudio SCSS processing.",
+					"additionalProperties": false,
+					"properties": {
+						"scss": {
+							"type": "boolean",
+							"description": "Enable SCSS compilation.",
+							"default": false
+						},
+						"scssFiles": {
+							"type": "boolean",
+							"description": "Process external SCSS files.",
+							"default": true
+						}
+					}
+				},
+				"tailwind": {
+					"type": "object",
+					"description": "Blockstudio Tailwind CSS integration.",
+					"additionalProperties": false,
+					"properties": {
+						"enabled": {
+							"type": "boolean",
+							"description": "Enable Tailwind CSS processing.",
+							"default": false
+						},
+						"config": {
+							"type": "string",
+							"description": "Tailwind CSS configuration string (e.g. @theme directives).",
+							"default": ""
+						}
+					}
+				},
+				"editor": {
+					"type": "object",
+					"description": "Blockstudio editor behaviour.",
+					"additionalProperties": false,
+					"properties": {
+						"formatOnSave": {
+							"type": "boolean",
+							"description": "Auto-format block markup on save.",
+							"default": false
+						},
+						"assets": {
+							"type": "array",
+							"description": "Additional asset paths to load in the editor.",
+							"items": { "type": "string" },
+							"default": []
+						},
+						"markup": {
+							"description": "Editor markup processing mode.",
+							"oneOf": [
+								{ "type": "boolean" },
+								{ "type": "string" }
+							],
+							"default": false
+						}
+					}
+				},
+				"blockEditor": {
+					"type": "object",
+					"description": "Blockstudio block editor integration.",
+					"additionalProperties": false,
+					"properties": {
+						"disableLoading": {
+							"type": "boolean",
+							"description": "Disable Blockstudio loading indicator.",
+							"default": false
+						},
+						"cssClasses": {
+							"type": "array",
+							"description": "Additional CSS class paths to expose.",
+							"items": { "type": "string" },
+							"default": []
+						},
+						"cssVariables": {
+							"type": "array",
+							"description": "Additional CSS variable paths to expose.",
+							"items": { "type": "string" },
+							"default": []
+						}
+					}
+				},
+				"aiContext": {
+					"description": "Toggle Blockstudio AI context generation. Accepts a boolean or object with 'enabled'.",
+					"oneOf": [
+						{ "type": "boolean" },
+						{
+							"type": "object",
+							"additionalProperties": false,
+							"properties": {
+								"enabled": { "type": "boolean", "default": false }
+							}
+						}
+					],
+					"default": false
+				},
+				"blockTags": {
+					"type": "object",
+					"description": "Blockstudio block tag rendering control.",
+					"additionalProperties": false,
+					"properties": {
+						"enabled": {
+							"type": "boolean",
+							"description": "Enable block tag processing.",
+							"default": false
+						},
+						"allow": {
+							"type": "array",
+							"description": "Block tag patterns to allow.",
+							"items": { "type": "string" },
+							"default": []
+						},
+						"deny": {
+							"type": "array",
+							"description": "Block tag patterns to deny.",
+							"items": { "type": "string" },
+							"default": []
+						}
+					}
+				},
+				"dev": {
+					"type": "object",
+					"description": "Blockstudio developer tools (usually disabled in production).",
+					"additionalProperties": false,
+					"properties": {
+						"grab": {
+							"type": "boolean",
+							"description": "Enable grab tool.",
+							"default": false
+						},
+						"perf": {
+							"type": "boolean",
+							"description": "Enable performance overlay.",
+							"default": false
+						},
+						"canvas": {
+							"type": "boolean",
+							"description": "Enable canvas mode.",
+							"default": false
+						},
+						"canvasAdminBar": {
+							"type": "boolean",
+							"description": "Show admin bar in canvas mode.",
+							"default": true
+						}
+					}
+				},
+				"users": {
+					"type": "object",
+					"description": "Restrict Blockstudio access to specific users or roles.",
+					"additionalProperties": false,
+					"properties": {
+						"ids": {
+							"type": "array",
+							"description": "User IDs that can access Blockstudio.",
+							"items": { "type": "integer" },
+							"default": []
+						},
+						"roles": {
+							"type": "array",
+							"description": "User roles that can access Blockstudio.",
+							"items": { "type": "string" },
+							"default": []
+						}
+					}
+				}
+			}
+		},
+		"docs": {
+			"type": "array",
+			"description": "Documentation links shown in the settings page Docs tab. Client forks can replace these to point at their own documentation.",
+			"items": {
+				"type": "object",
+				"required": ["title", "url"],
+				"additionalProperties": false,
+				"properties": {
+					"title": {
+						"type": "string",
+						"description": "Document title shown as the card heading."
+					},
+					"description": {
+						"type": "string",
+						"description": "Short summary shown below the title."
+					},
+					"url": {
+						"type": "string",
+						"description": "URL to the documentation page.",
+						"format": "uri"
+					},
+					"category": {
+						"type": "string",
+						"description": "Grouping label shown as an eyebrow above the title (e.g. 'Architecture', 'Configuration')."
+					}
+				}
+			}
+		},
+		"updater": {
+			"type": "object",
+			"description": "GitHub Releases auto-updater configuration. Controls how the theme checks for and applies updates from the GitHub repository.",
+			"additionalProperties": false,
+			"properties": {
+				"github_repo": {
+					"type": "string",
+					"description": "GitHub owner/repo identifier (e.g. 'webmultipliers/examplepress-theme').",
+					"pattern": "^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$"
+				},
+				"asset_filename": {
+					"type": "string",
+					"description": "Filename of the release ZIP asset to download (e.g. 'examplepress-theme.zip').",
+					"pattern": "\\.zip$"
+				},
+				"theme_slug": {
+					"type": "string",
+					"description": "Theme directory slug used for update matching."
+				},
+				"default_channel": {
+					"type": "string",
+					"enum": ["stable", "prerelease"],
+					"description": "Default update channel. 'stable' only installs full releases; 'prerelease' also includes pre-releases.",
+					"default": "stable"
+				},
+				"requires_wp": {
+					"type": "string",
+					"description": "Minimum WordPress version required for updates (e.g. '6.9').",
+					"pattern": "^\\d+\\.\\d+(\\.\\d+)?$"
+				},
+				"requires_php": {
+					"type": "string",
+					"description": "Minimum PHP version required for updates (e.g. '8.4').",
+					"pattern": "^\\d+\\.\\d+(\\.\\d+)?$"
+				}
+			}
+		},
+		"routing": {
+			"type": "object",
+			"description": "Route origin settings for companion plugins. Controls how this plugin's routes are evaluated relative to other origins in the multi-origin router.",
+			"additionalProperties": false,
+			"properties": {
+				"priority": {
+					"type": "integer",
+					"description": "Evaluation order for route origins. Lower numbers are evaluated first. 1-5: core routes, 10: default, 20-50: add-ons, 90-99: catch-all/fallback.",
+					"default": 10,
+					"minimum": 1,
+					"maximum": 99
+				},
+				"routes": {
+					"type": "object",
+					"description": "Declarative route metadata for the admin Route Visualizer. Display-only — does not affect dispatch. The PHP closures in examplepress_register_route_origin() remain the source of truth.",
+					"additionalProperties": {
+						"type": "object",
+						"properties": {
+							"condition": {
+								"type": "string",
+								"description": "Human-readable PHP condition expression (display only)."
+							},
+							"urls": {
+								"type": "array",
+								"items": { "type": "string" },
+								"description": "Representative URLs for sitemap visualization."
+							},
+							"desc": {
+								"type": "string",
+								"description": "Short description of what this route handles."
+							}
+						},
+						"additionalProperties": false
+					}
+				}
+			}
+		},
+		"troy": {
+			"type": "object",
+			"description": "Troy Server integration data. Written automatically when an app is connected to a Troy instance via the Build tab.",
+			"additionalProperties": false,
+			"properties": {
+				"server_url": {
+					"type": "string",
+					"description": "Troy Server hostname without protocol (e.g. 'internal.repo.mustuse.com')."
+				},
+				"repo": {
+					"type": "string",
+					"description": "GitHub owner/repo associated with this app on Troy.",
+					"pattern": "^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$"
+				},
+				"repo_id": {
+					"type": "string",
+					"description": "GitHub repository ID (numeric string).",
+					"pattern": "^[0-9]*$"
+				}
+			}
+		},
+		"dependencies": {
+			"type": "array",
+			"description": "Plugins, Composer packages, and libraries required by the theme. Each entry declares a dependency with check type, tier, pricing, source, and optional fallback.",
+			"items": { "$ref": "#/$defs/dependencyEntry" }
+		}
+	},
+	"$defs": {
+		"featureToggle": {
+			"oneOf": [
+				{
+					"type": "boolean"
+				},
+				{
+					"type": "object",
+					"properties": {
+						"enabled": { "type": "boolean" },
+						"options": {
+							"type": "object",
+							"additionalProperties": true
+						}
+					},
+					"additionalProperties": false
+				}
+			]
+		},
+		"dependencyEntry": {
+			"type": "object",
+			"required": ["slug", "name", "tier", "pricing", "source"],
+			"additionalProperties": false,
+			"properties": {
+				"slug": {
+					"type": "string",
+					"description": "Unique identifier for the dependency."
+				},
+				"name": {
+					"type": "string",
+					"description": "Human-readable name."
+				},
+				"tier": {
+					"type": "string",
+					"enum": ["required", "recommended", "optional"],
+					"description": "How critical this dependency is to the architecture."
+				},
+				"pricing": {
+					"type": "string",
+					"enum": ["free", "paid"],
+					"description": "Whether this dependency costs money."
+				},
+				"cloud_dependent": {
+					"type": "boolean",
+					"default": false,
+					"description": "True if primarily a connector for a SaaS/cloud service."
+				},
+				"check_type": {
+					"type": "string",
+					"enum": ["plugin", "class", "function"],
+					"default": "plugin",
+					"description": "How to detect this dependency: scan the WP plugin registry, check class_exists(), or check function_exists()."
+				},
+				"check_target": {
+					"type": "string",
+					"description": "The value to check. Defaults to slug for plugins. Use a fully-qualified class name for 'class' or a function name for 'function'."
+				},
+				"source": {
+					"type": "object",
+					"required": ["type"],
+					"additionalProperties": false,
+					"properties": {
+						"type": {
+							"type": "string",
+							"enum": ["wporg", "direct", "private", "composer"],
+							"description": "Distribution channel."
+						},
+						"url": {
+							"type": "string",
+							"description": "Download or purchase URL.",
+							"format": "uri"
+						}
+					}
+				},
+				"fallback_slug": {
+					"type": "string",
+					"description": "Slug of a free WordPress.org alternative that satisfies this dependency."
+				}
+			}
+		}
+	}
+}
