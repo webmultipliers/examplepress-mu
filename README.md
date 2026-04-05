@@ -86,15 +86,16 @@ Plugins that fail validation are silently removed from the active plugins array 
 
 ## Admin Registry
 
-The MU kernel registers a top-level "ExamplePress" menu (using the shared `EP_ADMIN_MENU_SLUG` constant) and fires the `examplepress_register_admin_pages` action. Both the kernel and the theme can add subpages:
+The MU kernel registers the top-level "ExamplePress" menu (using the shared `EP_ADMIN_MENU_SLUG` constant). The theme's admin-registry attaches its own subpages and fires the `examplepress_register_admin_pages` action so companion plugins can add theirs:
 
 ```php
 add_action( 'examplepress_register_admin_pages', function() {
-    ExamplePress_MU_Admin_Registry::add_subpage(
-        'my-feature',
-        __( 'My Feature', 'my-plugin' ),
-        'my_render_callback'
-    );
+    examplepress_register_admin_page( 'my-feature', [
+        'page_title' => __( 'My Feature', 'my-plugin' ),
+        'menu_title' => __( 'My Feature', 'my-plugin' ),
+        'position'   => 80,
+        'render'     => 'my_render_callback',
+    ] );
 } );
 ```
 

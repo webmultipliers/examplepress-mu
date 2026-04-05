@@ -28,33 +28,24 @@ class ExamplePress_MU_Admin_Registry {
 
     /**
      * Builds the menu structure in WordPress.
+     *
+     * Creates only the top-level menu shell. The theme's admin-registry
+     * attaches its own subpages and fires examplepress_register_admin_pages
+     * to let companion plugins add theirs.
      */
     public static function register_menus() {
-        // 1. Create the Main Top-Level Menu
+        // Create the top-level menu. The theme populates subpages.
         add_menu_page(
-            __( 'ExamplePress Settings', 'examplepress-mu' ),
+            __( 'ExamplePress', 'examplepress-mu' ),
             'ExamplePress',
             'manage_options',
-            EP_ADMIN_MENU_SLUG, // Use the shared constant
+            EP_ADMIN_MENU_SLUG,
             [ __CLASS__, 'render_main_page' ],
             'dashicons-layout',
             55
         );
 
-        // Rename the first subpage to "Dashboard"
-        add_submenu_page(
-            EP_ADMIN_MENU_SLUG,
-            __( 'Dashboard', 'examplepress-mu' ),
-            __( 'Dashboard', 'examplepress-mu' ),
-            'manage_options',
-            EP_ADMIN_MENU_SLUG,
-            [ __CLASS__, 'render_main_page' ]
-        );
-
-        // 2. Fire the unified action to let the Theme and Companion Apps register subpages
-        do_action( 'examplepress_register_admin_pages' );
-
-        // 3. Loop through MU-registered subpages and attach them
+        // Attach any MU-registered subpages (kernel features).
         foreach ( self::$subpages as $slug => $page ) {
             add_submenu_page(
                 EP_ADMIN_MENU_SLUG,

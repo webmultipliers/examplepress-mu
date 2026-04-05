@@ -20,7 +20,6 @@ if ( ! defined( 'ABSPATH' ) ) {
 define( 'EXAMPLEPRESS_MU_VERSION', '1.0.1' );
 define( 'EXAMPLEPRESS_MU_DIR', __DIR__ );
 
-
 // Theme hand-off signal and shared admin menu slug
 define( 'EP_MU_ACTIVE', true );
 define( 'EP_ADMIN_MENU_SLUG', 'examplepress' );
