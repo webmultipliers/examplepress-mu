@@ -12,7 +12,9 @@ mu-plugins/
     ├── includes/
     │   ├── class-updater.php        # Self-updater (12h transient, SHA-256 verified)
     │   ├── class-fse-guard.php      # FSE lockdown (redirect, REST, resolution)
-    │   └── class-app-validator.php  # Zero-trust plugin governance
+    │   ├── class-app-validator.php  # Zero-trust plugin governance
+    │   ├── class-platform-policy.php # Fleet-wide capability stripping & permalink enforcement
+    │   └── api-apps.php             # Agent REST API (GET /examplepress-mu/v1/apps)
     └── admin/
         ├── plugins-view.php         # "ExamplePress Apps" tab on plugins.php
         ├── admin-registry.php       # Top-level menu + extensible subpage API
@@ -27,6 +29,8 @@ mu-plugins/
 3. The kernel boots and initializes all subsystems:
    - **FSE Guards** lock down the Site Editor across three vectors (page redirect, REST API, template resolution).
    - **App Validator** filters `option_active_plugins` to enforce manifest-based governance before plugins load.
+   - **Platform Policy** strips dangerous capabilities (`edit_themes`, `install_plugins`, `update_core`, etc.), enforces `/%postname%/` permalinks, and defines `DISALLOW_FILE_EDIT`.
+   - **Agent REST API** exposes `GET /wp-json/examplepress-mu/v1/apps` (admin-only) so external tools and AI agents can query validated apps and their permissions.
    - **Self-Updater** checks GitHub releases every 12 hours via `admin_init` and silently upgrades when a new version is available.
    - **Admin UI** adds an "ExamplePress Apps" tab to `plugins.php` and an extensible top-level menu.
 
