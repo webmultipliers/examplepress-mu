@@ -23,6 +23,7 @@ use ExamplePress\MU\Infrastructure\GitHub;
 use ExamplePress\MU\Infrastructure\PluginManager;
 use ExamplePress\MU\Infrastructure\Helpers;
 use ExamplePress\MU\Infrastructure\Notifications;
+use ExamplePress\MU\Infrastructure\AppUpdateProvider;
 use ExamplePress\MU\API\AgentController;
 use ExamplePress\MU\API\AppsController;
 use ExamplePress\MU\API\ConnectionsController;
@@ -56,6 +57,7 @@ final class Kernel
         // ── Infrastructure ──────────────────────────────────────
         AppRegistry::init();
         PluginManager::init();
+        AppUpdateProvider::init();
 
         // ── REST API Controllers ────────────────────────────────
         add_action('rest_api_init', [AgentController::class, 'register']);

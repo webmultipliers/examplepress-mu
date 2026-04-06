@@ -9,6 +9,7 @@ use ExamplePress\MU\Infrastructure\AppRegistry;
 use ExamplePress\MU\Infrastructure\GitHub;
 use ExamplePress\MU\Infrastructure\Helpers;
 use ExamplePress\MU\Infrastructure\Scaffolder;
+use ExamplePress\MU\Infrastructure\AppUpdateProvider;
 
 /**
  * App management REST API — listing, scaffolding, Troy binding,
@@ -309,6 +310,7 @@ final class AppsController
         if (!empty($registry_update)) {
             AppRegistry::set($slug, $registry_update);
         }
+        AppUpdateProvider::flush();
 
         $updated_app = AppDiscovery::parseApp($slug, $plugin_path . '/examplepress.json', $plugin_path);
 
@@ -510,6 +512,7 @@ final class AppsController
         }
 
         $result = AppRegistry::destroy($slug);
+        AppUpdateProvider::flush();
 
         $all_deleted = empty($result['failed']);
 
@@ -613,6 +616,7 @@ final class AppsController
         }
 
         AppRegistry::set($slug, $registry_data);
+        AppUpdateProvider::flush();
 
         $app = AppDiscovery::parseApp($slug, $plugin_dir . '/examplepress.json', $plugin_dir);
 
