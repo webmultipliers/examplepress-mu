@@ -1,155 +1,191 @@
 # ExamplePress MU
 
-A self-updating WordPress MU plugin that serves as the platform kernel for the ExamplePress ecosystem — governance, admin UI, app lifecycle, REST APIs, and build pipeline.
+A self-updating WordPress MU plugin that serves as the platform kernel for the ExamplePress ecosystem. Provides governance, routing, feature management, admin UI, companion app lifecycle, REST APIs, and a Vite-powered build pipeline.
 
-## Structure
+## Architecture
+
+All PHP lives under the `ExamplePress\MU` namespace with PSR-4 autoloading. Zero procedural functions in the global namespace.
 
 ```
 mu-plugins/
-├── examplepress-mu.php              # Thin loader (sits at mu-plugins root)
+├── examplepress-mu.php              # Thin loader — downloads kernel if missing
+├── examplepress.json                # Master platform configuration (source of truth)
+├── package.json                     # npm: vite, nanostores
+├── vite.config.js                   # 10 entry points → examplepress-mu/dist/
 └── examplepress-mu/                 # Platform kernel
-    ├── bootstrap.php                # Entry point — constants, includes, boot
-    ├── inc/
-    │   ├── class-updater.php        # Self-updater (12h transient, SHA-256 verified)
-    │   ├── class-fse-guard.php      # FSE lockdown (redirect, REST, resolution)
-    │   ├── class-app-validator.php  # Zero-trust plugin governance
-    │   ├── class-platform-policy.php # Fleet-wide policies (caps, permalinks, managed options, 404)
-    │   ├── class-cli.php            # WP-CLI: wp examplepress init
-    │   ├── helpers.php              # Filesystem utilities (copy/delete dir)
-    │   ├── app-discovery.php        # Plugin scanning for examplepress.json
-    │   ├── app-registry.php         # ep_app CPT + CRUD + merged queries
-    │   ├── dependencies.php         # Dependency resolution
-    │   ├── github.php               # GitHub App auth, repo creation, push, Troy
-    │   ├── scaffolder.php           # Template repo scaffolding + placeholder replacement
-    │   ├── notifications.php        # Notification aggregation + archive REST
-    │   ├── plugin-manager.php       # Updater/demo plugin install + stale dir cleanup
-    │   ├── config.php               # Reads theme's examplepress.json, normalises design/blockstudio config
-    │   ├── feature-registry.php     # Filterable feature flag system
-    │   ├── features.php             # Loads feature definition files
-    │   ├── route-registry.php       # Multi-origin route registration
-    │   ├── router.php               # Single-entry-point template dispatch
-    │   ├── features/
-    │   │   ├── theme-support.php    # title-tag, responsive-embeds, post-thumbnails, html5
-    │   │   ├── editor-controls.php  # Block patterns, block types, Openverse
-    │   │   ├── admin-customization.php # Dashboard widgets, login branding, post lock
-    │   │   ├── design-tokens.php    # Colors, layout, typography, spacing, shadows
-    │   │   └── blockstudio.php      # Blockstudio integration features
-    │   └── admin/
-    │       ├── plugins-view.php     # "ExamplePress Apps" tab on plugins.php
-    │       ├── admin-assets.php     # Vite-aware asset enqueue (dev server + production manifest)
-    │       ├── admin-registry.php   # Declarative page registry + menu builder
-    │       ├── settings-data.php    # Data helpers for admin page payloads
-    │       └── pages/               # Per-page render + data functions
-    │           ├── shared.php       # Header, modals
-    │           ├── apps.php         # App management + scaffold UI
-    │           ├── theme.php        # Design token inspector
-    │           ├── navigation.php   # Menu management
-    │           ├── dependencies.php # Dependency status
-    │           ├── library.php      # Component library
-    │           ├── settings.php     # GitHub/Troy connections
-    │           ├── notifications.php # System notifications
-    │           ├── system.php       # Health, features, routes, blocks, config
-    │           ├── docs.php         # Guides and hook reference
-    │           └── editor.php       # Monaco in-browser code editor
-    ├── api/
-    │   ├── agent.php                # Agent REST API (GET /examplepress-mu/v1/apps)
-    │   ├── apps.php                 # App CRUD, scaffold, connect, destroy, health
-    │   ├── connections.php          # GitHub/Troy connection settings + tests
-    │   ├── demo.php                 # Demo plugin install/update/settings
-    │   ├── updater.php              # Updater plugin install/update/settings
-    │   └── filesystem.php           # In-browser editor: tree, read, write
-    ├── assets/
-    │   ├── css/                     # Static CSS (login branding, admin base)
-    │   └── src/                     # Vite entry points (JS per admin page)
-    ├── schema/
-    │   └── examplepress-theme.json  # JSON Schema for theme's examplepress.json
-    ├── package.json                 # npm: vite, monaco-editor, nanostores
-    └── vite.config.js               # 10 entry points → dist/
+    ├── bootstrap.php                # Constants, Composer autoloader, Kernel::boot()
+    ├── composer.json                # PSR-4: ExamplePress\MU\ → src/
+    ├── src/
+    │   ├── Kernel.php               # Single boot entry point
+    │   ├── Config/
+    │   │   ├── ConfigManager.php    # Merges MU + theme examplepress.json configs
+    │   │   ├── FeatureRegistry.php  # Filterable feature flag system
+    │   │   └── DependencyManager.php # Aggregates deps from MU + companion apps
+    │   ├── Governance/
+    │   │   ├── PlatformPolicy.php   # Cap stripping, permalinks, managed options
+    │   │   ├── AppValidator.php     # Zero-trust plugin validation (single + multisite)
+    │   │   ├── EditorGuard.php      # FSE lockdown (admin only, frontend pass-through)
+    │   │   ├── AdminPolicy.php      # Dashboard widget/admin customization governance
+    │   │   └── EditorPolicy.php     # Block pattern/type restriction governance
+    │   ├── Infrastructure/
+    │   │   ├── AppDiscovery.php     # Scans plugins for examplepress.json
+    │   │   ├── AppRegistry.php      # ep_app CPT + CRUD + merged queries + destroy
+    │   │   ├── GitHub.php           # GitHub App auth, repo creation, scaffold push
+    │   │   ├── Scaffolder.php       # Template repo scaffolding (Git Database API)
+    │   │   ├── Updater.php          # WP-Cron self-updater (twicedaily schedule)
+    │   │   ├── CliCommand.php       # WP-CLI: wp examplepress init
+    │   │   ├── RouteRegistry.php    # Multi-origin route registration
+    │   │   ├── Router.php           # Template dispatch (namespaced, no redeclaration)
+    │   │   ├── PluginManager.php    # Updater/demo plugin install + stale cleanup
+    │   │   ├── Notifications.php    # System warning aggregation + archive REST
+    │   │   └── Helpers.php          # Filesystem utilities
+    │   ├── API/
+    │   │   ├── AgentController.php      # GET /apps (read-only, external tools)
+    │   │   ├── AppsController.php       # App CRUD, scaffold, connect, destroy, health
+    │   │   ├── ConnectionsController.php # GitHub/Troy settings, tests, OAuth callbacks
+    │   │   ├── DemoController.php       # Demo plugin lifecycle
+    │   │   ├── UpdaterController.php    # Updater plugin lifecycle
+    │   │   └── FilesystemController.php # In-browser editor: tree, read, write
+    │   └── Admin/
+    │       ├── MenuManager.php      # Top-level menu + submenu registration
+    │       ├── AssetManager.php     # Vite manifest reader + script/style enqueue
+    │       ├── PageController.php   # HTML shell + template includes
+    │       ├── DataProvider.php     # window.ExamplePressData localization
+    │       └── Templates/           # Per-page HTML skeletons (tabs, panels, modals)
+    │           ├── apps.php
+    │           ├── theme.php
+    │           ├── navigation.php
+    │           ├── dependencies.php
+    │           ├── library.php
+    │           ├── settings.php
+    │           ├── notifications.php
+    │           ├── system.php
+    │           ├── docs.php
+    │           └── editor.php
+    └── assets/
+        └── src/                     # Vite entry points (JS + CSS per admin page)
+            ├── apps/
+            ├── theme/
+            ├── navigation/
+            ├── dependencies/
+            ├── library/
+            ├── settings/
+            ├── notifications/
+            ├── system/
+            ├── docs/
+            ├── editor/
+            ├── css/                 # admin-settings.css, login.css, base.css
+            ├── lib/                 # Shared JS (api, tabs, modal, dom, datatable)
+            └── stores/              # Nanostores state (apps, connections, notifications)
 ```
 
 ## How It Works
 
-1. WordPress automatically loads `examplepress-mu.php` from the `mu-plugins/` root.
-2. The loader checks for `examplepress-mu/bootstrap.php`. If missing, it fetches the latest release from GitHub, extracts it, and places the files.
-3. The kernel boots and initializes all subsystems:
-   - **FSE Guards** lock down the Site Editor across three vectors (page redirect, REST API, template resolution). Bypassed when `EP_DEV_MODE` is defined.
-   - **App Validator** filters `option_active_plugins` to enforce manifest-based governance before plugins load.
-   - **Platform Policy** strips dangerous capabilities, enforces `/%postname%/` permalinks, locks managed options, disables 404 redirect guessing, and defines `DISALLOW_FILE_EDIT`.
-   - **Feature Registry** provides toggleable governance via `examplepress_register_feature()` — admin customization, editor controls, design tokens, theme support, and Blockstudio integration. Features are filterable and configurable via the theme's `examplepress.json`.
-   - **App Discovery** scans plugin directories for `examplepress.json` manifests to discover companion apps.
-   - **App Registry** persists app records as `ep_app` CPT posts, merging live filesystem state with persistent GitHub/Troy metadata.
-   - **Dependency Checker** resolves plugin, class, and function dependencies declared in the theme's `examplepress.json`.
-   - **GitHub Integration** handles GitHub App JWT auth, repo creation, scaffold pushing, and Troy provisioning.
-   - **Scaffolder** creates companion plugins from GitHub template repos with placeholder replacement.
-   - **Notifications** aggregates system warnings (missing deps, dev mode, health failures) with per-user archive support.
-   - **Plugin Manager** installs/updates the updater and demo companion plugins from GitHub, with stale directory cleanup.
-   - **REST API** exposes the full platform API under `examplepress/v1` — app CRUD, scaffold, connections, demo/updater management, and filesystem access. A separate agent endpoint at `examplepress-mu/v1/apps` provides a minimal read-only view for external tools.
-   - **Route Registry + Router** manages multi-origin template dispatch for companion plugins.
-   - **WP-CLI** provides `wp examplepress init` to generate starter configuration.
-   - **Self-Updater** checks GitHub releases every 12 hours via `admin_init` and silently upgrades when a new version is available.
-   - **Admin UI** provides a full admin dashboard with 10 pages (Apps, Theme, Navigation, Dependencies, Library, Settings, Notifications, System, Docs, Editor) built with Vite + vanilla JS.
+1. WordPress loads `examplepress-mu.php` from `mu-plugins/`. If the kernel is missing, it downloads the latest release from GitHub.
+2. `bootstrap.php` defines constants, loads the Composer autoloader (with PSR-4 fallback), and calls `Kernel::boot()`.
+3. The Kernel initializes all subsystems:
 
-## Theme Hand-off
+**Governance** (non-toggleable, MU-enforced):
+- **PlatformPolicy** — strips dangerous capabilities, enforces `/%postname%/`, locks managed options, disables file editing
+- **AppValidator** — hooks both `option_active_plugins` and `site_option_active_sitewide_plugins` to enforce manifest-based governance before plugins load
+- **EditorGuard** — blocks Site Editor access in admin (redirect, REST, template resolution) while allowing frontend template resolution for the block theme
 
-The kernel defines `EP_MU_ACTIVE = true` at boot. The `examplepress-theme` checks for this constant — when present, the theme defers all governance to the MU kernel. The theme remains responsible for blockstudio blocks, patterns, and `functions.php` setup.
+**Config**:
+- **ConfigManager** — deep-merges the MU plugin's `examplepress.json` (infrastructure baseline) with the theme's `examplepress.json` (design tokens, Blockstudio settings). Theme values win.
+- **FeatureRegistry** — toggleable features via `examplepress_mu_feature_{id}` filters. Resolution: PHP filter > JSON config > registration default.
+- **DependencyManager** — aggregates dependencies from both the MU config and active companion apps
+
+**Infrastructure**:
+- **Updater** — WP-Cron job (twicedaily) checks GitHub releases and silently upgrades. No admin login required.
+- **Scaffolder** — creates companion plugins from GitHub template repos using the Git Database API (blob > tree > commit > ref) to avoid rate-limiting
+- **Router + RouteRegistry** — namespaced multi-origin template dispatch. Companion plugins register route origins; the router resolves per-request.
+- **AppRegistry** — persists app records as `ep_app` CPT posts, merging live filesystem state with GitHub/Troy metadata
+- **GitHub** — App JWT auth, installation tokens, repo creation, scaffold push, Troy provisioning
+
+**REST API** — all endpoints under `examplepress-mu/v1`, all using `manage_options` permission (not stripped capabilities):
+- Apps: CRUD, scaffold, connect, health, destroy (with confirmation nonce)
+- Connections: GitHub/Troy settings, tests, OAuth callbacks
+- Demo/Updater: plugin lifecycle management
+- Filesystem: directory tree, file read/write (sandboxed, 1MB limit)
+- Notifications: archive/restore
+
+**Admin UI** — 10 pages built with Vite + vanilla JS:
+- Apps, Theme, Navigation, Dependencies, Library, Settings, Notifications, System, Docs, Editor
+- Monaco code editor loaded from CDN (not bundled)
+
+## Configuration
+
+The MU plugin's `examplepress.json` at the repo root is the infrastructure baseline. The theme's `examplepress.json` supplies design tokens. They are deep-merged at runtime — theme values override MU defaults for `design`, `blockstudio`, and `features` keys.
 
 ## Installation
 
-### Option A: Auto-Install (Loader Only)
+### Option A: Auto-Install
 
-Drop just `examplepress-mu.php` into `wp-content/mu-plugins/`. On first load, it will download and extract the full application from the latest GitHub release.
+Drop `examplepress-mu.php` into `wp-content/mu-plugins/`. On first load, it downloads and extracts the kernel from the latest GitHub release (with SHA-256 checksum verification for release assets).
 
 ### Option B: Manual Install
 
-Download the latest release `.zip`, extract it into `wp-content/mu-plugins/`. The structure maps directly — no extra steps required.
+Download the latest release `.zip`, extract into `wp-content/mu-plugins/`. The structure maps directly.
 
 ## Plugin Governance
 
-Plugins that declare `Theme: examplepress-theme` in their plugin header are treated as ExamplePress apps and must pass validation:
+Plugins declaring `Theme: examplepress-theme` in their header are treated as ExamplePress apps and must pass validation:
 
-1. An `examplepress.json` manifest must exist at the plugin root.
-2. The manifest must include `name` and `slug` fields.
-3. The manifest must not request any banned permissions (`edit_themes`, `install_plugins`, `manage_options`, etc.).
+1. An `examplepress.json` manifest at the plugin root
+2. Required fields: `name`, `slug`
+3. No banned permissions (`manage_options`, `edit_themes`, `install_plugins`, etc.)
 
-Plugins that fail validation are silently removed from the active plugins array for that request.
-
-## Admin Registry
-
-The MU kernel registers the top-level "ExamplePress" menu (using the shared `EP_ADMIN_MENU_SLUG` constant). The admin registry attaches subpages and fires the `examplepress_register_admin_pages` action so companion plugins can add theirs:
-
-```php
-add_action( 'examplepress_register_admin_pages', function() {
-    examplepress_register_admin_page( 'my-feature', [
-        'page_title' => __( 'My Feature', 'my-plugin' ),
-        'menu_title' => __( 'My Feature', 'my-plugin' ),
-        'position'   => 80,
-        'render'     => 'my_render_callback',
-    ] );
-} );
-```
+Failed plugins are removed from the active plugins array before WordPress loads them. This applies to both single-site and multisite network-activated plugins.
 
 ## Building Assets
 
-Admin page JS/CSS is built with Vite. From the `examplepress-mu/` directory:
+From the repo root:
 
 ```bash
 npm install
-npm run build    # Production build → dist/
-npm run dev      # Dev server with HMR (define EP_VITE_DEV in wp-config.php)
+npm run build    # Production → examplepress-mu/dist/
+npm run dev      # Vite dev server with HMR
 ```
 
-## Developer Mode
+Monaco Editor is loaded from CDN at runtime (only on the Editor page) — it is not included in the Vite bundle.
 
-Define `EP_DEV_MODE` in `wp-config.php` to bypass FSE guards while building companion plugins:
+## Developer Mode
 
 ```php
 define( 'EP_DEV_MODE', true );
 ```
 
-## Development
+Bypasses all FSE guards. Also surfaced as a notification in the admin UI.
+
+## Hook Reference
+
+All MU-owned hooks use the `examplepress_mu_` prefix. Theme-owned hooks (`examplepress_route_data`, `examplepress_route_resolved`) keep their unprefixed names.
+
+| Hook | Type | Description |
+|---|---|---|
+| `examplepress_mu_feature_{id}` | filter | Toggle any feature on/off |
+| `examplepress_mu_feature_{id}_{key}` | filter | Override a feature option value |
+| `examplepress_mu_features` | filter | Bulk-modify the feature registry |
+| `examplepress_mu_resolved_origin` | filter | Filter the resolved route origin |
+| `examplepress_mu_template_prefix` | filter | Override template block prefix (default: `template`) |
+| `examplepress_mu_template_block_name` | filter | Override the assembled block name |
+| `examplepress_mu_template_repo` | filter | Override the scaffold template repository |
+| `examplepress_mu_bypass_editor_guard` | filter | Bypass FSE guards programmatically |
+| `examplepress_mu_managed_options` | filter | Lock wp_options to specific values |
+| `examplepress_mu_permalink_structure` | filter | Override enforced permalink structure |
+| `examplepress_mu_register_admin_pages` | action | Register additional admin pages |
+| `examplepress_mu_admin_pages` | filter | Modify the admin page registry |
+| `examplepress_mu_can_edit_app_files` | filter | Control filesystem editor access |
+
+## WP-CLI
 
 ```bash
-git clone https://github.com/webmultipliers/examplepress-mu.git
+wp examplepress init          # Generate examplepress.json in current directory
+wp examplepress init --force  # Overwrite existing
 ```
 
-Work inside the `examplepress-mu/` directory. The thin loader at the root and the application directory are both versioned together.
+## Requirements
+
+- PHP 8.1+
+- WordPress 6.4+
+- Composer (for autoloader; fallback PSR-4 autoloader included)

@@ -36,6 +36,7 @@ final class PageController
     {
         $isDev = defined('EP_DEV_MODE') && EP_DEV_MODE;
         $pageId = self::resolveCurrentPageId();
+        $template = __DIR__ . '/Templates/' . $pageId . '.php';
 
         ?>
         <div class="ep-settings-wrapper">
@@ -44,7 +45,13 @@ final class PageController
                 <?php self::renderHeader($isDev); ?>
 
                 <div class="ep-layout">
-                    <div id="examplepress-app" data-page="<?php echo esc_attr($pageId); ?>"></div>
+                    <?php
+                    if (file_exists($template)) {
+                        include $template;
+                    } else {
+                        echo '<div id="examplepress-app" data-page="' . esc_attr($pageId) . '"></div>';
+                    }
+                    ?>
                 </div>
 
             </div>

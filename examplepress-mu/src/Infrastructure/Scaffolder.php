@@ -61,7 +61,7 @@ final class Scaffolder
             $repo = self::EP_DEFAULT_TEMPLATE_REPO;
         }
 
-        return apply_filters('examplepress_template_repo', $repo);
+        return apply_filters('examplepress_mu_template_repo', $repo);
     }
 
     /**

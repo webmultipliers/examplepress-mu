@@ -30,6 +30,11 @@ final class AssetManager
             return;
         }
 
+        $pageId = MenuManager::pageIdFromHook($hookSuffix);
+        if ($pageId === null) {
+            return;
+        }
+
         // Admin settings CSS (shared across all EP pages).
         wp_enqueue_style(
             'ep-admin-settings',
@@ -40,16 +45,11 @@ final class AssetManager
 
         // Google Fonts.
         $fontsUrl = (string) apply_filters(
-            'examplepress_settings_fonts_url',
+            'examplepress_mu_settings_fonts_url',
             'https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&display=swap'
         );
         if ($fontsUrl) {
             wp_enqueue_style('ep-settings-fonts', $fontsUrl, [], null);
-        }
-
-        $pageId = MenuManager::pageIdFromHook($hookSuffix);
-        if ($pageId === null) {
-            return;
         }
 
         self::enqueueProductionEntry($pageId);
@@ -81,11 +81,14 @@ final class AssetManager
     {
         $manifest = self::resolveManifest();
         if (empty($manifest)) {
+            $path = EXAMPLEPRESS_MU_DIR . '/dist/.vite/manifest.json';
+            wp_add_inline_script('jquery', 'console.error("EP: Vite manifest missing or empty at " + ' . wp_json_encode($path) . ' + " (exists: " + ' . wp_json_encode(file_exists($path) ? 'yes' : 'no') . ' + ")");');
             return;
         }
 
         $asset = self::findEntry($manifest, $entry);
         if ($asset === null) {
+            wp_add_inline_script('jquery', 'console.error("EP: No manifest entry for ' . esc_js($entry) . '. Keys:", ' . wp_json_encode(array_keys($manifest)) . ');');
             return;
         }
 
@@ -109,7 +112,8 @@ final class AssetManager
 
         // Enqueue the JS entry point.
         $handle = 'ep-' . $entry;
-        wp_enqueue_script($handle, EXAMPLEPRESS_MU_URI . '/dist/' . $asset['file'], [], null, true);
+        $scriptUrl = EXAMPLEPRESS_MU_URI . '/dist/' . $asset['file'];
+        wp_enqueue_script($handle, $scriptUrl, [], null, true);
         self::$viteHandles[] = $handle;
     }
 

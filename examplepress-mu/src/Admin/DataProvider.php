@@ -266,8 +266,8 @@ final class DataProvider
             'valid'     => true,
             'slug'      => $slug,
             'appName'   => $appName,
-            'fsTreeUrl' => esc_url_raw(rest_url("examplepress/v1/fs/{$slug}/tree")),
-            'fsFileUrl' => esc_url_raw(rest_url("examplepress/v1/fs/{$slug}/file")),
+            'fsTreeUrl' => esc_url_raw(rest_url("examplepress-mu/v1/fs/{$slug}/tree")),
+            'fsFileUrl' => esc_url_raw(rest_url("examplepress-mu/v1/fs/{$slug}/file")),
             'github'    => $github,
         ]);
     }
@@ -789,7 +789,7 @@ final class DataProvider
         ];
 
         /** @var array<string, array<string, string>> */
-        return (array) apply_filters('examplepress_feature_details', $details);
+        return (array) apply_filters('examplepress_mu_feature_details', $details);
     }
 
     // ── Docs & Hooks ─────────────────────────────────────────────
@@ -837,16 +837,15 @@ final class DataProvider
     private static function getHookReference(): array
     {
         return [
-            ['name' => 'examplepress_resolved_origin',      'type' => 'filter', 'desc' => 'Filter the registry-resolved route origin (namespace + slug) before dispatch.'],
-            ['name' => 'examplepress_route_data',           'type' => 'filter', 'desc' => 'Enrich the data payload passed to template blocks via bs_block().'],
-            ['name' => 'examplepress_route_resolved',       'type' => 'action', 'desc' => 'Fires after route resolution, before dispatch. Set up route-specific state here.'],
-            ['name' => 'examplepress_template_prefix',      'type' => 'filter', 'desc' => 'Override the template block prefix. Default: "template".'],
-            ['name' => 'examplepress_template_block_name',  'type' => 'filter', 'desc' => 'Override the fully assembled block name before dispatch.'],
-            ['name' => 'examplepress_template_repo',        'type' => 'filter', 'desc' => 'Override the GitHub template repository used for scaffolding new apps.'],
-            ['name' => 'examplepress_allowed_block_types',  'type' => 'filter', 'desc' => 'Allowlist of block types when restrict-block-types feature is enabled.'],
-            ['name' => 'examplepress_feature_{id}',         'type' => 'filter', 'desc' => 'Toggle any registered feature on or off. Highest priority override.'],
-            ['name' => 'examplepress_feature_{id}_{key}',   'type' => 'filter', 'desc' => 'Override a specific option value for a feature.'],
-            ['name' => 'examplepress_features',             'type' => 'filter', 'desc' => 'Filter the entire feature registry array. Use for bulk modifications.'],
+            ['name' => 'examplepress_mu_resolved_origin',      'type' => 'filter', 'desc' => 'Filter the registry-resolved route origin (namespace + slug) before dispatch.'],
+            ['name' => 'examplepress_route_data',              'type' => 'filter', 'desc' => 'Enrich the data payload passed to template blocks via bs_block(). (Theme hook)'],
+            ['name' => 'examplepress_route_resolved',          'type' => 'action', 'desc' => 'Fires after route resolution, before dispatch. Set up route-specific state here. (Theme hook)'],
+            ['name' => 'examplepress_mu_template_prefix',      'type' => 'filter', 'desc' => 'Override the template block prefix. Default: "template".'],
+            ['name' => 'examplepress_mu_template_block_name',  'type' => 'filter', 'desc' => 'Override the fully assembled block name before dispatch.'],
+            ['name' => 'examplepress_mu_template_repo',        'type' => 'filter', 'desc' => 'Override the GitHub template repository used for scaffolding new apps.'],
+            ['name' => 'examplepress_mu_feature_{id}',         'type' => 'filter', 'desc' => 'Toggle any registered feature on or off. Highest priority override.'],
+            ['name' => 'examplepress_mu_feature_{id}_{key}',   'type' => 'filter', 'desc' => 'Override a specific option value for a feature.'],
+            ['name' => 'examplepress_mu_features',             'type' => 'filter', 'desc' => 'Filter the entire feature registry array. Use for bulk modifications.'],
         ];
     }
 
@@ -933,7 +932,7 @@ final class DataProvider
     {
         $config = ConfigManager::get();
 
-        if (has_filter("examplepress_feature_{$id}")) {
+        if (has_filter("examplepress_mu_feature_{$id}")) {
             return 'php';
         }
 
@@ -952,7 +951,7 @@ final class DataProvider
     {
         global $wp_filter;
 
-        $tag = "examplepress_feature_{$id}";
+        $tag = "examplepress_mu_feature_{$id}";
 
         if (empty($wp_filter[$tag])) {
             return '';

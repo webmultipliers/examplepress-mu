@@ -47,7 +47,7 @@ final class MenuManager
          *
          * @param array $pages Current registered pages keyed by ID.
          */
-        do_action('examplepress_register_admin_pages');
+        do_action('examplepress_mu_register_admin_pages');
 
         $pages = self::getSortedPages();
 
@@ -124,7 +124,7 @@ final class MenuManager
         $pages = self::$pages;
 
         /** @var array<string, array<string, mixed>> $pages */
-        $pages = apply_filters('examplepress_admin_pages', $pages);
+        $pages = apply_filters('examplepress_mu_admin_pages', $pages);
 
         uasort($pages, static fn(array $a, array $b): int =>
             ($a['position'] ?? 50) <=> ($b['position'] ?? 50)

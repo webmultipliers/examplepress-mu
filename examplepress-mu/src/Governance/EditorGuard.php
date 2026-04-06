@@ -81,12 +81,22 @@ final class EditorGuard
     }
 
     /**
-     * Guard 3 — Short-circuit block template resolution.
+     * Guard 3 — Short-circuit block template resolution in the admin.
      *
-     * @return array<int, mixed> Empty array — no block templates.
+     * Only blocks template queries made from the Site Editor (admin context).
+     * Frontend template resolution MUST be allowed so the block theme's
+     * templates/index.html can load the router block.
+     *
+     * @return array<int, mixed>|null Empty array in admin, null (pass-through) on frontend.
      */
-    public static function guardTemplateResolution(mixed $result, array $query, string $templateType): array
+    public static function guardTemplateResolution(mixed $result, array $query, string $templateType): array|null
     {
+        // Allow frontend template resolution — the block theme needs it.
+        if (!is_admin() && !wp_doing_ajax() && !(defined('REST_REQUEST') && REST_REQUEST)) {
+            return $result;
+        }
+
+        // In admin context, block the Site Editor from resolving templates.
         return [];
     }
 }
