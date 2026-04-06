@@ -56,9 +56,10 @@ export function renderUpdater(data) {
 	function toggleSections() {
 		const checkSection    = document.getElementById('ep-updater-check-section');
 		const settingsSection = document.getElementById('ep-updater-settings-section');
-		const show = status === 'active';
-		if (checkSection)    checkSection.style.display    = show ? '' : 'none';
-		if (settingsSection) settingsSection.style.display = show ? '' : 'none';
+		const showCheck    = status === 'active' || status === 'installed';
+		const showSettings = true;
+		if (checkSection)    checkSection.style.display    = showCheck ? '' : 'none';
+		if (settingsSection) settingsSection.style.display = showSettings ? '' : 'none';
 	}
 
 	function bindInstallBtn() {
@@ -338,5 +339,5 @@ export function renderUpdater(data) {
 
 	renderPlugin();
 	initCheckNow();
-	if (status === 'active') initSettings();
+	initSettings();
 }

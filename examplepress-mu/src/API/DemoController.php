@@ -80,6 +80,10 @@ final class DemoController
     {
         $status = PluginManager::getDemoStatus();
 
+        // 'foreign' = stale/corrupt directory from a failed install.
+        // overwrite=true (below) will replace it cleanly, so don't block.
+
+        // Already active — nothing to do.
         if ('active' === $status) {
             return rest_ensure_response([
                 'success' => true,
@@ -88,14 +92,7 @@ final class DemoController
             ]);
         }
 
-        if ('foreign' === $status) {
-            return new \WP_Error(
-                'demo_conflict',
-                'A plugin named examplepress-demo already exists but is not the ExamplePress demo. Remove it manually first.',
-                ['status' => 409]
-            );
-        }
-
+        // Installed but not active — just activate.
         if ('installed' === $status) {
             $result = activate_plugin(PluginManager::DEMO_PLUGIN_FILE);
 
@@ -115,7 +112,8 @@ final class DemoController
         }
 
         // Not installed — download from GitHub.
-        $installed = PluginManager::installDemo();
+        // Use overwrite=true so a stale/partial directory doesn't block the install.
+        $installed = PluginManager::installDemo(overwrite: true);
 
         if (is_wp_error($installed)) {
             return new \WP_Error(
@@ -276,65 +274,22 @@ final class DemoController
             );
         }
 
-        $download_url = self::getReleaseDownloadUrl($target['version']);
-
-        if (!$download_url) {
-            return new \WP_Error(
-                'no_package',
-                'No downloadable zip found for version ' . $target['version'] . '.',
-                ['status' => 404]
-            );
-        }
-
         $plugin_file = PluginManager::DEMO_PLUGIN_FILE;
-        $plugin_dir  = WP_PLUGIN_DIR . '/examplepress-demo';
         $was_active  = is_plugin_active($plugin_file);
 
         if ($was_active) {
             deactivate_plugins($plugin_file, true);
         }
 
-        require_once ABSPATH . 'wp-admin/includes/file.php';
-        WP_Filesystem();
-        global $wp_filesystem;
+        // Reinstall with overwrite — no manual directory deletion needed.
+        $installed = PluginManager::installDemo(overwrite: true);
 
-        if (is_dir($plugin_dir) && $wp_filesystem instanceof \WP_Filesystem_Base) {
-            $wp_filesystem->delete($plugin_dir, true);
-        }
-
-        require_once ABSPATH . 'wp-admin/includes/class-wp-upgrader.php';
-
-        $rename_filter = function (string $source, string $remote_source): string {
-            $expected = trailingslashit($remote_source) . 'examplepress-demo/';
-            if ($source === $expected) {
-                return $source;
+        if (is_wp_error($installed)) {
+            // Re-activate if the update failed and it was active before.
+            if ($was_active) {
+                activate_plugin($plugin_file);
             }
-            $basename = basename(untrailingslashit($source));
-            if (str_starts_with($basename, 'examplepress-demo') && $basename !== 'examplepress-demo') {
-                global $wp_filesystem;
-                if ($wp_filesystem->move($source, $expected, true)) {
-                    return $expected;
-                }
-            }
-            return $source;
-        };
-
-        add_filter('upgrader_source_selection', $rename_filter, 10, 2);
-
-        $skin     = new \Automatic_Upgrader_Skin();
-        $upgrader = new \Plugin_Upgrader($skin);
-        $result   = $upgrader->install($download_url);
-
-        remove_filter('upgrader_source_selection', $rename_filter, 10);
-
-        if (is_wp_error($result)) {
-            return new \WP_Error('install_failed', $result->get_error_message(), ['status' => 500]);
-        }
-        if (is_wp_error($skin->result)) {
-            return new \WP_Error('install_failed', $skin->result->get_error_message(), ['status' => 500]);
-        }
-        if (!$result) {
-            return new \WP_Error('install_failed', 'Installer returned an unexpected result.', ['status' => 500]);
+            return new \WP_Error('install_failed', $installed->get_error_message(), ['status' => 500]);
         }
 
         if ($was_active) {
@@ -427,7 +382,7 @@ final class DemoController
     {
         $has_package = false;
         foreach ($release['assets'] ?? [] as $asset) {
-            if (($asset['name'] ?? '') === 'examplepress-demo.zip') {
+            if (($asset['name'] ?? '') === 'examplepress-theme-demo.zip') {
                 $has_package = true;
                 break;
             }
@@ -492,7 +447,7 @@ final class DemoController
             }
 
             foreach ($r['assets'] ?? [] as $asset) {
-                if (($asset['name'] ?? '') === 'examplepress-demo.zip') {
+                if (($asset['name'] ?? '') === 'examplepress-theme-demo.zip') {
                     return $asset['browser_download_url'];
                 }
             }

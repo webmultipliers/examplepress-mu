@@ -60,9 +60,14 @@ export function renderDemo(data) {
 	function toggleSections() {
 		const checkSection    = document.getElementById('ep-demo-check-section');
 		const settingsSection = document.getElementById('ep-demo-settings-section');
-		const show = status === 'active';
-		if (checkSection)    checkSection.style.display    = show ? '' : 'none';
-		if (settingsSection) settingsSection.style.display = show ? '' : 'none';
+		// Show check section when installed or active so users can see
+		// available versions and check for updates before/after install.
+		const showCheck    = status === 'active' || status === 'installed';
+		// Show settings (channel/pin) always — users should be able to
+		// configure which version to install before they install it.
+		const showSettings = true;
+		if (checkSection)    checkSection.style.display    = showCheck ? '' : 'none';
+		if (settingsSection) settingsSection.style.display = showSettings ? '' : 'none';
 	}
 
 	function bindInstallBtn() {
@@ -340,5 +345,5 @@ export function renderDemo(data) {
 
 	renderPlugin();
 	initCheckNow();
-	if (status === 'active') initSettings();
+	initSettings();
 }

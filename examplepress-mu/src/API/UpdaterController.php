@@ -107,7 +107,8 @@ final class UpdaterController
         }
 
         // Not installed — download from GitHub.
-        $installed = PluginManager::installUpdater();
+        // Use overwrite in case a stale directory exists.
+        $installed = PluginManager::installUpdater(overwrite: true);
 
         if (is_wp_error($installed)) {
             return new \WP_Error(
@@ -260,65 +261,21 @@ final class UpdaterController
             );
         }
 
-        $download_url = self::getReleaseDownloadUrl($target['version']);
-
-        if (!$download_url) {
-            return new \WP_Error(
-                'no_package',
-                'No downloadable zip found for version ' . $target['version'] . '.',
-                ['status' => 404]
-            );
-        }
-
         $plugin_file = PluginManager::UPDATER_PLUGIN_FILE;
-        $plugin_dir  = WP_PLUGIN_DIR . '/examplepress-theme-update';
         $was_active  = is_plugin_active($plugin_file);
 
         if ($was_active) {
             deactivate_plugins($plugin_file, true);
         }
 
-        require_once ABSPATH . 'wp-admin/includes/file.php';
-        WP_Filesystem();
-        global $wp_filesystem;
+        // Reinstall with overwrite — no manual directory deletion needed.
+        $installed = PluginManager::installUpdater(overwrite: true);
 
-        if (is_dir($plugin_dir) && $wp_filesystem instanceof \WP_Filesystem_Base) {
-            $wp_filesystem->delete($plugin_dir, true);
-        }
-
-        require_once ABSPATH . 'wp-admin/includes/class-wp-upgrader.php';
-
-        $rename_filter = function (string $source, string $remote_source): string {
-            $expected = trailingslashit($remote_source) . 'examplepress-theme-update/';
-            if ($source === $expected) {
-                return $source;
+        if (is_wp_error($installed)) {
+            if ($was_active) {
+                activate_plugin($plugin_file);
             }
-            $basename = basename(untrailingslashit($source));
-            if (str_starts_with($basename, 'examplepress-theme-update') && $basename !== 'examplepress-theme-update') {
-                global $wp_filesystem;
-                if ($wp_filesystem->move($source, $expected, true)) {
-                    return $expected;
-                }
-            }
-            return $source;
-        };
-
-        add_filter('upgrader_source_selection', $rename_filter, 10, 2);
-
-        $skin     = new \Automatic_Upgrader_Skin();
-        $upgrader = new \Plugin_Upgrader($skin);
-        $result   = $upgrader->install($download_url);
-
-        remove_filter('upgrader_source_selection', $rename_filter, 10);
-
-        if (is_wp_error($result)) {
-            return new \WP_Error('install_failed', $result->get_error_message(), ['status' => 500]);
-        }
-        if (is_wp_error($skin->result)) {
-            return new \WP_Error('install_failed', $skin->result->get_error_message(), ['status' => 500]);
-        }
-        if (!$result) {
-            return new \WP_Error('install_failed', 'Installer returned an unexpected result.', ['status' => 500]);
+            return new \WP_Error('install_failed', $installed->get_error_message(), ['status' => 500]);
         }
 
         if ($was_active) {

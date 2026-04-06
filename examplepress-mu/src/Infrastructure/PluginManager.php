@@ -107,20 +107,16 @@ final class PluginManager
     // ── Install — Updater ─────────────────────────────────────────
 
     /**
-     * @return true|\WP_Error
+     * Install (or reinstall) the updater companion plugin from GitHub.
+     *
+     * Uses WP's overwrite_package to cleanly replace an existing install
+     * instead of brittle pre-deletion that causes "Destination already exists".
+     *
+     * @param bool $overwrite Replace existing plugin directory if present.
      */
-    public static function installUpdater(): true|\WP_Error
+    public static function installUpdater(bool $overwrite = false): true|\WP_Error
     {
         require_once ABSPATH . 'wp-admin/includes/file.php';
-
-        $pluginDir = WP_PLUGIN_DIR . '/examplepress-theme-update';
-        if (is_dir($pluginDir)) {
-            WP_Filesystem();
-            global $wp_filesystem;
-            if ($wp_filesystem instanceof \WP_Filesystem_Base) {
-                $wp_filesystem->delete($pluginDir, true);
-            }
-        }
 
         $zipUrl = self::resolveUpdaterZipUrl();
 
@@ -128,26 +124,19 @@ final class PluginManager
             return new \WP_Error('ep_updater_no_source', 'Could not determine a download URL for the updater plugin.');
         }
 
-        return self::installFromZip($zipUrl, 'examplepress-theme-update');
+        return self::installFromZip($zipUrl, 'examplepress-theme-update', $overwrite, 'examplepress-theme-update');
     }
 
     // ── Install — Demo ────────────────────────────────────────────
 
     /**
-     * @return true|\WP_Error
+     * Install (or reinstall) the demo companion plugin from GitHub.
+     *
+     * @param bool $overwrite Replace existing plugin directory if present.
      */
-    public static function installDemo(): true|\WP_Error
+    public static function installDemo(bool $overwrite = false): true|\WP_Error
     {
         require_once ABSPATH . 'wp-admin/includes/file.php';
-
-        $pluginDir = WP_PLUGIN_DIR . '/examplepress-demo';
-        if (is_dir($pluginDir)) {
-            WP_Filesystem();
-            global $wp_filesystem;
-            if ($wp_filesystem instanceof \WP_Filesystem_Base) {
-                $wp_filesystem->delete($pluginDir, true);
-            }
-        }
 
         $zipUrl = self::resolveDemoZipUrl();
 
@@ -155,7 +144,11 @@ final class PluginManager
             return new \WP_Error('ep_demo_no_source', 'Could not determine a download URL for the demo plugin.');
         }
 
-        return self::installFromZip($zipUrl, 'examplepress-demo');
+        // Plugin slug is 'examplepress-demo' but the GitHub repo is
+        // 'examplepress-theme-demo', so zipball extracts to
+        // 'examplepress-theme-demo-{branch}/'. Pass both so the
+        // rename filter catches either prefix.
+        return self::installFromZip($zipUrl, 'examplepress-demo', $overwrite, 'examplepress-theme-demo');
     }
 
     // ── Shared Install ────────────────────────────────────────────
@@ -163,17 +156,33 @@ final class PluginManager
     /**
      * @return true|\WP_Error
      */
-    private static function installFromZip(string $zipUrl, string $expectedSlug): true|\WP_Error
-    {
+    /**
+     * @param bool   $overwrite If true, overwrite existing plugin directory.
+     * @param string $repoSlug  GitHub repo name slug (e.g. 'examplepress-theme-demo')
+     *                          used to match extracted directory names from zipball archives.
+     */
+    private static function installFromZip(
+        string $zipUrl,
+        string $expectedSlug,
+        bool $overwrite = false,
+        string $repoSlug = ''
+    ): true|\WP_Error {
         require_once ABSPATH . 'wp-admin/includes/class-wp-upgrader.php';
 
-        $renameFilter = static function (string $source, string $remoteSource) use ($expectedSlug): string {
+        $renameFilter = static function (string $source, string $remoteSource) use ($expectedSlug, $repoSlug): string {
             $expected = trailingslashit($remoteSource) . $expectedSlug . '/';
             if ($source === $expected) {
                 return $source;
             }
             $basename = basename(untrailingslashit($source));
-            if (str_starts_with($basename, $expectedSlug) && $basename !== $expectedSlug) {
+            // Match both the plugin slug prefix (e.g. examplepress-demo-*)
+            // AND the repo slug prefix (e.g. examplepress-theme-demo-*) since
+            // GitHub zipballs extract using the repo name, not the plugin slug.
+            $isMatch = ($basename !== $expectedSlug) && (
+                str_starts_with($basename, $expectedSlug) ||
+                ($repoSlug && str_starts_with($basename, $repoSlug))
+            );
+            if ($isMatch) {
                 global $wp_filesystem;
                 if ($wp_filesystem->move($source, $expected, true)) {
                     return $expected;
@@ -186,7 +195,10 @@ final class PluginManager
 
         $skin = new \Automatic_Upgrader_Skin();
         $upgrader = new \Plugin_Upgrader($skin);
-        $result = $upgrader->install($zipUrl);
+
+        // WP 5.8+ supports overwrite_package to replace existing plugins.
+        $args = $overwrite ? ['overwrite_package' => true] : [];
+        $result = $upgrader->install($zipUrl, $args);
 
         remove_filter('upgrader_source_selection', $renameFilter, 10);
 
@@ -215,9 +227,10 @@ final class PluginManager
 
     public static function resolveDemoZipUrl(): ?string
     {
+        // The release asset is named after the repo, not the plugin slug.
         return self::resolveZipUrl(
             self::DEMO_GITHUB_REPO,
-            'examplepress-demo.zip'
+            'examplepress-theme-demo.zip'
         );
     }
 
@@ -294,8 +307,15 @@ final class PluginManager
         if (!file_exists($mainFile)) {
             return false;
         }
-        $header = get_file_data($mainFile, ['demo' => 'ExamplePress Demo']);
-        return !empty($header['demo']) && strtolower($header['demo']) === 'true';
+        // Verify this is actually the ExamplePress demo by checking
+        // for the Theme header (all EP companion apps declare it) and
+        // the plugin name.
+        $headers = get_file_data($mainFile, [
+            'name'  => 'Plugin Name',
+            'theme' => 'Theme',
+        ]);
+        return ($headers['theme'] ?? '') === 'examplepress-theme'
+            && str_contains($headers['name'] ?? '', 'ExamplePress Demo');
     }
 
     public static function getUpdaterPluginVersion(): ?string
