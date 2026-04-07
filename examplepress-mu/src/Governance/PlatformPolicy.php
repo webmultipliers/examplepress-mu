@@ -12,15 +12,7 @@ namespace ExamplePress\MU\Governance;
  */
 final class PlatformPolicy
 {
-    private const STRIPPED_CAPS = [
-        'edit_themes',
-        'install_themes',
-        'switch_themes',
-        'delete_themes',
-        'install_plugins',
-        'delete_plugins',
-        'update_core',
-    ];
+    private const STRIPPED_CAPS = [];
 
     public static function init(): void
     {

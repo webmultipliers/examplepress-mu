@@ -41,9 +41,10 @@
             "cloud_dependent": false,
             "check_type": "class",
             "check_target": "Blockstudio\\Build",
+            "min_version_constant": "EXAMPLEPRESS_BLOCKSTUDIO_VERSION",
             "source": {
                 "type": "direct",
-                "url": "https://github.com/flavor/flavor"
+                "url": "https://github.com/inline0/blockstudio/releases"
             }
         }
     ],

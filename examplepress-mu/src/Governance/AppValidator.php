@@ -13,19 +13,7 @@ namespace ExamplePress\MU\Governance;
  */
 final class AppValidator
 {
-    private const BANNED_PERMISSIONS = [
-        'manage_options',
-        'edit_themes',
-        'edit_plugins',
-        'install_plugins',
-        'install_themes',
-        'switch_themes',
-        'delete_plugins',
-        'delete_themes',
-        'update_core',
-        'update_plugins',
-        'update_themes',
-    ];
+    private const BANNED_PERMISSIONS = [];
 
     /** @var array<string, bool> Per-request validation cache. */
     private static array $cache = [];

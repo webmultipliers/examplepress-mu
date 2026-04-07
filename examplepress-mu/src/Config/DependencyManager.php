@@ -52,16 +52,28 @@ final class DependencyManager
                 $url = "https://wordpress.org/plugins/{$slug}/";
             }
 
+            // Resolve the required minimum version. Either declared inline
+            // (`min_version`) or sourced from a PHP constant defined elsewhere
+            // — used by the MU loader to expose the Blockstudio version it
+            // pins via its plugin header, instead of bundling Blockstudio.
+            $minVersion = $dep['min_version'] ?? '';
+            $minVersionConstant = $dep['min_version_constant'] ?? '';
+            if (!$minVersion && $minVersionConstant && defined($minVersionConstant)) {
+                $minVersion = (string) constant($minVersionConstant);
+            }
+
             $item = [
-                'slug'      => $slug,
-                'name'      => $dep['name'] ?? $slug,
-                'tier'      => $dep['tier'] ?? 'optional',
-                'pricing'   => $dep['pricing'] ?? 'free',
-                'cloud'     => !empty($dep['cloud_dependent']),
-                'source'    => $sourceType,
-                'url'       => $url,
-                'checkType' => $checkType,
-                'status'    => 'missing',
+                'slug'             => $slug,
+                'name'             => $dep['name'] ?? $slug,
+                'tier'             => $dep['tier'] ?? 'optional',
+                'pricing'          => $dep['pricing'] ?? 'free',
+                'cloud'            => !empty($dep['cloud_dependent']),
+                'source'           => $sourceType,
+                'url'              => $url,
+                'checkType'        => $checkType,
+                'status'           => 'missing',
+                'requiredVersion'  => $minVersion,
+                'installedVersion' => '',
             ];
 
             if ($checkType === 'class') {
@@ -78,6 +90,24 @@ final class DependencyManager
                         }
                         break;
                     }
+                }
+            }
+
+            // Look up the installed plugin's version by slug regardless of
+            // check_type so that class/function-based checks can still
+            // enforce min_version.
+            foreach ($installed as $file => $data) {
+                if (str_starts_with($file, $slug . '/') || $file === $slug . '.php') {
+                    $item['installedVersion'] = (string) ($data['Version'] ?? '');
+                    break;
+                }
+            }
+
+            // Enforce minimum version. An active-but-outdated dep flips to
+            // 'outdated' so the notification layer can surface it.
+            if ($minVersion && $item['installedVersion'] && version_compare($item['installedVersion'], $minVersion, '<')) {
+                if ($item['status'] === 'active' || $item['status'] === 'installed') {
+                    $item['status'] = 'outdated';
                 }
             }
 

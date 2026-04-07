@@ -2,9 +2,10 @@
 /**
  * Plugin Name: ExamplePress MU Bootstrapper
  * Description: Thin loader that fetches and executes the ExamplePress platform kernel from GitHub.
- * Version:     2.0.4
+ * Version:     2.0.5
  * Author:      Web Multipliers
  * Author URI:  https://github.com/webmultipliers
+ * Blockstudio Version: 7.1.2
  */
 
 declare(strict_types=1);
@@ -25,6 +26,17 @@ final class ExamplePress_MU_Bootstrapper {
     private static string $repoName  = 'examplepress-mu';
 
     public static function boot(): void {
+        // Expose the required Blockstudio version (declared in this file's
+        // plugin header) as a constant so the platform can enforce it without
+        // bundling Blockstudio as a hidden composer dependency.
+        if ( ! defined( 'EXAMPLEPRESS_BLOCKSTUDIO_VERSION' ) ) {
+            if ( ! function_exists( 'get_file_data' ) ) {
+                require_once ABSPATH . 'wp-includes/functions.php';
+            }
+            $headers = get_file_data( __FILE__, [ 'BlockstudioVersion' => 'Blockstudio Version' ] );
+            define( 'EXAMPLEPRESS_BLOCKSTUDIO_VERSION', $headers['BlockstudioVersion'] ?: '0.0.0' );
+        }
+
         $muDir    = __DIR__ . '/examplepress-mu';
         $bootFile = $muDir . '/bootstrap.php';
 

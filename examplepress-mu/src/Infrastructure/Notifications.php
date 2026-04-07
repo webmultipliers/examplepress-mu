@@ -102,11 +102,22 @@ final class Notifications
                     $dep['fallback']['slug'] ?? ''
                 );
             }
+            if ($dep['status'] === 'outdated') {
+                $msg = sprintf(
+                    '%s %s is installed but version %s or newer is required. Update the plugin to match the version pinned by ExamplePress.',
+                    $dep['name'],
+                    $dep['installedVersion'] ?? '?',
+                    $dep['requiredVersion'] ?? '?'
+                );
+            }
+
+            $title = $dep['status'] === 'outdated' ? 'Outdated Dependency' : 'Missing Dependency';
+            $type = ($dep['status'] === 'fallback') ? 'warn' : 'error';
 
             $notifications[] = [
                 'id'      => 'dep_' . $dep['slug'],
-                'type'    => $dep['status'] === 'fallback' ? 'warn' : 'error',
-                'title'   => 'Missing Dependency',
+                'type'    => $type,
+                'title'   => $title,
                 'message' => $msg,
             ];
         }
