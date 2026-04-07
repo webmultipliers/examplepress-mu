@@ -5,13 +5,15 @@
     "license": "proprietary",
     "autoload": {
         "psr-4": {
-            "ExamplePress\\MU\\": "src/"
+            "ExamplePress\\MU\\": "examplepress-mu/src/"
         }
     },
     "require": {
-        "php": ">=8.1"
+        "php": ">=8.1",
+        "blockstudio/blockstudio": "*"
     },
     "config": {
-        "optimize-autoloader": true
+        "optimize-autoloader": true,
+        "vendor-dir": "examplepress-mu/vendor"
     }
 }

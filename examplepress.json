@@ -32,22 +32,7 @@
         "theme-shadows": false,
         "theme-global-styles": false
     },
-    "dependencies": [
-        {
-            "slug": "blockstudio",
-            "name": "Blockstudio",
-            "tier": "required",
-            "pricing": "free",
-            "cloud_dependent": false,
-            "check_type": "class",
-            "check_target": "Blockstudio\\Build",
-            "min_version_constant": "EXAMPLEPRESS_BLOCKSTUDIO_VERSION",
-            "source": {
-                "type": "direct",
-                "url": "https://github.com/inline0/blockstudio/releases"
-            }
-        }
-    ],
+    "dependencies": [],
     "docs": [
         {
             "title": "Companion Plugin Guide",

@@ -7,6 +7,7 @@
 README.md
 node_modules
 composer.lock
+composer.json
 package-lock.json
 assets/src
 vite.config.js
