@@ -25,6 +25,9 @@ final class AppValidator
     /** @var string|null Hash of the input list that produced $persistentCache. */
     private static ?string $persistentHash = null;
 
+    /** @var bool Marks the persistent cache dirty so shutdown can flush it. */
+    private static bool $persistentDirty = false;
+
     public static function init(): void
     {
         // Single site: filter active plugins before WordPress loads them.
@@ -34,9 +37,40 @@ final class AppValidator
         add_filter('site_option_active_sitewide_plugins', [self::class, 'filterSitewidePlugins']);
 
         // Invalidate the persistent cache whenever the active-plugins option
-        // changes — this is the only moment the validated list can drift.
+        // changes — that's the only moment the validated list can drift.
         add_action('update_option_active_plugins', [self::class, 'invalidatePersistentCache']);
         add_action('update_site_option_active_sitewide_plugins', [self::class, 'invalidatePersistentCache']);
+
+        // Defer persistent writes to shutdown so we never call update_option()
+        // from inside an option filter (which runs during plugin-load and
+        // would force extra synchronous DB queries).
+        add_action('shutdown', [self::class, 'flushDirty']);
+    }
+
+    /**
+     * Build a cache key from the plugin list AND the mtime of each
+     * declared-ExamplePress manifest file. This way, editing
+     * examplepress.json in an installed app invalidates the cached
+     * decision without needing an explicit flushCache() call.
+     *
+     * @param list<string> $plugins Plugin basenames.
+     */
+    private static function buildHash(string $scope, array $plugins): string
+    {
+        $parts = [];
+        foreach ($plugins as $basename) {
+            $manifest = WP_PLUGIN_DIR . '/' . dirname($basename) . '/examplepress.json';
+            $mtime    = is_readable($manifest) ? (int) @filemtime($manifest) : 0;
+            $parts[]  = $basename . '@' . $mtime;
+        }
+        sort($parts);
+
+        // Include the current blog id on multisite. Two blogs may register
+        // different examplepress_mu_validate_app filter callbacks, and we
+        // must not let one blog's cached decision leak into another's.
+        $blogId = function_exists('get_current_blog_id') ? (int) get_current_blog_id() : 0;
+
+        return md5($scope . '|blog=' . $blogId . '|' . implode('|', $parts));
     }
 
     /**
@@ -57,12 +91,17 @@ final class AppValidator
             self::$persistentCache = [];
         }
 
-        self::$persistentHash = $hash;
+        self::$persistentHash  = $hash;
+        self::$persistentDirty = false;
     }
 
-    private static function savePersistent(): void
+    /**
+     * Shutdown callback: write the persistent cache to the DB iff it was
+     * modified during the request. Never called from inside an option filter.
+     */
+    public static function flushDirty(): void
     {
-        if (self::$persistentHash === null || self::$persistentCache === null) {
+        if (!self::$persistentDirty || self::$persistentHash === null || self::$persistentCache === null) {
             return;
         }
         update_option(
@@ -70,12 +109,14 @@ final class AppValidator
             ['hash' => self::$persistentHash, 'results' => self::$persistentCache],
             false
         );
+        self::$persistentDirty = false;
     }
 
     public static function invalidatePersistentCache(): void
     {
         self::$persistentCache = null;
         self::$persistentHash  = null;
+        self::$persistentDirty = false;
         delete_option(self::CACHE_OPTION);
     }
 
@@ -91,16 +132,15 @@ final class AppValidator
             return [];
         }
 
-        // Hydrate the persistent cache using a hash of the input list so we
-        // only re-run get_file_data() when the active-plugins list changes.
-        $hash = md5('single|' . implode('|', $plugins));
+        // Hydrate the persistent cache using a hash that reflects both the
+        // input list AND each manifest's mtime, so we only re-run
+        // get_file_data() / re-read manifests when something actually changes.
+        $hash = self::buildHash('single', array_values($plugins));
         self::hydratePersistent($hash);
 
-        $result = array_values(array_filter($plugins, [self::class, 'validatePlugin']));
-
-        self::savePersistent();
-
-        return $result;
+        // The persistent write is deferred to the shutdown hook to avoid
+        // doing DB writes from inside an option filter.
+        return array_values(array_filter($plugins, [self::class, 'validatePlugin']));
     }
 
     /**
@@ -117,7 +157,7 @@ final class AppValidator
             return [];
         }
 
-        $hash = md5('sitewide|' . implode('|', array_keys($plugins)));
+        $hash = self::buildHash('sitewide', array_keys($plugins));
         self::hydratePersistent($hash);
 
         $filtered = [];
@@ -126,8 +166,6 @@ final class AppValidator
                 $filtered[$pluginBasename] = $timestamp;
             }
         }
-
-        self::savePersistent();
 
         return $filtered;
     }
@@ -229,7 +267,12 @@ final class AppValidator
     {
         self::$cache[$pluginBasename] = $decision;
         if (self::$persistentCache !== null) {
-            self::$persistentCache[$pluginBasename] = $decision;
+            // Only mark dirty if we actually changed something.
+            if (!array_key_exists($pluginBasename, self::$persistentCache)
+                || self::$persistentCache[$pluginBasename] !== $decision) {
+                self::$persistentCache[$pluginBasename] = $decision;
+                self::$persistentDirty = true;
+            }
         }
     }
 

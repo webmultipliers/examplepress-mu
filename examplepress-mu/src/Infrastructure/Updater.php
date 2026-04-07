@@ -50,18 +50,47 @@ final class Updater
      */
     public static function maybeCheckForUpdate(): void
     {
-        if (false !== get_transient(self::TRANSIENT_KEY)) {
+        // Guard the public do_action entry point. WP-Cron is HTTP-triggerable,
+        // so we only permit this callback to do work when it's actually cron
+        // or CLI driving it — not an arbitrary HTTP request happening to
+        // fire examplepress_mu_update_check.
+        $isCron = function_exists('wp_doing_cron') && wp_doing_cron();
+        $isCli  = defined('WP_CLI') && WP_CLI;
+        if (!$isCron && !$isCli) {
             return;
         }
 
-        // Set the transient immediately to prevent race conditions on concurrent requests.
-        set_transient(self::TRANSIENT_KEY, 'checking', self::CHECK_INTERVAL);
+        /**
+         * Update window hook. Return false to skip this cron tick — useful
+         * for honoring publish-in-progress locks, quiet hours, or release
+         * freezes without disabling the cron event altogether.
+         */
+        if (!apply_filters('examplepress_mu_should_update_now', true)) {
+            return;
+        }
+
+        // Multisite-safe: site transients are network-scoped. A per-blog
+        // transient would let two blogs race the same swap on the shared
+        // mu-plugins/ filesystem.
+        if (false !== get_site_transient(self::TRANSIENT_KEY)) {
+            return;
+        }
+
+        // Short in-flight lock (60s) — only about race protection. We extend
+        // this to the full CHECK_INTERVAL *after* a successful fetch, so a
+        // GitHub outage can't lock out retries for 12 hours.
+        set_site_transient(self::TRANSIENT_KEY, 'checking', 60);
 
         $remoteVersion = self::fetchRemoteVersion();
 
         if (! $remoteVersion) {
+            // Leave the 60s lock in place; it will expire naturally and let
+            // the next cron tick retry.
             return;
         }
+
+        // Fetch succeeded — extend the throttle to the real check interval.
+        set_site_transient(self::TRANSIENT_KEY, 'checked', self::CHECK_INTERVAL);
 
         if (version_compare($remoteVersion['version'], EXAMPLEPRESS_MU_VERSION, '>')) {
             self::performUpdate($remoteVersion['package'], $remoteVersion['checksum']);
@@ -138,13 +167,10 @@ final class Updater
     public static function performUpdate(string $packageUrl, string $checksum = ''): bool
     {
         require_once ABSPATH . 'wp-admin/includes/file.php';
-
-        $wp_filesystem = Helpers::filesystem(forceDirect: true);
-
-        if (!$wp_filesystem) {
-            error_log('ExamplePress MU Updater: Filesystem unavailable — direct access denied.');
-            return false;
-        }
+        // The loader (examplepress-mu.php) is guaranteed to be in scope —
+        // it's what required bootstrap.php and booted us — so the
+        // ExamplePress_MU_Bootstrapper class is already available and
+        // owns the single install code path (cold-start + self-upgrade).
 
         $tempFile = download_url($packageUrl);
 
@@ -155,112 +181,25 @@ final class Updater
 
         // Verify checksum if provided.
         if ($checksum && hash_file('sha256', $tempFile) !== $checksum) {
-            unlink($tempFile);
+            @unlink($tempFile);
             error_log('ExamplePress MU Updater: Checksum mismatch. Update aborted.');
             return false;
         }
 
-        $muPluginsDir   = dirname(EXAMPLEPRESS_MU_DIR);
-        $tempExtractDir = $muPluginsDir . '/_ep_mu_update_temp';
-        $backupDir      = $muPluginsDir . '/_ep_mu_update_backup';
-        $kernelDir      = $muPluginsDir . '/examplepress-mu';
-        $loaderFile     = $muPluginsDir . '/examplepress-mu.php';
+        $ok = \ExamplePress_MU_Bootstrapper::installFromZip(
+            $tempFile,
+            dirname(EXAMPLEPRESS_MU_DIR),
+            'Updater'
+        );
 
-        // Clean up any leftovers from a previous failed attempt.
-        $wp_filesystem->delete($tempExtractDir, true);
-        $wp_filesystem->delete($backupDir, true);
-
-        $wp_filesystem->mkdir($tempExtractDir);
-
-        $unzipResult = unzip_file($tempFile, $tempExtractDir);
-        unlink($tempFile);
-
-        if (is_wp_error($unzipResult)) {
-            $wp_filesystem->delete($tempExtractDir, true);
-            error_log('ExamplePress MU Updater: Unzip failed — ' . $unzipResult->get_error_message());
-            return false;
+        if ($ok) {
+            // Clear the transient so the next check picks up the new version.
+            // Note: the new code only takes effect on the NEXT request — the
+            // currently-running kernel cannot re-require its own replacement.
+            delete_site_transient(self::TRANSIENT_KEY);
+            error_log('ExamplePress MU Updater: Successfully updated to latest version.');
         }
 
-        $hasNewKernel = is_dir($tempExtractDir . '/examplepress-mu');
-        $hasNewLoader = file_exists($tempExtractDir . '/examplepress-mu.php');
-
-        if (!$hasNewKernel && !$hasNewLoader) {
-            $wp_filesystem->delete($tempExtractDir, true);
-            error_log('ExamplePress MU Updater: Release archive missing expected payload.');
-            return false;
-        }
-
-        // Stage the current kernel/loader to a backup so we can roll back.
-        $wp_filesystem->mkdir($backupDir);
-        $kernelBackedUp = false;
-        $loaderBackedUp = false;
-
-        if ($hasNewKernel && is_dir($kernelDir)) {
-            if (!$wp_filesystem->move($kernelDir, $backupDir . '/examplepress-mu', true)) {
-                $wp_filesystem->delete($tempExtractDir, true);
-                $wp_filesystem->delete($backupDir, true);
-                error_log('ExamplePress MU Updater: Could not stage kernel backup.');
-                return false;
-            }
-            $kernelBackedUp = true;
-        }
-
-        if ($hasNewLoader && file_exists($loaderFile)) {
-            if (!$wp_filesystem->move($loaderFile, $backupDir . '/examplepress-mu.php', true)) {
-                // Restore kernel and abort.
-                if ($kernelBackedUp) {
-                    $wp_filesystem->move($backupDir . '/examplepress-mu', $kernelDir, true);
-                }
-                $wp_filesystem->delete($tempExtractDir, true);
-                $wp_filesystem->delete($backupDir, true);
-                error_log('ExamplePress MU Updater: Could not stage loader backup.');
-                return false;
-            }
-            $loaderBackedUp = true;
-        }
-
-        // Swap in the new payload.
-        $swapOk = true;
-
-        if ($hasNewKernel) {
-            $swapOk = $swapOk && $wp_filesystem->move(
-                $tempExtractDir . '/examplepress-mu',
-                $kernelDir,
-                true
-            );
-        }
-
-        if ($swapOk && $hasNewLoader) {
-            $swapOk = $swapOk && $wp_filesystem->move(
-                $tempExtractDir . '/examplepress-mu.php',
-                $loaderFile,
-                true
-            );
-        }
-
-        if (!$swapOk) {
-            // Roll back to the previous version.
-            $wp_filesystem->delete($kernelDir, true);
-            if ($kernelBackedUp) {
-                $wp_filesystem->move($backupDir . '/examplepress-mu', $kernelDir, true);
-            }
-            if ($loaderBackedUp) {
-                $wp_filesystem->move($backupDir . '/examplepress-mu.php', $loaderFile, true);
-            }
-            $wp_filesystem->delete($tempExtractDir, true);
-            $wp_filesystem->delete($backupDir, true);
-            error_log('ExamplePress MU Updater: Atomic swap failed; previous version restored.');
-            return false;
-        }
-
-        $wp_filesystem->delete($tempExtractDir, true);
-        $wp_filesystem->delete($backupDir, true);
-
-        // Clear the transient so the next check picks up the new version.
-        delete_transient(self::TRANSIENT_KEY);
-
-        error_log('ExamplePress MU Updater: Successfully updated to latest version.');
-
-        return true;
+        return $ok;
     }
 }

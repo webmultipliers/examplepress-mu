@@ -23,6 +23,11 @@ final class Helpers
         global $wp_filesystem;
 
         if ($wp_filesystem instanceof \WP_Filesystem_Base) {
+            // Re-validate the cached instance the same way a fresh init would,
+            // so a prior non-fatal error state doesn't get handed to new callers.
+            if (isset($wp_filesystem->errors) && is_wp_error($wp_filesystem->errors) && $wp_filesystem->errors->has_errors()) {
+                return false;
+            }
             return $wp_filesystem;
         }
 

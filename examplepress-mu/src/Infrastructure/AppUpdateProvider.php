@@ -20,6 +20,9 @@ final class AppUpdateProvider
     private const TRANSIENT_KEY = 'ep_app_update_data';
     private const CHECK_INTERVAL = 6 * 3600; // 6 hours
 
+    /** In-process memo for getUpdateData(). */
+    private static ?array $memo = null;
+
     public static function init(): void
     {
         // Inject update data into the WordPress update transient.
@@ -30,6 +33,11 @@ final class AppUpdateProvider
 
         // Rename GitHub archive directories during install to match the slug.
         add_filter('upgrader_source_selection', [self::class, 'fixSourceDir'], 10, 4);
+
+        // Flush both the transient and the in-process memo after WordPress
+        // finishes an upgrade/install via the injected update record —
+        // otherwise the "update available" badge sticks around for 6h.
+        add_action('upgrader_process_complete', [self::class, 'flush']);
     }
 
     /**
@@ -145,21 +153,20 @@ final class AppUpdateProvider
      */
     private static function getUpdateData(): array
     {
-        static $data = null;
-        if ($data !== null) {
-            return $data;
+        if (self::$memo !== null) {
+            return self::$memo;
         }
 
         $cached = get_site_transient(self::TRANSIENT_KEY);
         if (is_array($cached)) {
-            $data = $cached;
-            return $data;
+            self::$memo = $cached;
+            return self::$memo;
         }
 
-        $data = self::fetchAllUpdates();
-        set_site_transient(self::TRANSIENT_KEY, $data, self::CHECK_INTERVAL);
+        self::$memo = self::fetchAllUpdates();
+        set_site_transient(self::TRANSIENT_KEY, self::$memo, self::CHECK_INTERVAL);
 
-        return $data;
+        return self::$memo;
     }
 
     /**
@@ -256,7 +263,10 @@ final class AppUpdateProvider
 
         $release = json_decode(wp_remote_retrieve_body($response), true);
 
-        if (!is_array($release) || !empty($release['draft'])) {
+        // Skip draft and prerelease builds. /releases/latest already excludes
+        // prereleases on GitHub's side, but guard anyway in case this method
+        // is ever repointed at /releases (which lists them).
+        if (!is_array($release) || !empty($release['draft']) || !empty($release['prerelease'])) {
             return null;
         }
 
@@ -290,6 +300,7 @@ final class AppUpdateProvider
      */
     public static function flush(): void
     {
+        self::$memo = null;
         delete_site_transient(self::TRANSIENT_KEY);
     }
 }

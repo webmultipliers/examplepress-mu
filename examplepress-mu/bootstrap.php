@@ -18,7 +18,24 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // ─── Platform Constants ──────────────────────────────────────────────
-define( 'EXAMPLEPRESS_MU_VERSION', '2.0.0' );
+// Version is the single source of truth in the loader header
+// (examplepress-mu.php). We parse it at runtime so the kernel and the
+// release-workflow scraper can never disagree.
+if ( ! defined( 'EXAMPLEPRESS_MU_VERSION' ) ) {
+    $ep_mu_loader = dirname( __DIR__ ) . '/examplepress-mu.php';
+    $ep_mu_ver    = '0.0.0';
+    if ( is_readable( $ep_mu_loader ) ) {
+        if ( ! function_exists( 'get_file_data' ) ) {
+            require_once ABSPATH . 'wp-admin/includes/functions.php';
+        }
+        $ep_mu_headers = get_file_data( $ep_mu_loader, [ 'Version' => 'Version' ] );
+        if ( ! empty( $ep_mu_headers['Version'] ) ) {
+            $ep_mu_ver = $ep_mu_headers['Version'];
+        }
+    }
+    define( 'EXAMPLEPRESS_MU_VERSION', $ep_mu_ver );
+    unset( $ep_mu_loader, $ep_mu_ver, $ep_mu_headers );
+}
 define( 'EXAMPLEPRESS_MU_DIR', __DIR__ );
 define( 'EXAMPLEPRESS_MU_URI', plugins_url( '', __FILE__ ) );
 define( 'EP_MU_ACTIVE', true );
@@ -56,3 +73,21 @@ if ( file_exists( $autoloader ) ) {
 
 // ─── Boot the Kernel ─────────────────────────────────────────────────
 \ExamplePress\MU\Kernel::boot();
+
+// ─── Two-phase fatal-loop counter clear ─────────────────────────────
+// Reaching this line only proves that Kernel::boot() didn't fatal during
+// the require. A later hook could still fatal during the same request.
+// So we set a "kernel booted" flag now and defer the actual counter
+// clear to a shutdown callback that fires at the very end — if the
+// request reaches shutdown with the flag set, the boot was genuinely
+// successful and the counter can be safely cleared.
+if ( class_exists( 'ExamplePress_MU_Bootstrapper', false ) ) {
+    \ExamplePress_MU_Bootstrapper::markKernelBooted();
+    if ( function_exists( 'add_action' ) ) {
+        add_action(
+            'shutdown',
+            [ 'ExamplePress_MU_Bootstrapper', 'finalizeBootIfSuccessful' ],
+            PHP_INT_MAX
+        );
+    }
+}

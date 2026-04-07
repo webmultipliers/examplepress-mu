@@ -67,10 +67,25 @@ final class FilesystemController
     {
         $allowed = current_user_can('manage_options');
 
+        // Respect WordPress's file-editing lockdown constants. PlatformPolicy
+        // defines DISALLOW_FILE_EDIT at boot as part of the platform's
+        // governance posture — it would be a contradiction to then expose a
+        // REST write endpoint that silently bypasses it. Operators who want
+        // the in-browser editor must opt in explicitly via the filter below.
+        $locked = (defined('DISALLOW_FILE_EDIT') && DISALLOW_FILE_EDIT)
+            || (defined('DISALLOW_FILE_MODS') && DISALLOW_FILE_MODS);
+
+        if ($locked) {
+            $allowed = false;
+        }
+
         /**
          * Filter whether the current user can edit app files.
          *
-         * @param bool $allowed Default: manage_options capability.
+         * @param bool $allowed Default: manage_options capability AND
+         *                      neither DISALLOW_FILE_EDIT nor DISALLOW_FILE_MODS is set.
+         *                      Return true explicitly to override the lockdown
+         *                      for the in-browser editor use case.
          */
         return (bool) apply_filters('examplepress_mu_can_edit_app_files', $allowed);
     }
@@ -211,17 +226,36 @@ final class FilesystemController
             return $real_file;
         }
 
-        // For writes to new files: validate the parent directory.
-        $parent_dir  = dirname($absolute);
-        $real_parent = realpath($parent_dir);
-        $real_base   = realpath($plugin_dir);
-
-        if (!$real_parent || !$real_base) {
-            return new \WP_Error('not_found', 'Parent directory does not exist.', ['status' => 404]);
+        // For writes to new files: first validate the lexical path stays
+        // inside the plugin dir, then create the parent directory if it's
+        // missing (so a write into a new subfolder succeeds), then compute
+        // the real path.
+        $real_base = realpath($plugin_dir);
+        if (!$real_base) {
+            return new \WP_Error('not_found', 'Plugin directory does not exist.', ['status' => 404]);
         }
 
-        // Parent must be the plugin dir itself or a subdirectory of it.
-        if ($real_parent !== $real_base && !str_starts_with($real_parent, $real_base . '/')) {
+        // Walk up the intended path until we find an existing ancestor; that
+        // ancestor's real path must be inside the plugin dir. This defends
+        // against symlink escapes even when the full parent chain doesn't
+        // yet exist on disk.
+        $ancestor = dirname($absolute);
+        $probe    = $ancestor;
+        while ($probe && !file_exists($probe)) {
+            $probe = dirname($probe);
+        }
+        $real_probe = $probe ? realpath($probe) : false;
+        if (!$real_probe || ($real_probe !== $real_base && !str_starts_with($real_probe, $real_base . '/'))) {
+            return new \WP_Error('forbidden', 'Path escapes the plugin boundary.', ['status' => 403]);
+        }
+
+        // Materialize any missing intermediate directories now.
+        if (!is_dir($ancestor)) {
+            wp_mkdir_p($ancestor);
+        }
+
+        $real_parent = realpath($ancestor);
+        if (!$real_parent || ($real_parent !== $real_base && !str_starts_with($real_parent, $real_base . '/'))) {
             return new \WP_Error('forbidden', 'Path escapes the plugin boundary.', ['status' => 403]);
         }
 

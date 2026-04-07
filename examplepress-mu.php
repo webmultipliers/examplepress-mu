@@ -2,7 +2,7 @@
 /**
  * Plugin Name: ExamplePress MU Bootstrapper
  * Description: Thin loader that fetches and executes the ExamplePress platform kernel from GitHub.
- * Version:     2.0.6
+ * Version:     2.1.0
  * Author:      Web Multipliers
  * Author URI:  https://github.com/webmultipliers
  */
@@ -24,39 +24,312 @@ final class ExamplePress_MU_Bootstrapper {
     private static string $repoOwner = 'webmultipliers';
     private static string $repoName  = 'examplepress-mu';
 
-    public static function boot(): void {
-        $muDir    = __DIR__ . '/examplepress-mu';
-        $bootFile = $muDir . '/bootstrap.php';
+    /** Short-lived in-flight lock to prevent concurrent first-load installs. */
+    private const INFLIGHT_KEY = 'ep_mu_install_inflight';
+    /** Back-off window after a failed cold-start install (seconds). */
+    private const BACKOFF_KEY = 'ep_mu_install_backoff';
+    /** Persistent counter incremented on each boot attempt; cleared after a clean boot. */
+    private const BOOT_ATTEMPT_OPTION = 'ep_mu_boot_attempt';
+    /** Option holding the last cold-start failure reason for admin display. */
+    private const COLDSTART_ERROR_OPTION = 'ep_mu_coldstart_error';
+    /** Option set when the loader has quarantined a fatal kernel. */
+    private const QUARANTINE_OPTION = 'ep_mu_quarantined';
+    /** Counter threshold that indicates a fatal loop. */
+    private const BOOT_ATTEMPT_THRESHOLD = 3;
+    /** Minimum PHP version required by the kernel. Loader refuses to require the kernel below this. */
+    private const REQUIRED_PHP = '8.1';
 
-        if ( ! file_exists( $bootFile ) ) {
-            self::fetchLatestFromGithub( __DIR__ );
+    /**
+     * Flag set by Kernel::boot() (via markKernelBooted) and checked on
+     * `shutdown`. The fatal-loop counter is only cleared if BOTH happened,
+     * so a kernel that registers hooks and then fatals mid-request does
+     * not get credit for a successful boot.
+     */
+    private static bool $kernelBooted = false;
+
+    public static function boot(): void {
+        $targetDir = __DIR__;
+        $state     = self::readBootState( $targetDir );
+        $action    = self::computeBootAction( $state );
+        self::dispatchBootAction( $action, $targetDir, $state );
+    }
+
+    /**
+     * Read the full boot-time state into a plain array. Pure-ish — only
+     * reads options/transients/filesystem, no writes. Separated from the
+     * decision so the decision is trivially unit-testable with a hand-built
+     * state array.
+     *
+     * @return array<string, mixed>
+     */
+    public static function readBootState( string $targetMuDir ): array {
+        $bootFile    = $targetMuDir . '/examplepress-mu/bootstrap.php';
+        $previousDir = $targetMuDir . '/examplepress-mu.previous';
+
+        return [
+            'phpVersionId'   => PHP_VERSION_ID,
+            'requiredPhpId'  => self::phpVersionIdFromString( self::REQUIRED_PHP ),
+            'attempts'       => function_exists( 'get_option' ) ? (int) get_option( self::BOOT_ATTEMPT_OPTION, 0 ) : 0,
+            'threshold'      => self::BOOT_ATTEMPT_THRESHOLD,
+            'bootFileExists' => file_exists( $bootFile ),
+            'previousExists' => is_dir( $previousDir ),
+            'backoffActive'  => function_exists( 'get_transient' ) && (bool) get_transient( self::BACKOFF_KEY ),
+            'inflightActive' => function_exists( 'get_transient' ) && (bool) get_transient( self::INFLIGHT_KEY ),
+        ];
+    }
+
+    /**
+     * Pure decision function. Given a state array, return the action name
+     * the dispatcher should take. No side effects; no WordPress calls.
+     *
+     * Possible return values:
+     *   php_too_old            Runtime PHP version is below REQUIRED_PHP.
+     *   fatal_loop_rollback    Attempt counter exceeded threshold; previous is available.
+     *   fatal_loop_quarantine  Attempt counter exceeded threshold; no previous — brick.
+     *   heal_promote_previous  Boot file missing but a previous snapshot exists.
+     *   cold_start_backoff     Boot file missing, no previous, and backoff transient is active.
+     *   cold_start_inflight    Boot file missing, no previous, another install is already running.
+     *   cold_start_fetch       Boot file missing, no previous, fetch from GitHub.
+     *   proceed                Boot file present and counter under threshold — normal boot.
+     *
+     * @param array<string, mixed> $state
+     */
+    public static function computeBootAction( array $state ): string {
+        if ( $state['phpVersionId'] < $state['requiredPhpId'] ) {
+            return 'php_too_old';
+        }
+        if ( $state['attempts'] >= $state['threshold'] ) {
+            return $state['previousExists'] ? 'fatal_loop_rollback' : 'fatal_loop_quarantine';
+        }
+        if ( ! $state['bootFileExists'] ) {
+            if ( $state['previousExists'] ) {
+                return 'heal_promote_previous';
+            }
+            if ( $state['backoffActive'] ) {
+                return 'cold_start_backoff';
+            }
+            if ( $state['inflightActive'] ) {
+                return 'cold_start_inflight';
+            }
+            return 'cold_start_fetch';
+        }
+        return 'proceed';
+    }
+
+    /**
+     * Act on a decision from computeBootAction(). All WordPress side effects
+     * live here: option writes, transients, promotion, fetch, require.
+     *
+     * @param array<string, mixed> $state
+     */
+    private static function dispatchBootAction( string $action, string $targetMuDir, array $state ): void {
+        $bootFile = $targetMuDir . '/examplepress-mu/bootstrap.php';
+
+        switch ( $action ) {
+            case 'php_too_old':
+                self::registerAdminNotice( sprintf(
+                    'ExamplePress MU requires PHP %s or newer. Current version: %s. The kernel will not be loaded.',
+                    self::REQUIRED_PHP,
+                    PHP_VERSION
+                ) );
+                return;
+
+            case 'fatal_loop_quarantine':
+                if ( function_exists( 'update_option' ) ) {
+                    update_option( self::QUARANTINE_OPTION, [
+                        'time'     => time(),
+                        'attempts' => $state['attempts'],
+                    ], false );
+                }
+                self::registerAdminNotice(
+                    'ExamplePress MU: the kernel appears to be fataling on boot and no previous version is available to roll back to. The kernel has been quarantined. Restore from backup or reinstall.'
+                );
+                return;
+
+            case 'fatal_loop_rollback':
+                if ( function_exists( 'update_option' ) ) {
+                    update_option( self::QUARANTINE_OPTION, [
+                        'time'     => time(),
+                        'attempts' => $state['attempts'],
+                    ], false );
+                }
+                if ( ! self::promotePreviousVersion( $targetMuDir ) ) {
+                    self::registerAdminNotice(
+                        'ExamplePress MU: rollback to the previous kernel failed. Restore from backup or reinstall.'
+                    );
+                    return;
+                }
+                // Reset counter so the promoted (known-good) kernel gets a
+                // clean shot. This iteration still counts as one attempt.
+                if ( function_exists( 'update_option' ) ) {
+                    update_option( self::BOOT_ATTEMPT_OPTION, 0, false );
+                }
+                self::registerAdminNotice(
+                    'ExamplePress MU: the kernel was fataling on boot and has been rolled back to the previous version. Check the logs for details.'
+                );
+                // Fall through to require.
+                break;
+
+            case 'heal_promote_previous':
+                self::promotePreviousVersion( $targetMuDir );
+                // Fall through to require (if promotion succeeded bootFile now exists).
+                break;
+
+            case 'cold_start_backoff':
+                self::maybeShowColdStartNotice();
+                return;
+
+            case 'cold_start_inflight':
+                return;
+
+            case 'cold_start_fetch':
+                if ( function_exists( 'set_transient' ) ) {
+                    set_transient( self::INFLIGHT_KEY, '1', 120 );
+                }
+                $ok = self::fetchLatestFromGithub( $targetMuDir );
+                if ( function_exists( 'delete_transient' ) ) {
+                    delete_transient( self::INFLIGHT_KEY );
+                }
+                if ( ! $ok ) {
+                    if ( function_exists( 'set_transient' ) ) {
+                        set_transient( self::BACKOFF_KEY, '1', 5 * MINUTE_IN_SECONDS );
+                    }
+                    self::maybeShowColdStartNotice();
+                    return;
+                }
+                break;
+
+            case 'proceed':
+                // Normal boot path.
+                break;
+        }
+
+        // Increment the attempt counter BEFORE the require. markKernelBooted()
+        // + the shutdown hook will clear it once Kernel::boot() AND the full
+        // request complete successfully.
+        if ( function_exists( 'update_option' ) ) {
+            update_option( self::BOOT_ATTEMPT_OPTION, $state['attempts'] + 1, false );
         }
 
         if ( file_exists( $bootFile ) ) {
             require_once $bootFile;
-        } else {
-            error_log( 'ExamplePress MU Bootstrapper: Failed to load or download the core application.' );
+            return;
+        }
+
+        self::registerAdminNotice(
+            'ExamplePress MU kernel is not installed and cold-start fetch from GitHub failed. Check error_log for details; the loader will retry shortly.'
+        );
+        error_log( 'ExamplePress MU Bootstrapper: Failed to load or download the core application.' );
+    }
+
+    /**
+     * Called by bootstrap.php after Kernel::boot() returns. Sets a flag that
+     * the shutdown handler checks — the counter is only cleared if the
+     * request also reaches shutdown (i.e. no fatal fired inside a later hook).
+     */
+    public static function markKernelBooted(): void {
+        self::$kernelBooted = true;
+    }
+
+    /**
+     * Shutdown callback. Clears the fatal-loop counter and quarantine state
+     * iff markKernelBooted() was called during the same request.
+     */
+    public static function finalizeBootIfSuccessful(): void {
+        if ( ! self::$kernelBooted ) {
+            return;
+        }
+        if ( function_exists( 'update_option' ) ) {
+            update_option( self::BOOT_ATTEMPT_OPTION, 0, false );
+        }
+        if ( function_exists( 'delete_option' ) ) {
+            delete_option( self::QUARANTINE_OPTION );
+            delete_option( self::COLDSTART_ERROR_OPTION );
+        }
+    }
+
+    /**
+     * Promote an `examplepress-mu.previous/` snapshot to the active kernel
+     * directory. Used by both fatal-loop recovery and heal-on-missing.
+     */
+    public static function promotePreviousVersion( string $targetMuDir ): bool {
+        $previousDir = $targetMuDir . '/examplepress-mu.previous';
+        $kernelDir   = $targetMuDir . '/examplepress-mu';
+
+        if ( ! is_dir( $previousDir ) ) {
+            return false;
+        }
+
+        $fs = self::filesystem();
+        if ( ! $fs ) {
+            return false;
+        }
+
+        // Swap out the broken kernel (if any) and move previous into its place.
+        if ( $fs->is_dir( $kernelDir ) ) {
+            $broken = $targetMuDir . '/examplepress-mu.broken';
+            $fs->delete( $broken, true );
+            if ( ! $fs->move( $kernelDir, $broken, true ) ) {
+                return false;
+            }
+        }
+
+        return (bool) $fs->move( $previousDir, $kernelDir, true );
+    }
+
+    /**
+     * Convert '8.1' / '8.1.0' to a PHP_VERSION_ID style integer.
+     */
+    private static function phpVersionIdFromString( string $version ): int {
+        $parts = array_map( 'intval', explode( '.', $version ) + [ 0, 0, 0 ] );
+        return $parts[0] * 10000 + ( $parts[1] ?? 0 ) * 100 + ( $parts[2] ?? 0 );
+    }
+
+    /**
+     * Register a one-shot admin notice from the loader. Used when no kernel
+     * is running (no namespaced classes loaded) so the operator still sees
+     * why the site is empty.
+     */
+    private static function registerAdminNotice( string $message ): void {
+        if ( ! function_exists( 'add_action' ) ) {
+            return;
+        }
+        add_action( 'admin_notices', static function () use ( $message ): void {
+            if ( ! current_user_can( 'manage_options' ) ) {
+                return;
+            }
+            printf(
+                '<div class="notice notice-error"><p><strong>ExamplePress MU:</strong> %s</p></div>',
+                esc_html( $message )
+            );
+        } );
+    }
+
+    /**
+     * Show the stored cold-start error (set by fetchLatestFromGithub on failure).
+     */
+    private static function maybeShowColdStartNotice(): void {
+        if ( ! function_exists( 'get_option' ) ) {
+            return;
+        }
+        $error = get_option( self::COLDSTART_ERROR_OPTION, '' );
+        $msg   = is_string( $error ) && $error !== ''
+            ? 'ExamplePress MU kernel is not installed. Cold-start fetch failed: ' . $error
+            : 'ExamplePress MU kernel is not installed. Cold-start fetch is backing off; the loader will retry shortly.';
+        self::registerAdminNotice( $msg );
+    }
+
+    /**
+     * Persist the latest cold-start failure reason for the admin notice.
+     */
+    private static function recordColdStartError( string $reason ): void {
+        if ( function_exists( 'update_option' ) ) {
+            update_option( self::COLDSTART_ERROR_OPTION, $reason, false );
         }
     }
 
     private static function fetchLatestFromGithub( string $targetMuDir ): bool {
         require_once ABSPATH . 'wp-admin/includes/file.php';
-
-        // Force the direct transport so this cannot prompt for FTP creds
-        // during plugin boot (which has no rendering surface).
-        $forceCb = static fn() => 'direct';
-        add_filter( 'filesystem_method', $forceCb );
-        ob_start();
-        $fsOk = WP_Filesystem();
-        ob_end_clean();
-        remove_filter( 'filesystem_method', $forceCb );
-
-        global $wp_filesystem;
-
-        if ( ! $fsOk || ! ( $wp_filesystem instanceof \WP_Filesystem_Base ) ) {
-            error_log( 'ExamplePress MU Bootstrapper: Filesystem unavailable — direct access denied.' );
-            return false;
-        }
 
         $apiUrl  = 'https://api.github.com/repos/' . self::$repoOwner . '/' . self::$repoName . '/releases/latest';
         $response = wp_remote_get( $apiUrl, [
@@ -68,7 +341,9 @@ final class ExamplePress_MU_Bootstrapper {
         ] );
 
         if ( is_wp_error( $response ) || wp_remote_retrieve_response_code( $response ) !== 200 ) {
-            error_log( 'ExamplePress MU Bootstrapper: Could not reach GitHub API.' );
+            $reason = is_wp_error( $response ) ? $response->get_error_message() : 'GitHub API unreachable';
+            self::recordColdStartError( $reason );
+            error_log( 'ExamplePress MU Bootstrapper: Could not reach GitHub API — ' . $reason );
             return false;
         }
 
@@ -104,6 +379,7 @@ final class ExamplePress_MU_Bootstrapper {
 
         if ( ! $packageUrl ) {
             if ( empty( $release->zipball_url ) ) {
+                self::recordColdStartError( 'No download URL found in release.' );
                 error_log( 'ExamplePress MU Bootstrapper: No download URL found in release.' );
                 return false;
             }
@@ -115,110 +391,344 @@ final class ExamplePress_MU_Bootstrapper {
 
         $tempFile = download_url( $packageUrl );
         if ( is_wp_error( $tempFile ) ) {
-            error_log( 'ExamplePress MU Bootstrapper: Download failed — ' . $tempFile->get_error_message() );
+            $reason = 'Download failed — ' . $tempFile->get_error_message();
+            self::recordColdStartError( $reason );
+            error_log( 'ExamplePress MU Bootstrapper: ' . $reason );
             return false;
         }
 
         if ( $checksum && hash_file( 'sha256', $tempFile ) !== $checksum ) {
-            unlink( $tempFile );
+            @unlink( $tempFile );
             error_log( 'ExamplePress MU Bootstrapper: Checksum mismatch. Install aborted.' );
             return false;
         }
 
-        $tempExtractDir = $targetMuDir . '/_ep_mu_temp';
-        $backupDir      = $targetMuDir . '/_ep_mu_backup';
+        return self::installFromZip( $tempFile, $targetMuDir, 'Bootstrapper' );
+    }
+
+    // ── Shared installer ────────────────────────────────────────────────
+    //
+    // Public so that Infrastructure\Updater can call into the exact same
+    // code path for its WP-Cron self-upgrade. The loader is guaranteed to
+    // be in scope whenever the Updater runs — it's what booted the kernel
+    // in the first place — so no autoloader/PSR-4 involvement is needed.
+
+    /**
+     * Initialize WP_Filesystem forcing the 'direct' transport so this
+     * never prompts for FTP credentials during a cold boot / cron tick.
+     *
+     * @return \WP_Filesystem_Base|false
+     */
+    public static function filesystem() {
+        global $wp_filesystem;
+
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+
+        if ( $wp_filesystem instanceof \WP_Filesystem_Base ) {
+            return $wp_filesystem;
+        }
+
+        $forceCb = static function () { return 'direct'; };
+        add_filter( 'filesystem_method', $forceCb );
+        ob_start();
+        $ok = \WP_Filesystem();
+        ob_end_clean();
+        remove_filter( 'filesystem_method', $forceCb );
+
+        if ( ! $ok || ! ( $wp_filesystem instanceof \WP_Filesystem_Base ) ) {
+            return false;
+        }
+
+        return $wp_filesystem;
+    }
+
+    /**
+     * Install/upgrade the ExamplePress kernel from a downloaded zip file.
+     *
+     * Stages to a temp dir, locates the payload (archive root OR single
+     * wrapping folder, e.g. GitHub source zipball), backs up any existing
+     * kernel/loader, swaps atomically, rolls back on failure, and cleans up.
+     *
+     * @param string $tempFile    Absolute path to the downloaded .zip.
+     *                            Will be removed by this method.
+     * @param string $targetMuDir Directory that contains (or will contain)
+     *                            the `examplepress-mu/` kernel and the
+     *                            `examplepress-mu.php` loader.
+     * @param string $context     Log-prefix label ('Bootstrapper' / 'Updater').
+     */
+    public static function installFromZip( string $tempFile, string $targetMuDir, string $context = 'Installer' ): bool {
+        $fs = self::filesystem();
+        if ( ! $fs ) {
+            self::logInstall( $context, 'Filesystem unavailable — direct access denied.' );
+            self::unlinkTemp( $tempFile );
+            self::fireInstallFailed( 'fs_unavailable', $context );
+            return false;
+        }
+
+        $tempExtractDir = $targetMuDir . '/_ep_mu_install_temp';
+        $previousDir    = $targetMuDir . '/examplepress-mu.previous';
         $kernelDir      = $targetMuDir . '/examplepress-mu';
         $loaderFile     = $targetMuDir . '/examplepress-mu.php';
 
-        // Clear leftovers from any prior failed attempt.
-        $wp_filesystem->delete( $tempExtractDir, true );
-        $wp_filesystem->delete( $backupDir, true );
+        // Clear leftovers from a prior failed attempt.
+        $fs->delete( $tempExtractDir, true );
 
-        $wp_filesystem->mkdir( $tempExtractDir );
+        $fs->mkdir( $tempExtractDir );
 
         $unzipResult = unzip_file( $tempFile, $tempExtractDir );
-        unlink( $tempFile );
+        self::unlinkTemp( $tempFile );
 
         if ( is_wp_error( $unzipResult ) ) {
-            $wp_filesystem->delete( $tempExtractDir, true );
-            error_log( 'ExamplePress MU Bootstrapper: Unzip failed — ' . $unzipResult->get_error_message() );
+            $fs->delete( $tempExtractDir, true );
+            $reason = 'Unzip failed — ' . $unzipResult->get_error_message();
+            self::logInstall( $context, $reason );
+            self::fireInstallFailed( $reason, $context );
             return false;
         }
 
-        // Locate the staged source (root of the archive or the GitHub-named folder).
-        $stagedSource = null;
-        if ( file_exists( $tempExtractDir . '/examplepress-mu.php' ) ) {
-            $stagedSource = $tempExtractDir;
-        } else {
-            $extractedFolders = $wp_filesystem->dirlist( $tempExtractDir );
-            if ( ! empty( $extractedFolders ) ) {
-                $githubFolderName = array_keys( $extractedFolders )[0];
-                $stagedSource     = $tempExtractDir . '/' . $githubFolderName;
-            }
-        }
+        $stagedSource = self::locatePayload( $fs, $tempExtractDir );
 
         if ( ! $stagedSource ) {
-            $wp_filesystem->delete( $tempExtractDir, true );
-            error_log( 'ExamplePress MU Bootstrapper: Could not locate kernel payload in archive.' );
+            $fs->delete( $tempExtractDir, true );
+            self::logInstall( $context, 'Could not locate kernel payload in archive.' );
+            self::fireInstallFailed( 'payload_not_found', $context );
             return false;
         }
 
-        // Stage backups of existing kernel/loader if present.
-        $wp_filesystem->mkdir( $backupDir );
-        $kernelBackedUp = false;
-        $loaderBackedUp = false;
+        $hasNewKernel = $fs->is_dir( $stagedSource . '/examplepress-mu' );
+        $hasNewLoader = $fs->exists( $stagedSource . '/examplepress-mu.php' );
 
-        if ( is_dir( $kernelDir ) ) {
-            if ( ! $wp_filesystem->move( $kernelDir, $backupDir . '/examplepress-mu', true ) ) {
-                $wp_filesystem->delete( $tempExtractDir, true );
-                $wp_filesystem->delete( $backupDir, true );
-                error_log( 'ExamplePress MU Bootstrapper: Could not stage kernel backup.' );
+        if ( ! $hasNewKernel && ! $hasNewLoader ) {
+            $fs->delete( $tempExtractDir, true );
+            self::logInstall( $context, 'Payload missing expected kernel/loader files.' );
+            self::fireInstallFailed( 'payload_incomplete', $context );
+            return false;
+        }
+
+        // Staged requires_php check — refuse to install a release that
+        // declares a newer PHP floor than the runtime.
+        $stagedPhp = self::readStagedRequiresPhp( $stagedSource );
+        if ( $stagedPhp !== null && PHP_VERSION_ID < self::phpVersionIdFromString( $stagedPhp ) ) {
+            $fs->delete( $tempExtractDir, true );
+            $reason = sprintf( 'Staged release requires PHP %s; runtime is %s. Aborting swap.', $stagedPhp, PHP_VERSION );
+            self::logInstall( $context, $reason );
+            self::fireInstallFailed( 'requires_php', $context );
+            return false;
+        }
+
+        // Gather version info for the lifecycle hooks.
+        $oldVersion = self::readLoaderVersion( $loaderFile );
+        $newVersion = $hasNewLoader ? self::readLoaderVersion( $stagedSource . '/examplepress-mu.php' ) : $oldVersion;
+
+        // Pre-install hook — listeners can abort by returning WP_Error via
+        // a wrapping filter, or by throwing. Cold-start has no listeners;
+        // the Updater path does.
+        if ( function_exists( 'do_action' ) ) {
+            do_action( 'examplepress_mu_pre_install', $stagedSource, $context, $oldVersion, $newVersion );
+        }
+
+        // Rotate any existing previous snapshot. On success, the current
+        // kernel dir becomes `examplepress-mu.previous/` — a ready-to-promote
+        // rollback target consumed by promotePreviousVersion() and the
+        // loader's fatal-loop recovery path.
+        $previousLoader = $targetMuDir . '/examplepress-mu.previous-loader.php';
+        $fs->delete( $previousDir, true );
+        $fs->delete( $previousLoader, true );
+
+        $kernelBackedUp = false;
+        if ( $hasNewKernel && $fs->is_dir( $kernelDir ) ) {
+            if ( ! $fs->move( $kernelDir, $previousDir, true ) ) {
+                $fs->delete( $tempExtractDir, true );
+                self::logInstall( $context, 'Could not stage kernel backup.' );
+                self::fireInstallFailed( 'backup_kernel', $context );
                 return false;
             }
             $kernelBackedUp = true;
         }
 
-        if ( file_exists( $loaderFile ) ) {
-            if ( ! $wp_filesystem->move( $loaderFile, $backupDir . '/examplepress-mu.php', true ) ) {
+        $loaderBackedUp = false;
+        if ( $hasNewLoader && $fs->exists( $loaderFile ) ) {
+            if ( ! $fs->copy( $loaderFile, $previousLoader, true ) ) {
                 if ( $kernelBackedUp ) {
-                    $wp_filesystem->move( $backupDir . '/examplepress-mu', $kernelDir, true );
+                    $fs->move( $previousDir, $kernelDir, true );
                 }
-                $wp_filesystem->delete( $tempExtractDir, true );
-                $wp_filesystem->delete( $backupDir, true );
-                error_log( 'ExamplePress MU Bootstrapper: Could not stage loader backup.' );
+                $fs->delete( $tempExtractDir, true );
+                self::logInstall( $context, 'Could not stage loader backup.' );
+                self::fireInstallFailed( 'backup_loader', $context );
                 return false;
             }
             $loaderBackedUp = true;
         }
 
+        // Atomic swap.
         $swapOk = true;
 
-        if ( is_dir( $stagedSource . '/examplepress-mu' ) ) {
-            $swapOk = $swapOk && $wp_filesystem->move( $stagedSource . '/examplepress-mu', $kernelDir, true );
+        if ( $hasNewKernel ) {
+            $swapOk = $swapOk && $fs->move( $stagedSource . '/examplepress-mu', $kernelDir, true );
         }
-        if ( $swapOk && file_exists( $stagedSource . '/examplepress-mu.php' ) ) {
-            $swapOk = $swapOk && $wp_filesystem->move( $stagedSource . '/examplepress-mu.php', $loaderFile, true );
+        if ( $swapOk && $hasNewLoader ) {
+            $swapOk = $swapOk && $fs->move( $stagedSource . '/examplepress-mu.php', $loaderFile, true );
         }
 
         if ( ! $swapOk ) {
-            // Roll back to whatever was there before.
-            $wp_filesystem->delete( $kernelDir, true );
+            // Roll back. Delete any partially-moved new kernel and restore
+            // the staged backups into place.
+            $fs->delete( $kernelDir, true );
             if ( $kernelBackedUp ) {
-                $wp_filesystem->move( $backupDir . '/examplepress-mu', $kernelDir, true );
+                $fs->move( $previousDir, $kernelDir, true );
             }
-            if ( $loaderBackedUp ) {
-                $wp_filesystem->move( $backupDir . '/examplepress-mu.php', $loaderFile, true );
+            if ( $loaderBackedUp && $fs->exists( $previousLoader ) ) {
+                $fs->move( $previousLoader, $loaderFile, true );
             }
-            $wp_filesystem->delete( $tempExtractDir, true );
-            $wp_filesystem->delete( $backupDir, true );
-            error_log( 'ExamplePress MU Bootstrapper: Atomic swap failed; previous state restored.' );
+            $fs->delete( $tempExtractDir, true );
+            self::logInstall( $context, 'Atomic swap failed; previous version restored.' );
+            self::fireInstallFailed( 'swap_failed', $context );
             return false;
         }
 
-        $wp_filesystem->delete( $tempExtractDir, true );
-        $wp_filesystem->delete( $backupDir, true );
+        $fs->delete( $tempExtractDir, true );
+        // NOTE: we intentionally do NOT delete $previousDir or $previousLoader.
+        // They are retained as the rollback snapshot consumed by
+        // promotePreviousVersion() and the loader's fatal-loop recovery path.
+
+        // OPcache: invalidate stale bytecode for the loader and every .php
+        // file under the new kernel dir. Without this, the current worker
+        // will keep serving the old bytecode against new file layouts until
+        // it recycles — a recipe for class-not-found fatals.
+        //
+        // NOTE: opcache_invalidate() only affects the current worker.
+        // Other PHP-FPM workers will still hold stale entries until their
+        // own next request mtime-revalidates each file. Hosts running
+        // opcache.validate_timestamps=0 will hold stale bytecode
+        // indefinitely — those operators should wire the
+        // examplepress_mu_post_install_opcache action below to a
+        // pool-reload mechanism (e.g. SIGUSR2 to PHP-FPM). We do NOT
+        // call opcache_reset() ourselves because it nukes the entire
+        // cache pool including every other PHP app on the same host.
+        self::invalidateOpcacheTree( $loaderFile );
+        self::invalidateOpcacheTree( $kernelDir );
+
+        if ( function_exists( 'do_action' ) ) {
+            /**
+             * Fires after a successful kernel install/upgrade and AFTER
+             * the in-worker OPcache invalidation. Separate from
+             * examplepress_mu_post_install so operators on locked-down
+             * hosts can wire this specifically to a PHP-FPM pool reload
+             * without coupling it to their other post-install logic.
+             */
+            do_action( 'examplepress_mu_post_install_opcache', $kernelDir, $loaderFile, $context );
+
+            do_action( 'examplepress_mu_post_install', $oldVersion, $newVersion, $context );
+        }
 
         return true;
+    }
+
+    /**
+     * Parse the `requires_php` value out of a staged examplepress.json.
+     * Returns null when the file is absent or the key is missing.
+     */
+    private static function readStagedRequiresPhp( string $stagedSource ): ?string {
+        $candidates = [
+            $stagedSource . '/examplepress-mu/examplepress.json',
+            $stagedSource . '/examplepress.json',
+        ];
+        foreach ( $candidates as $path ) {
+            if ( ! is_readable( $path ) ) {
+                continue;
+            }
+            $decoded = json_decode( (string) @file_get_contents( $path ), true );
+            if ( is_array( $decoded ) && ! empty( $decoded['requires_php'] ) ) {
+                return (string) $decoded['requires_php'];
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Read the `Version:` header out of an examplepress-mu.php loader file.
+     */
+    private static function readLoaderVersion( string $loaderPath ): string {
+        if ( ! is_readable( $loaderPath ) ) {
+            return '';
+        }
+        $head = (string) @file_get_contents( $loaderPath, false, null, 0, 8192 );
+        if ( preg_match( '/^\s*\*\s*Version:\s*(\S+)/mi', $head, $m ) ) {
+            return $m[1];
+        }
+        return '';
+    }
+
+    /**
+     * Recursively invalidate OPcache entries for a file or directory.
+     * No-op when OPcache is not loaded.
+     */
+    private static function invalidateOpcacheTree( string $path ): void {
+        if ( ! function_exists( 'opcache_invalidate' ) ) {
+            return;
+        }
+        if ( is_file( $path ) ) {
+            @opcache_invalidate( $path, true );
+            return;
+        }
+        if ( ! is_dir( $path ) ) {
+            return;
+        }
+        $it = new \RecursiveIteratorIterator( new \RecursiveDirectoryIterator( $path, \FilesystemIterator::SKIP_DOTS ) );
+        foreach ( $it as $file ) {
+            if ( $file->isFile() && substr( $file->getFilename(), -4 ) === '.php' ) {
+                @opcache_invalidate( $file->getPathname(), true );
+            }
+        }
+    }
+
+    /**
+     * Fire the install-failed hook if WP is far enough along to have it.
+     */
+    private static function fireInstallFailed( string $reason, string $context ): void {
+        if ( function_exists( 'do_action' ) ) {
+            do_action( 'examplepress_mu_install_failed', $reason, $context );
+        }
+    }
+
+    /**
+     * Locate the kernel payload root inside a freshly-extracted temp dir.
+     * Handles both flat archives and single-wrapper-folder archives
+     * (GitHub source zipballs).
+     */
+    private static function locatePayload( \WP_Filesystem_Base $fs, string $tempExtractDir ): ?string {
+        if ( $fs->is_dir( $tempExtractDir . '/examplepress-mu' )
+            || $fs->exists( $tempExtractDir . '/examplepress-mu.php' ) ) {
+            return $tempExtractDir;
+        }
+
+        $entries = $fs->dirlist( $tempExtractDir );
+        if ( empty( $entries ) || ! is_array( $entries ) ) {
+            return null;
+        }
+
+        foreach ( $entries as $name => $info ) {
+            if ( 'd' !== ( $info['type'] ?? '' ) ) {
+                continue;
+            }
+            $candidate = $tempExtractDir . '/' . $name;
+            if ( $fs->is_dir( $candidate . '/examplepress-mu' )
+                || $fs->exists( $candidate . '/examplepress-mu.php' ) ) {
+                return $candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private static function unlinkTemp( string $tempFile ): void {
+        if ( $tempFile && file_exists( $tempFile ) ) {
+            @unlink( $tempFile );
+        }
+    }
+
+    private static function logInstall( string $context, string $message ): void {
+        error_log( 'ExamplePress MU ' . $context . ': ' . $message );
     }
 }
 

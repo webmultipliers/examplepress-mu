@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace ExamplePress\MU\API;
 
 use ExamplePress\MU\Infrastructure\GitHub;
+use ExamplePress\MU\Infrastructure\Helpers;
 
 /**
  * Shared base class for companion-plugin REST controllers (updater, demo).
@@ -223,11 +224,17 @@ abstract class CompanionPluginController
             deactivate_plugins(static::$pluginFile, true);
         }
 
-        require_once ABSPATH . 'wp-admin/includes/file.php';
-        WP_Filesystem();
-        global $wp_filesystem;
+        $fs = Helpers::filesystem(forceDirect: true);
 
-        if (!$wp_filesystem instanceof \WP_Filesystem_Base || !$wp_filesystem->delete($plugin_dir, true)) {
+        if (!$fs) {
+            return new \WP_Error(
+                'fs_unavailable',
+                'Filesystem writes are not available on this host (no direct access).',
+                ['status' => 501]
+            );
+        }
+
+        if (!$fs->delete($plugin_dir, true)) {
             return new \WP_Error(
                 strtolower(static::$routePrefix) . '_delete_failed',
                 'Failed to remove the ' . strtolower(static::$label) . ' plugin directory.',

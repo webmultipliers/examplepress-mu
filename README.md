@@ -8,7 +8,7 @@ All PHP lives under the `ExamplePress\MU` namespace with PSR-4 autoloading. Zero
 
 ```
 mu-plugins/
-├── examplepress-mu.php              # Thin loader — downloads kernel if missing
+├── examplepress-mu.php              # Loader + shared kernel installer (cold-start + self-upgrade). Version header is the source of truth.
 ├── examplepress.json                # Master platform configuration (source of truth)
 ├── package.json                     # npm: vite, nanostores
 ├── vite.config.js                   # 10 entry points → examplepress-mu/dist/
