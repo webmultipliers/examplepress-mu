@@ -127,9 +127,15 @@ final class AppRegistry
      */
     public static function all(): array
     {
+        /**
+         * Filter the maximum number of app records loaded by AppRegistry::all().
+         * Defaults to 500 to avoid unbounded queries.
+         */
+        $limit = (int) apply_filters('examplepress_mu_apps_query_limit', 500);
+
         $posts = get_posts([
             'post_type'      => 'ep_app',
-            'posts_per_page' => -1,
+            'posts_per_page' => $limit,
             'post_status'    => 'any',
             'no_found_rows'  => true,
         ]);
@@ -239,7 +245,12 @@ final class AppRegistry
             $merged[] = self::mergeRecord($adopted, $local);
         }
 
-        return $merged;
+        /**
+         * Filter the merged registry/filesystem app list.
+         *
+         * @param array $merged Merged app records.
+         */
+        return (array) apply_filters('examplepress_mu_apps_merged', $merged);
     }
 
     /**

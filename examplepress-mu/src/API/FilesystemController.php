@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace ExamplePress\MU\API;
 
+use ExamplePress\MU\Infrastructure\Helpers;
+
 /**
  * Filesystem REST API — read/write access to companion plugin directories
  * for the in-browser editor. All paths are strictly sandboxed within
@@ -110,7 +112,7 @@ final class FilesystemController
             return new \WP_Error('too_large', 'File exceeds 1 MB limit.', ['status' => 413]);
         }
 
-        $content = file_get_contents($resolved); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+        $content = Helpers::readFile($resolved);
 
         if ($content === false) {
             return new \WP_Error('read_error', 'Could not read file.', ['status' => 500]);
@@ -148,16 +150,25 @@ final class FilesystemController
             wp_mkdir_p($parent);
         }
 
-        $bytes = file_put_contents($resolved, $content); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+        // Force-direct so REST contexts never trigger an FTP-credentials prompt.
+        $fs = Helpers::filesystem(forceDirect: true);
 
-        if ($bytes === false) {
+        if (!$fs) {
+            return new \WP_Error(
+                'fs_unavailable',
+                'Filesystem writes are not available on this host (no direct access).',
+                ['status' => 501]
+            );
+        }
+
+        if (!$fs->put_contents($resolved, (string) $content, FS_CHMOD_FILE)) {
             return new \WP_Error('write_error', 'Could not write file.', ['status' => 500]);
         }
 
         return rest_ensure_response([
             'success' => true,
             'path'    => $path,
-            'size'    => $bytes,
+            'size'    => strlen((string) $content),
         ]);
     }
 

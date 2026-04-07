@@ -10,8 +10,6 @@ use ExamplePress\MU\Config\DependencyManager;
 use ExamplePress\MU\Governance\PlatformPolicy;
 use ExamplePress\MU\Governance\AppValidator;
 use ExamplePress\MU\Governance\EditorGuard;
-use ExamplePress\MU\Governance\AdminPolicy;
-use ExamplePress\MU\Governance\EditorPolicy;
 use ExamplePress\MU\Infrastructure\AppDiscovery;
 use ExamplePress\MU\Infrastructure\AppRegistry;
 use ExamplePress\MU\Infrastructure\Scaffolder;
@@ -24,7 +22,6 @@ use ExamplePress\MU\Infrastructure\PluginManager;
 use ExamplePress\MU\Infrastructure\Helpers;
 use ExamplePress\MU\Infrastructure\Notifications;
 use ExamplePress\MU\Infrastructure\AppUpdateProvider;
-use ExamplePress\MU\API\AgentController;
 use ExamplePress\MU\API\AppsController;
 use ExamplePress\MU\API\ConnectionsController;
 use ExamplePress\MU\API\DemoController;
@@ -58,9 +55,10 @@ final class Kernel
         AppRegistry::init();
         PluginManager::init();
         AppUpdateProvider::init();
+        Router::init();
 
         // ── REST API Controllers ────────────────────────────────
-        add_action('rest_api_init', [AgentController::class, 'register']);
+        // AppsController owns the canonical /apps route (AppRegistry-backed).
         add_action('rest_api_init', [AppsController::class, 'register']);
         add_action('rest_api_init', [ConnectionsController::class, 'register']);
         add_action('rest_api_init', [DemoController::class, 'register']);

@@ -17,8 +17,19 @@ final class EditorGuard
 {
     public static function init(): void
     {
-        // Check the feature registry for a bypass flag, falling back to EP_DEV_MODE.
-        $bypassed = defined('EP_DEV_MODE') && EP_DEV_MODE;
+        // Self-register the editor-guard feature so config/JSON can toggle it.
+        // Default true preserves the historical lockdown behavior.
+        FeatureRegistry::register('editor-guard', [
+            'label'   => 'Editor Guard (Site Editor lockdown)',
+            'group'   => 'governance',
+            'default' => true,
+        ]);
+
+        // Bypass when: (a) the feature is disabled via JSON/filter,
+        // (b) EP_DEV_MODE is on, or (c) the legacy bypass filter says so.
+        $featureOff = !FeatureRegistry::enabled('editor-guard');
+        $devMode    = defined('EP_DEV_MODE') && EP_DEV_MODE;
+        $bypassed   = $featureOff || $devMode;
 
         /** Allow disabling via filter for dev/test contexts. */
         if (apply_filters('examplepress_mu_bypass_editor_guard', $bypassed)) {

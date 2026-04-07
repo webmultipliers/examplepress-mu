@@ -266,6 +266,12 @@ final class GitHub
             return new \WP_Error('no_files', 'No files found in scaffold directory.');
         }
 
+        // Inline-content threshold: small UTF-8 text files go straight into the
+        // tree request to avoid N sequential blob POSTs. Larger or binary files
+        // fall back to the per-file Blob API (uploaded as base64).
+        /** Filter the inline-tree size threshold (bytes). Default 1 MB. */
+        $inlineThreshold = (int) apply_filters('examplepress_mu_github_inline_tree_threshold', 1048576);
+
         $tree_items = [];
         foreach ($files as $relative_path => $absolute_path) {
             $content = file_get_contents($absolute_path);
@@ -273,6 +279,20 @@ final class GitHub
                 continue;
             }
 
+            $isInlineSafe = strlen($content) <= $inlineThreshold
+                && mb_check_encoding($content, 'UTF-8');
+
+            if ($isInlineSafe) {
+                $tree_items[] = [
+                    'path'    => $relative_path,
+                    'mode'    => '100644',
+                    'type'    => 'blob',
+                    'content' => $content,
+                ];
+                continue;
+            }
+
+            // Binary or oversized — upload as a blob then reference its SHA.
             $blob_response = wp_remote_post("{$base_url}/git/blobs", [
                 'headers' => $headers,
                 'body'    => wp_json_encode([

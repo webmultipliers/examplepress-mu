@@ -11,8 +11,14 @@ final class Helpers
 {
     /**
      * Initialise the WP_Filesystem and return it.
+     *
+     * @param bool $forceDirect When true, temporarily forces the 'direct'
+     *                          transport via the filesystem_method filter so
+     *                          REST/cron contexts cannot trigger an FTP-credentials
+     *                          prompt. Returns false (never half-initialised) if
+     *                          the filesystem cannot be brought up.
      */
-    public static function filesystem(): \WP_Filesystem_Base|false
+    public static function filesystem(bool $forceDirect = false): \WP_Filesystem_Base|false
     {
         global $wp_filesystem;
 
@@ -22,11 +28,45 @@ final class Helpers
 
         require_once ABSPATH . 'wp-admin/includes/file.php';
 
-        if (!WP_Filesystem()) {
+        $forceCb = static fn() => 'direct';
+        if ($forceDirect) {
+            add_filter('filesystem_method', $forceCb);
+        }
+
+        // Suppress any output from request_filesystem_credentials() — in REST
+        // contexts there is nowhere to render the FTP form anyway.
+        ob_start();
+        $ok = WP_Filesystem();
+        ob_end_clean();
+
+        if ($forceDirect) {
+            remove_filter('filesystem_method', $forceCb);
+        }
+
+        if (!$ok || !($wp_filesystem instanceof \WP_Filesystem_Base)) {
+            return false;
+        }
+
+        if (isset($wp_filesystem->errors) && is_wp_error($wp_filesystem->errors) && $wp_filesystem->errors->has_errors()) {
             return false;
         }
 
         return $wp_filesystem;
+    }
+
+    /**
+     * Read a file using native PHP. Avoids the WP_Filesystem FTP-prompt trap
+     * for REST contexts where reads are safe and direct.
+     *
+     * @return string|false File contents, or false if unreadable.
+     */
+    public static function readFile(string $path): string|false
+    {
+        if (!is_readable($path)) {
+            return false;
+        }
+
+        return @file_get_contents($path);
     }
 
     /**

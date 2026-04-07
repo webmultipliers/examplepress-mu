@@ -20,10 +20,18 @@ final class PluginManager
     public const DEMO_GITHUB_REPO = 'webmultipliers/examplepress-theme-demo';
     public const DEMO_THROTTLE_KEY = 'ep_demo_install_attempted';
 
+    public const CLEANUP_CRON_HOOK = 'examplepress_mu_plugin_cleanup';
+
     public static function init(): void
     {
-        add_action('admin_init', [self::class, 'cleanupStaleUpdaterDirs']);
-        add_action('admin_init', [self::class, 'cleanupStaleDemoDirs']);
+        // Run cleanup on a daily cron schedule rather than every admin_init
+        // (which performed glob() filesystem scans on every page load).
+        add_action(self::CLEANUP_CRON_HOOK, [self::class, 'cleanupStaleUpdaterDirs']);
+        add_action(self::CLEANUP_CRON_HOOK, [self::class, 'cleanupStaleDemoDirs']);
+
+        if (!wp_next_scheduled(self::CLEANUP_CRON_HOOK)) {
+            wp_schedule_event(time() + HOUR_IN_SECONDS, 'daily', self::CLEANUP_CRON_HOOK);
+        }
     }
 
     // ── Cleanup — Updater ─────────────────────────────────────────
@@ -217,10 +225,27 @@ final class PluginManager
 
     // ── ZIP URL Resolvers ─────────────────────────────────────────
 
+    public static function updaterRepo(): string
+    {
+        /**
+         * Filter the GitHub repo (owner/name) used for the updater plugin.
+         * Lets fleets point at a private fork or enterprise mirror.
+         */
+        return (string) apply_filters('examplepress_mu_updater_repo', self::UPDATER_GITHUB_REPO);
+    }
+
+    public static function demoRepo(): string
+    {
+        /**
+         * Filter the GitHub repo (owner/name) used for the demo plugin.
+         */
+        return (string) apply_filters('examplepress_mu_demo_repo', self::DEMO_GITHUB_REPO);
+    }
+
     public static function resolveUpdaterZipUrl(): ?string
     {
         return self::resolveZipUrl(
-            self::UPDATER_GITHUB_REPO,
+            self::updaterRepo(),
             'examplepress-theme-update.zip'
         );
     }
@@ -229,7 +254,7 @@ final class PluginManager
     {
         // The release asset is named after the repo, not the plugin slug.
         return self::resolveZipUrl(
-            self::DEMO_GITHUB_REPO,
+            self::demoRepo(),
             'examplepress-theme-demo.zip'
         );
     }

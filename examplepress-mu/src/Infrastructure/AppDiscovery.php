@@ -22,6 +22,13 @@ final class AppDiscovery
             return [];
         }
 
+        /**
+         * Filter directory entries to exclude from app discovery scanning.
+         *
+         * @param array $excludes Default excluded entries.
+         */
+        $excludes = (array) apply_filters('examplepress_mu_app_scan_excludes', ['.', '..']);
+
         $apps = [];
         $entries = scandir($pluginsDir);
 
@@ -30,7 +37,7 @@ final class AppDiscovery
         }
 
         foreach ($entries as $entry) {
-            if ($entry === '.' || $entry === '..') {
+            if (in_array($entry, $excludes, true)) {
                 continue;
             }
 
@@ -53,7 +60,12 @@ final class AppDiscovery
             }
         }
 
-        return $apps;
+        /**
+         * Filter the discovered ExamplePress apps array.
+         *
+         * @param array $apps Discovered apps from the plugins directory.
+         */
+        return (array) apply_filters('examplepress_mu_discovered_apps', $apps);
     }
 
     /**
@@ -63,9 +75,9 @@ final class AppDiscovery
      */
     public static function parseApp(string $slug, string $jsonPath, string $pluginPath): ?array
     {
-        $raw = file_get_contents($jsonPath);
+        $raw = Helpers::readFile($jsonPath);
 
-        if (!$raw) {
+        if ($raw === false || $raw === '') {
             return null;
         }
 
@@ -167,9 +179,8 @@ final class AppDiscovery
      */
     public static function slugify(string $name): string
     {
-        $slug = strtolower($name);
-        $slug = preg_replace('/[^a-z0-9\s-]/', '', $slug) ?? '';
-        $slug = preg_replace('/[\s-]+/', '-', $slug) ?? '';
-        return trim($slug, '-');
+        // Use WordPress's battle-tested sanitiser, which handles
+        // transliteration, accents, and edge cases properly.
+        return sanitize_title($name);
     }
 }

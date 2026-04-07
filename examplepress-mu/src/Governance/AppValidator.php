@@ -13,8 +13,6 @@ namespace ExamplePress\MU\Governance;
  */
 final class AppValidator
 {
-    private const BANNED_PERMISSIONS = [];
-
     /** @var array<string, bool> Per-request validation cache. */
     private static array $cache = [];
 
@@ -114,10 +112,12 @@ final class AppValidator
             return false;
         }
 
-        // Rule 3: No banned permissions.
+        // Rule 3: No banned permissions (filterable; empty by default).
+        /** @var array<int, string> $banned */
+        $banned = (array) apply_filters('examplepress_mu_banned_permissions', []);
         $requested = $manifest['permissions'] ?? [];
-        if (is_array($requested)) {
-            $bannedFound = array_intersect($requested, self::BANNED_PERMISSIONS);
+        if (!empty($banned) && is_array($requested)) {
+            $bannedFound = array_intersect($requested, $banned);
             if (!empty($bannedFound)) {
                 self::reject(
                     $pluginBasename,
@@ -127,8 +127,32 @@ final class AppValidator
             }
         }
 
+        /**
+         * Final escape hatch: allow validators to override the result.
+         * Return false to forcibly reject; true to accept.
+         *
+         * @param bool   $valid          Current validation state (true = accept).
+         * @param string $pluginBasename Plugin file (e.g. 'foo/foo.php').
+         * @param array  $manifest       Decoded examplepress.json manifest.
+         */
+        $valid = (bool) apply_filters('examplepress_mu_validate_app', true, $pluginBasename, $manifest);
+
+        if (!$valid) {
+            self::reject($pluginBasename, 'Rejected by examplepress_mu_validate_app filter.');
+            return false;
+        }
+
         self::$cache[$pluginBasename] = true;
         return true;
+    }
+
+    /**
+     * Flush the per-request validation cache. Call this after admin "refresh"
+     * actions where the underlying manifest may have changed.
+     */
+    public static function flushCache(): void
+    {
+        self::$cache = [];
     }
 
     private static function reject(string $pluginBasename, string $reason): void

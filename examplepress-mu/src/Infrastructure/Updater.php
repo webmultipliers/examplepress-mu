@@ -88,17 +88,17 @@ final class Updater
             return null;
         }
 
-        $release = json_decode(wp_remote_retrieve_body($response));
+        $release = json_decode(wp_remote_retrieve_body($response), true);
 
-        if (empty($release->assets) || ! is_array($release->assets)) {
+        if (!is_array($release) || empty($release['assets']) || !is_array($release['assets'])) {
             return null;
         }
 
         // Find the updates.json asset.
         $updatesUrl = null;
-        foreach ($release->assets as $asset) {
-            if ($asset->name === self::UPDATES_FILENAME) {
-                $updatesUrl = $asset->browser_download_url;
+        foreach ($release['assets'] as $asset) {
+            if (is_array($asset) && ($asset['name'] ?? '') === self::UPDATES_FILENAME) {
+                $updatesUrl = $asset['browser_download_url'] ?? null;
                 break;
             }
         }
@@ -157,8 +157,15 @@ final class Updater
             return false;
         }
 
-        $muPluginsDir  = dirname(EXAMPLEPRESS_MU_DIR);
+        $muPluginsDir   = dirname(EXAMPLEPRESS_MU_DIR);
         $tempExtractDir = $muPluginsDir . '/_ep_mu_update_temp';
+        $backupDir      = $muPluginsDir . '/_ep_mu_update_backup';
+        $kernelDir      = $muPluginsDir . '/examplepress-mu';
+        $loaderFile     = $muPluginsDir . '/examplepress-mu.php';
+
+        // Clean up any leftovers from a previous failed attempt.
+        $wp_filesystem->delete($tempExtractDir, true);
+        $wp_filesystem->delete($backupDir, true);
 
         $wp_filesystem->mkdir($tempExtractDir);
 
@@ -171,20 +178,80 @@ final class Updater
             return false;
         }
 
-        // The release ZIP (built by our workflow) places files at the root — no nested folder.
-        // Overwrite the application directory.
-        if (is_dir($tempExtractDir . '/examplepress-mu')) {
-            // Remove the old kernel directory first to clear stale files.
-            $wp_filesystem->delete($muPluginsDir . '/examplepress-mu', true);
-            $wp_filesystem->move($tempExtractDir . '/examplepress-mu', $muPluginsDir . '/examplepress-mu', true);
+        $hasNewKernel = is_dir($tempExtractDir . '/examplepress-mu');
+        $hasNewLoader = file_exists($tempExtractDir . '/examplepress-mu.php');
+
+        if (!$hasNewKernel && !$hasNewLoader) {
+            $wp_filesystem->delete($tempExtractDir, true);
+            error_log('ExamplePress MU Updater: Release archive missing expected payload.');
+            return false;
         }
 
-        // Overwrite the loader.
-        if (file_exists($tempExtractDir . '/examplepress-mu.php')) {
-            $wp_filesystem->move($tempExtractDir . '/examplepress-mu.php', $muPluginsDir . '/examplepress-mu.php', true);
+        // Stage the current kernel/loader to a backup so we can roll back.
+        $wp_filesystem->mkdir($backupDir);
+        $kernelBackedUp = false;
+        $loaderBackedUp = false;
+
+        if ($hasNewKernel && is_dir($kernelDir)) {
+            if (!$wp_filesystem->move($kernelDir, $backupDir . '/examplepress-mu', true)) {
+                $wp_filesystem->delete($tempExtractDir, true);
+                $wp_filesystem->delete($backupDir, true);
+                error_log('ExamplePress MU Updater: Could not stage kernel backup.');
+                return false;
+            }
+            $kernelBackedUp = true;
+        }
+
+        if ($hasNewLoader && file_exists($loaderFile)) {
+            if (!$wp_filesystem->move($loaderFile, $backupDir . '/examplepress-mu.php', true)) {
+                // Restore kernel and abort.
+                if ($kernelBackedUp) {
+                    $wp_filesystem->move($backupDir . '/examplepress-mu', $kernelDir, true);
+                }
+                $wp_filesystem->delete($tempExtractDir, true);
+                $wp_filesystem->delete($backupDir, true);
+                error_log('ExamplePress MU Updater: Could not stage loader backup.');
+                return false;
+            }
+            $loaderBackedUp = true;
+        }
+
+        // Swap in the new payload.
+        $swapOk = true;
+
+        if ($hasNewKernel) {
+            $swapOk = $swapOk && $wp_filesystem->move(
+                $tempExtractDir . '/examplepress-mu',
+                $kernelDir,
+                true
+            );
+        }
+
+        if ($swapOk && $hasNewLoader) {
+            $swapOk = $swapOk && $wp_filesystem->move(
+                $tempExtractDir . '/examplepress-mu.php',
+                $loaderFile,
+                true
+            );
+        }
+
+        if (!$swapOk) {
+            // Roll back to the previous version.
+            $wp_filesystem->delete($kernelDir, true);
+            if ($kernelBackedUp) {
+                $wp_filesystem->move($backupDir . '/examplepress-mu', $kernelDir, true);
+            }
+            if ($loaderBackedUp) {
+                $wp_filesystem->move($backupDir . '/examplepress-mu.php', $loaderFile, true);
+            }
+            $wp_filesystem->delete($tempExtractDir, true);
+            $wp_filesystem->delete($backupDir, true);
+            error_log('ExamplePress MU Updater: Atomic swap failed; previous version restored.');
+            return false;
         }
 
         $wp_filesystem->delete($tempExtractDir, true);
+        $wp_filesystem->delete($backupDir, true);
 
         // Clear the transient so the next check picks up the new version.
         delete_transient(self::TRANSIENT_KEY);

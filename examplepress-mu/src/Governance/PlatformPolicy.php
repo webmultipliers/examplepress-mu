@@ -12,18 +12,22 @@ namespace ExamplePress\MU\Governance;
  */
 final class PlatformPolicy
 {
-    private const STRIPPED_CAPS = [];
-
     public static function init(): void
     {
-        // 1. Enforce Permalink Structure globally.
-        add_filter('pre_option_permalink_structure', [self::class, 'enforcePermalinks']);
+        // 1. Enforce Permalink Structure globally (opt-out via filter).
+        if (apply_filters('examplepress_mu_enforce_permalinks', true)) {
+            add_filter('pre_option_permalink_structure', [self::class, 'enforcePermalinks']);
+        }
 
-        // 2. Global Capability Stripping.
-        add_filter('user_has_cap', [self::class, 'stripCapabilities'], 999, 4);
+        // 2. Capability stripping — only register if a filter populates a list.
+        // Priority 20 to play nice with other plugins manipulating user caps.
+        $strippedCaps = (array) apply_filters('examplepress_mu_stripped_capabilities', []);
+        if (!empty($strippedCaps)) {
+            add_filter('user_has_cap', [self::class, 'stripCapabilities'], 20, 4);
+        }
 
-        // Hard disable file editing.
-        if (!defined('DISALLOW_FILE_EDIT')) {
+        // Hard disable file editing (opt-out via filter; respects existing define).
+        if (!defined('DISALLOW_FILE_EDIT') && apply_filters('examplepress_mu_disallow_file_edit', true)) {
             define('DISALLOW_FILE_EDIT', true);
         }
 
@@ -57,7 +61,8 @@ final class PlatformPolicy
      */
     public static function stripCapabilities(array $allcaps, array $caps, array $args, \WP_User $user): array
     {
-        foreach (self::STRIPPED_CAPS as $cap) {
+        $strippedCaps = (array) apply_filters('examplepress_mu_stripped_capabilities', []);
+        foreach ($strippedCaps as $cap) {
             if (isset($allcaps[$cap])) {
                 $allcaps[$cap] = false;
             }

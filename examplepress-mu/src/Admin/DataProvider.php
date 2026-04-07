@@ -301,7 +301,7 @@ final class DataProvider
 
         $bsActive = class_exists('Blockstudio\\Build');
 
-        return [
+        $payload = [
             'env' => [
                 ['name' => 'WordPress Version',  'detail' => $wpVer,                                        'req' => "\u{2265} 6.9",  'status' => version_compare($wpVer, '6.9', '>=') ? 'pass' : 'fail'],
                 ['name' => 'PHP Version',         'detail' => $phpVer,                                       'req' => "\u{2265} 8.4",  'status' => version_compare($phpVer, '8.4', '>=') ? 'pass' : 'fail'],
@@ -319,6 +319,9 @@ final class DataProvider
             'security'    => self::getSecurityHealth(),
             'connections'  => self::getConnectionHealth(),
         ];
+
+        /** Filter the platform health payload before localization. */
+        return (array) apply_filters('examplepress_mu_data_health', $payload);
     }
 
     /**
@@ -540,7 +543,8 @@ final class DataProvider
             ];
         }
 
-        return $blocks;
+        /** Filter the block registry payload before localization. */
+        return (array) apply_filters('examplepress_mu_data_blocks', $blocks);
     }
 
     // ── Navigation Data ──────────────────────────────────────────
@@ -695,7 +699,8 @@ final class DataProvider
             }
         }
 
-        return $result;
+        /** Filter the features payload before localization. */
+        return (array) apply_filters('examplepress_mu_data_features', $result);
     }
 
     /**

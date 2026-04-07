@@ -122,6 +122,13 @@ final class FeatureRegistry
      */
     public static function bootAll(): void
     {
+        /**
+         * Fires before core features are registered. Use this to unregister
+         * or replace core features by manipulating the registry directly,
+         * or to register additional features that should boot alongside core.
+         */
+        do_action('examplepress_mu_register_features');
+
         self::registerCoreFeatures();
 
         $features = self::all();
@@ -144,6 +151,12 @@ final class FeatureRegistry
                 }
             }
         }
+
+        /**
+         * Fires after all features have booted. Use this to register late
+         * extensions that depend on the core feature wiring being in place.
+         */
+        do_action('examplepress_mu_features_booted');
     }
 
     /**

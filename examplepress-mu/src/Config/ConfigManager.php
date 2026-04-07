@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace ExamplePress\MU\Config;
 
+use ExamplePress\MU\Infrastructure\Helpers;
+
 /**
  * Reads and caches the platform configuration from examplepress.json.
  *
@@ -34,8 +36,9 @@ final class ConfigManager
         // 1. MU plugin baseline (infrastructure, features, dependencies).
         $muPath = dirname(__DIR__, 2) . '/examplepress.json';
         $muData = [];
-        if (file_exists($muPath)) {
-            $decoded = json_decode((string) file_get_contents($muPath), true);
+        $raw = Helpers::readFile($muPath);
+        if ($raw !== false) {
+            $decoded = json_decode($raw, true);
             $muData = is_array($decoded) ? $decoded : [];
         }
 
@@ -43,17 +46,32 @@ final class ConfigManager
         $themePath = (defined('EP_THEME_PATH') ? EP_THEME_PATH : get_template_directory())
             . '/examplepress.json';
         $themeData = [];
-        if (file_exists($themePath)) {
-            $decoded = json_decode((string) file_get_contents($themePath), true);
+        $raw = Helpers::readFile($themePath);
+        if ($raw !== false) {
+            $decoded = json_decode($raw, true);
             $themeData = is_array($decoded) ? $decoded : [];
         }
 
         // Deep merge: theme wins so it controls design tokens.
-        self::$config = array_replace_recursive($muData, $themeData);
+        $merged = array_replace_recursive($muData, $themeData);
 
-        self::$config = self::normaliseDesign(self::$config);
-        self::$config = self::normaliseBlockstudio(self::$config);
-        self::$config = self::normaliseDependencies(self::$config);
+        /**
+         * Filter the raw merged configuration before normalization.
+         *
+         * @param array $merged Raw merged config from MU + theme JSON.
+         */
+        $merged = apply_filters('examplepress_mu_config_raw', $merged);
+
+        $merged = self::normaliseDesign($merged);
+        $merged = self::normaliseBlockstudio($merged);
+        $merged = self::normaliseDependencies($merged);
+
+        /**
+         * Filter the final, normalized configuration. Applied once and cached.
+         *
+         * @param array $merged Fully normalized config.
+         */
+        self::$config = apply_filters('examplepress_mu_config', $merged);
 
         return self::$config;
     }

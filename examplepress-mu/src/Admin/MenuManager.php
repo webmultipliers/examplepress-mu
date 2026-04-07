@@ -104,7 +104,7 @@ final class MenuManager
             return;
         }
 
-        self::$pages[$id] = wp_parse_args($args, [
+        $page = wp_parse_args($args, [
             'label'       => '',
             'menu_title'  => '',
             'capability'  => 'manage_options',
@@ -112,6 +112,21 @@ final class MenuManager
             'icon'        => 'dashicons-admin-generic',
             'hidden'      => false,
         ]);
+
+        /**
+         * Filter an individual admin page definition before it is stored.
+         * Return null to suppress the page entirely.
+         *
+         * @param array|null $page Page definition (label, menu_title, position, icon, hidden, capability).
+         * @param string     $id   Page ID.
+         */
+        $page = apply_filters('examplepress_mu_core_page', $page, $id);
+
+        if ($page === null) {
+            return;
+        }
+
+        self::$pages[$id] = $page;
     }
 
     /**

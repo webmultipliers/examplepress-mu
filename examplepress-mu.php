@@ -112,6 +112,14 @@ final class ExamplePress_MU_Bootstrapper {
         }
 
         $tempExtractDir = $targetMuDir . '/_ep_mu_temp';
+        $backupDir      = $targetMuDir . '/_ep_mu_backup';
+        $kernelDir      = $targetMuDir . '/examplepress-mu';
+        $loaderFile     = $targetMuDir . '/examplepress-mu.php';
+
+        // Clear leftovers from any prior failed attempt.
+        $wp_filesystem->delete( $tempExtractDir, true );
+        $wp_filesystem->delete( $backupDir, true );
+
         $wp_filesystem->mkdir( $tempExtractDir );
 
         $unzipResult = unzip_file( $tempFile, $tempExtractDir );
@@ -123,31 +131,78 @@ final class ExamplePress_MU_Bootstrapper {
             return false;
         }
 
-        $hasLoaderAtRoot = file_exists( $tempExtractDir . '/examplepress-mu.php' );
-
-        if ( $hasLoaderAtRoot ) {
-            if ( is_dir( $tempExtractDir . '/examplepress-mu' ) ) {
-                $wp_filesystem->move( $tempExtractDir . '/examplepress-mu', $targetMuDir . '/examplepress-mu', true );
-            }
-            if ( file_exists( $tempExtractDir . '/examplepress-mu.php' ) ) {
-                $wp_filesystem->move( $tempExtractDir . '/examplepress-mu.php', $targetMuDir . '/examplepress-mu.php', true );
-            }
+        // Locate the staged source (root of the archive or the GitHub-named folder).
+        $stagedSource = null;
+        if ( file_exists( $tempExtractDir . '/examplepress-mu.php' ) ) {
+            $stagedSource = $tempExtractDir;
         } else {
             $extractedFolders = $wp_filesystem->dirlist( $tempExtractDir );
             if ( ! empty( $extractedFolders ) ) {
                 $githubFolderName = array_keys( $extractedFolders )[0];
-                $githubFolderPath = $tempExtractDir . '/' . $githubFolderName;
-
-                if ( is_dir( $githubFolderPath . '/examplepress-mu' ) ) {
-                    $wp_filesystem->move( $githubFolderPath . '/examplepress-mu', $targetMuDir . '/examplepress-mu', true );
-                }
-                if ( file_exists( $githubFolderPath . '/examplepress-mu.php' ) ) {
-                    $wp_filesystem->move( $githubFolderPath . '/examplepress-mu.php', $targetMuDir . '/examplepress-mu.php', true );
-                }
+                $stagedSource     = $tempExtractDir . '/' . $githubFolderName;
             }
         }
 
+        if ( ! $stagedSource ) {
+            $wp_filesystem->delete( $tempExtractDir, true );
+            error_log( 'ExamplePress MU Bootstrapper: Could not locate kernel payload in archive.' );
+            return false;
+        }
+
+        // Stage backups of existing kernel/loader if present.
+        $wp_filesystem->mkdir( $backupDir );
+        $kernelBackedUp = false;
+        $loaderBackedUp = false;
+
+        if ( is_dir( $kernelDir ) ) {
+            if ( ! $wp_filesystem->move( $kernelDir, $backupDir . '/examplepress-mu', true ) ) {
+                $wp_filesystem->delete( $tempExtractDir, true );
+                $wp_filesystem->delete( $backupDir, true );
+                error_log( 'ExamplePress MU Bootstrapper: Could not stage kernel backup.' );
+                return false;
+            }
+            $kernelBackedUp = true;
+        }
+
+        if ( file_exists( $loaderFile ) ) {
+            if ( ! $wp_filesystem->move( $loaderFile, $backupDir . '/examplepress-mu.php', true ) ) {
+                if ( $kernelBackedUp ) {
+                    $wp_filesystem->move( $backupDir . '/examplepress-mu', $kernelDir, true );
+                }
+                $wp_filesystem->delete( $tempExtractDir, true );
+                $wp_filesystem->delete( $backupDir, true );
+                error_log( 'ExamplePress MU Bootstrapper: Could not stage loader backup.' );
+                return false;
+            }
+            $loaderBackedUp = true;
+        }
+
+        $swapOk = true;
+
+        if ( is_dir( $stagedSource . '/examplepress-mu' ) ) {
+            $swapOk = $swapOk && $wp_filesystem->move( $stagedSource . '/examplepress-mu', $kernelDir, true );
+        }
+        if ( $swapOk && file_exists( $stagedSource . '/examplepress-mu.php' ) ) {
+            $swapOk = $swapOk && $wp_filesystem->move( $stagedSource . '/examplepress-mu.php', $loaderFile, true );
+        }
+
+        if ( ! $swapOk ) {
+            // Roll back to whatever was there before.
+            $wp_filesystem->delete( $kernelDir, true );
+            if ( $kernelBackedUp ) {
+                $wp_filesystem->move( $backupDir . '/examplepress-mu', $kernelDir, true );
+            }
+            if ( $loaderBackedUp ) {
+                $wp_filesystem->move( $backupDir . '/examplepress-mu.php', $loaderFile, true );
+            }
+            $wp_filesystem->delete( $tempExtractDir, true );
+            $wp_filesystem->delete( $backupDir, true );
+            error_log( 'ExamplePress MU Bootstrapper: Atomic swap failed; previous state restored.' );
+            return false;
+        }
+
         $wp_filesystem->delete( $tempExtractDir, true );
+        $wp_filesystem->delete( $backupDir, true );
 
         return true;
     }

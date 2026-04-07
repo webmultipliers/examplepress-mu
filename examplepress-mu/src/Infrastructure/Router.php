@@ -52,4 +52,51 @@ final class Router
             $themeNs
         );
     }
+
+    /**
+     * Register Blockstudio integration filters.
+     *
+     * Disables the default frontend wrapper around router and template blocks
+     * so they render as transparent shells. This ships from the platform so
+     * the theme stays free of behavioural code.
+     */
+    public static function init(): void
+    {
+        add_filter(
+            'blockstudio/blocks/components/inner_blocks/frontend/wrap',
+            [self::class, 'filterInnerBlocksWrap'],
+            10,
+            2
+        );
+    }
+
+    /**
+     * @param mixed  $render Whether to wrap the inner blocks.
+     * @param object $block  The Blockstudio block being rendered.
+     * @return mixed
+     */
+    public static function filterInnerBlocksWrap($render, $block)
+    {
+        if (!isset($block->name) || !is_string($block->name)) {
+            return $render;
+        }
+
+        if (strpos($block->name, 'examplepress-theme/router') === 0) {
+            return false;
+        }
+
+        $templatePrefix = self::templatePrefix();
+
+        $namespaces   = RouteRegistry::namespaces();
+        $namespaces[] = 'examplepress-theme';
+        $namespaces   = array_unique($namespaces);
+
+        foreach ($namespaces as $ns) {
+            if (strpos($block->name, sprintf('%s/%s-', $ns, $templatePrefix)) === 0) {
+                return false;
+            }
+        }
+
+        return $render;
+    }
 }
