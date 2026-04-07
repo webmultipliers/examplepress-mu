@@ -2,7 +2,7 @@
 /**
  * Plugin Name: ExamplePress MU Bootstrapper
  * Description: Thin loader that fetches and executes the ExamplePress platform kernel from GitHub.
- * Version:     2.1.0
+ * Version:     2.1.1
  * Author:      Web Multipliers
  * Author URI:  https://github.com/webmultipliers
  */
@@ -49,9 +49,48 @@ final class ExamplePress_MU_Bootstrapper {
 
     public static function boot(): void {
         $targetDir = __DIR__;
-        $state     = self::readBootState( $targetDir );
-        $action    = self::computeBootAction( $state );
+
+        // Self-heal: if the loader file itself is newer than the recorded
+        // quarantine timestamp, the operator has explicitly deployed a new
+        // loader and we should assume they intend to recover. Clear the
+        // fatal-loop counter and quarantine before reading state so the
+        // normal decision logic gets a clean slate.
+        self::maybeClearStaleQuarantine( __FILE__ );
+
+        $state  = self::readBootState( $targetDir );
+        $action = self::computeBootAction( $state );
         self::dispatchBootAction( $action, $targetDir, $state );
+    }
+
+    /**
+     * Clear the fatal-loop counter and quarantine if the loader file has
+     * been updated since the quarantine was recorded. This gives operators
+     * a no-SSH recovery path: drop a new loader in place and the kernel
+     * gets a fresh shot at booting.
+     */
+    private static function maybeClearStaleQuarantine( string $loaderFile ): void {
+        if ( ! function_exists( 'get_option' ) ) {
+            return;
+        }
+        $quarantine = get_option( self::QUARANTINE_OPTION, null );
+        if ( ! is_array( $quarantine ) || empty( $quarantine['time'] ) ) {
+            return;
+        }
+        $loaderMtime = @filemtime( $loaderFile );
+        if ( $loaderMtime === false ) {
+            return;
+        }
+        if ( $loaderMtime <= (int) $quarantine['time'] ) {
+            return;
+        }
+        // Loader was updated after the quarantine — assume intentional recovery.
+        if ( function_exists( 'update_option' ) ) {
+            update_option( self::BOOT_ATTEMPT_OPTION, 0, false );
+        }
+        if ( function_exists( 'delete_option' ) ) {
+            delete_option( self::QUARANTINE_OPTION );
+            delete_option( self::COLDSTART_ERROR_OPTION );
+        }
     }
 
     /**
@@ -98,9 +137,17 @@ final class ExamplePress_MU_Bootstrapper {
         if ( $state['phpVersionId'] < $state['requiredPhpId'] ) {
             return 'php_too_old';
         }
-        if ( $state['attempts'] >= $state['threshold'] ) {
+
+        // Fatal-loop detection only applies when there's actually a kernel
+        // present that COULD be fataling. If bootFileExists is false, any
+        // elevated counter must be stale (e.g. the kernel was deleted by
+        // hand between requests, or a previous session left the option
+        // set). Fall through to the normal heal/cold-start pathways; the
+        // dispatcher will reset the counter before installing anew.
+        if ( $state['attempts'] >= $state['threshold'] && $state['bootFileExists'] ) {
             return $state['previousExists'] ? 'fatal_loop_rollback' : 'fatal_loop_quarantine';
         }
+
         if ( ! $state['bootFileExists'] ) {
             if ( $state['previousExists'] ) {
                 return 'heal_promote_previous';
@@ -113,6 +160,7 @@ final class ExamplePress_MU_Bootstrapper {
             }
             return 'cold_start_fetch';
         }
+
         return 'proceed';
     }
 
@@ -122,6 +170,18 @@ final class ExamplePress_MU_Bootstrapper {
      *
      * @param array<string, mixed> $state
      */
+    /**
+     * Actions for which we're about to require a FRESHLY installed kernel,
+     * so any pre-existing attempt counter is meaningless and must be reset
+     * before the (about-to-happen) increment. Otherwise a stale counter
+     * could immediately re-trigger the fatal-loop branch on the next boot.
+     */
+    private const FRESH_KERNEL_ACTIONS = [
+        'fatal_loop_rollback',
+        'heal_promote_previous',
+        'cold_start_fetch',
+    ];
+
     private static function dispatchBootAction( string $action, string $targetMuDir, array $state ): void {
         $bootFile = $targetMuDir . '/examplepress-mu/bootstrap.php';
 
@@ -202,6 +262,15 @@ final class ExamplePress_MU_Bootstrapper {
             case 'proceed':
                 // Normal boot path.
                 break;
+        }
+
+        // On any fresh-kernel path, zero the counter before the increment:
+        // we're about to require an entirely new kernel and the old
+        // counter has no bearing on its behaviour. Otherwise a stale
+        // elevated counter (e.g. from a prior session) would re-trigger
+        // fatal_loop_quarantine on the next boot.
+        if ( in_array( $action, self::FRESH_KERNEL_ACTIONS, true ) ) {
+            $state['attempts'] = 0;
         }
 
         // Increment the attempt counter BEFORE the require. markKernelBooted()
