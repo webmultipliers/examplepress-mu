@@ -9,9 +9,9 @@ use ExamplePress\MU\Config\FeatureRegistry;
 /**
  * Prevents access to the WordPress Full Site Editor (FSE).
  *
- * CRITICAL FIX: Reads state from FeatureRegistry instead of being
- * hardcoded to just check EP_DEV_MODE. The bypass is now controlled
- * via the 'editor-guard' feature flag.
+ * The lockdown is gated by the `editor-guard` feature flag (default on).
+ * It is also bypassed when EP_DEV_MODE is defined or when the
+ * `examplepress_mu_bypass_editor_guard` filter returns true.
  */
 final class EditorGuard
 {

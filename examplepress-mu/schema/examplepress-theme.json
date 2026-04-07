@@ -54,6 +54,10 @@
 					"description": "Enable HTML5 markup for core elements. Options: features (array of markup types).",
 					"$ref": "#/$defs/featureToggle"
 				},
+				"editor-guard": {
+					"description": "Block access to the WordPress Site Editor (admin redirect, REST template endpoints, FSE template resolution). Default: true. Bypassed automatically when EP_DEV_MODE is defined.",
+					"$ref": "#/$defs/featureToggle"
+				},
 				"disable-remote-block-patterns": {
 					"description": "Prevent loading remote block patterns from the pattern directory.",
 					"$ref": "#/$defs/featureToggle"

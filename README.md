@@ -22,29 +22,27 @@ mu-plugins/
     │   │   ├── FeatureRegistry.php  # Filterable feature flag system
     │   │   └── DependencyManager.php # Aggregates deps from MU + companion apps
     │   ├── Governance/
-    │   │   ├── PlatformPolicy.php   # Cap stripping, permalinks, managed options
+    │   │   ├── PlatformPolicy.php   # Permalinks, managed options, opt-in cap stripping
     │   │   ├── AppValidator.php     # Zero-trust plugin validation (single + multisite)
-    │   │   ├── EditorGuard.php      # FSE lockdown (admin only, frontend pass-through)
-    │   │   ├── AdminPolicy.php      # Dashboard widget/admin customization governance
-    │   │   └── EditorPolicy.php     # Block pattern/type restriction governance
+    │   │   └── EditorGuard.php      # FSE lockdown (gated by editor-guard feature)
     │   ├── Infrastructure/
     │   │   ├── AppDiscovery.php     # Scans plugins for examplepress.json
     │   │   ├── AppRegistry.php      # ep_app CPT + CRUD + merged queries + destroy
     │   │   ├── GitHub.php           # GitHub App auth, repo creation, scaffold push
     │   │   ├── Scaffolder.php       # Template repo scaffolding (Git Database API)
-    │   │   ├── Updater.php          # WP-Cron self-updater (twicedaily schedule)
+    │   │   ├── Updater.php          # WP-Cron self-updater with atomic swap + rollback
     │   │   ├── CliCommand.php       # WP-CLI: wp examplepress init
     │   │   ├── RouteRegistry.php    # Multi-origin route registration
     │   │   ├── Router.php           # Template dispatch (namespaced, no redeclaration)
-    │   │   ├── PluginManager.php    # Updater/demo plugin install + stale cleanup
+    │   │   ├── PluginManager.php    # Updater/demo install + daily-cron stale cleanup
     │   │   ├── Notifications.php    # System warning aggregation + archive REST
-    │   │   └── Helpers.php          # Filesystem utilities
+    │   │   └── Helpers.php          # Filesystem utilities (hardened, force-direct mode)
     │   ├── API/
-    │   │   ├── AgentController.php      # GET /apps (read-only, external tools)
-    │   │   ├── AppsController.php       # App CRUD, scaffold, connect, destroy, health
+    │   │   ├── CompanionPluginController.php # Shared base for updater/demo controllers
+    │   │   ├── AppsController.php       # App CRUD, scaffold, connect, destroy, health, GET /apps
     │   │   ├── ConnectionsController.php # GitHub/Troy settings, tests, OAuth callbacks
-    │   │   ├── DemoController.php       # Demo plugin lifecycle
-    │   │   ├── UpdaterController.php    # Updater plugin lifecycle
+    │   │   ├── DemoController.php       # Demo plugin lifecycle (subclass of CompanionPluginController)
+    │   │   ├── UpdaterController.php    # Updater plugin lifecycle (subclass of CompanionPluginController)
     │   │   └── FilesystemController.php # In-browser editor: tree, read, write
     │   └── Admin/
     │       ├── MenuManager.php      # Top-level menu + submenu registration
@@ -85,10 +83,10 @@ mu-plugins/
 2. `bootstrap.php` defines constants, loads the Composer autoloader (with PSR-4 fallback), and calls `Kernel::boot()`.
 3. The Kernel initializes all subsystems:
 
-**Governance** (non-toggleable, MU-enforced):
-- **PlatformPolicy** — strips dangerous capabilities, enforces `/%postname%/`, locks managed options, disables file editing
-- **AppValidator** — hooks both `option_active_plugins` and `site_option_active_sitewide_plugins` to enforce manifest-based governance before plugins load
-- **EditorGuard** — blocks Site Editor access in admin (redirect, REST, template resolution) while allowing frontend template resolution for the block theme
+**Governance** (MU-enforced, each layer is filterable):
+- **PlatformPolicy** — enforces `/%postname%/` (opt-out via `examplepress_mu_enforce_permalinks`), defines `DISALLOW_FILE_EDIT` (opt-out via `examplepress_mu_disallow_file_edit`), locks managed options, and only registers a `user_has_cap` filter when `examplepress_mu_stripped_capabilities` returns a non-empty list
+- **AppValidator** — hooks both `option_active_plugins` and `site_option_active_sitewide_plugins`, validates manifest + required fields + filterable banned-permissions list, with a final `examplepress_mu_validate_app` escape hatch and a `flushCache()` for refresh actions
+- **EditorGuard** — Site Editor lockdown gated by the `editor-guard` feature flag (default on); also bypassed by `EP_DEV_MODE` or the `examplepress_mu_bypass_editor_guard` filter
 
 **Config**:
 - **ConfigManager** — deep-merges the MU plugin's `examplepress.json` (infrastructure baseline) with the theme's `examplepress.json` (design tokens, Blockstudio settings). Theme values win.
@@ -96,11 +94,13 @@ mu-plugins/
 - **DependencyManager** — aggregates dependencies from both the MU config and active companion apps
 
 **Infrastructure**:
-- **Updater** — WP-Cron job (twicedaily) checks GitHub releases and silently upgrades. No admin login required.
+- **Updater** — WP-Cron job (twicedaily) checks GitHub releases and silently upgrades. Stages payload to a temp dir, swaps atomically, rolls back on failure. No admin login required.
+- **PluginManager** — installs the updater/demo companion plugins; stale-directory cleanup runs on a daily WP-Cron schedule (not on every `admin_init`). Repo origins are filterable via `examplepress_mu_updater_repo` / `examplepress_mu_demo_repo`.
 - **Scaffolder** — creates companion plugins from GitHub template repos using the Git Database API (blob > tree > commit > ref) to avoid rate-limiting
 - **Router + RouteRegistry** — namespaced multi-origin template dispatch. Companion plugins register route origins; the router resolves per-request.
-- **AppRegistry** — persists app records as `ep_app` CPT posts, merging live filesystem state with GitHub/Troy metadata
-- **GitHub** — App JWT auth, installation tokens, repo creation, scaffold push, Troy provisioning
+- **AppRegistry** — persists app records as `ep_app` CPT posts, merging live filesystem state with GitHub/Troy metadata. Bounded query (filter via `examplepress_mu_apps_query_limit`).
+- **GitHub** — App JWT auth, installation tokens, repo creation, scaffold push (inline-tree fast path with binary/oversize blob fallback), Troy provisioning
+- **Helpers** — hardened `WP_Filesystem` accessor (output suppression, error checking, optional `forceDirect` mode for REST/cron contexts) plus a native `readFile()` for safe REST reads
 
 **REST API** — all endpoints under `examplepress-mu/v1`, all using `manage_options` permission (not stripped capabilities):
 - Apps: CRUD, scaffold, connect, health, destroy (with confirmation nonce)
@@ -133,9 +133,10 @@ Plugins declaring `Theme: examplepress-theme` in their header are treated as Exa
 
 1. An `examplepress.json` manifest at the plugin root
 2. Required fields: `name`, `slug`
-3. No banned permissions (`manage_options`, `edit_themes`, `install_plugins`, etc.)
+3. No banned permissions — the banned-list is empty by default and populated via the `examplepress_mu_banned_permissions` filter
+4. Final approval via the `examplepress_mu_validate_app` filter (return `false` to forcibly reject; useful for stricter fleets, return `true` to bypass for local dev)
 
-Failed plugins are removed from the active plugins array before WordPress loads them. This applies to both single-site and multisite network-activated plugins.
+Failed plugins are removed from the active plugins array before WordPress loads them. This applies to both single-site and multisite network-activated plugins. Call `AppValidator::flushCache()` after admin "refresh" actions when manifest contents may have changed mid-request.
 
 ## Building Assets
 
@@ -155,7 +156,7 @@ Monaco Editor is loaded from CDN at runtime (only on the Editor page) — it is 
 define( 'EP_DEV_MODE', true );
 ```
 
-Bypasses all FSE guards. Also surfaced as a notification in the admin UI.
+Bypasses the FSE EditorGuard (equivalent to disabling the `editor-guard` feature). Also surfaced as a notification in the admin UI.
 
 ## Hook Reference
 
@@ -166,16 +167,36 @@ All MU-owned hooks use the `examplepress_mu_` prefix. Theme-owned hooks (`exampl
 | `examplepress_mu_feature_{id}` | filter | Toggle any feature on/off |
 | `examplepress_mu_feature_{id}_{key}` | filter | Override a feature option value |
 | `examplepress_mu_features` | filter | Bulk-modify the feature registry |
+| `examplepress_mu_register_features` | action | Fired before core features are registered (inject/replace early) |
+| `examplepress_mu_features_booted` | action | Fired after `bootAll()` wires every feature |
+| `examplepress_mu_config_raw` | filter | Filter the merged MU + theme config before normalization |
+| `examplepress_mu_config` | filter | Filter the final normalized config (cached after first call) |
 | `examplepress_mu_resolved_origin` | filter | Filter the resolved route origin |
 | `examplepress_mu_template_prefix` | filter | Override template block prefix (default: `template`) |
 | `examplepress_mu_template_block_name` | filter | Override the assembled block name |
 | `examplepress_mu_template_repo` | filter | Override the scaffold template repository |
+| `examplepress_mu_updater_repo` | filter | Override the GitHub repo (owner/name) used for the updater plugin |
+| `examplepress_mu_demo_repo` | filter | Override the GitHub repo used for the demo plugin |
 | `examplepress_mu_bypass_editor_guard` | filter | Bypass FSE guards programmatically |
+| `examplepress_mu_enforce_permalinks` | filter | Opt out of `/%postname%/` enforcement |
+| `examplepress_mu_disallow_file_edit` | filter | Opt out of the `DISALLOW_FILE_EDIT` define |
+| `examplepress_mu_stripped_capabilities` | filter | Provide a list of caps to strip via `user_has_cap` |
 | `examplepress_mu_managed_options` | filter | Lock wp_options to specific values |
 | `examplepress_mu_permalink_structure` | filter | Override enforced permalink structure |
+| `examplepress_mu_validate_app` | filter | Final accept/reject decision for an app manifest |
+| `examplepress_mu_banned_permissions` | filter | List of permissions that disqualify a manifest |
+| `examplepress_mu_app_scan_excludes` | filter | Plugin-directory entries to skip during app discovery |
+| `examplepress_mu_discovered_apps` | filter | Final discovered app list from `AppDiscovery::scan()` |
+| `examplepress_mu_apps_merged` | filter | Final merged registry/filesystem app list |
+| `examplepress_mu_apps_query_limit` | filter | Cap on the `ep_app` CPT query (default: 500) |
+| `examplepress_mu_data_health` | filter | Health payload before localization |
+| `examplepress_mu_data_features` | filter | Features payload before localization |
+| `examplepress_mu_data_blocks` | filter | Block-registry payload before localization |
 | `examplepress_mu_register_admin_pages` | action | Register additional admin pages |
-| `examplepress_mu_admin_pages` | filter | Modify the admin page registry |
+| `examplepress_mu_core_page` | filter | Override an individual core page definition (return null to suppress) |
+| `examplepress_mu_admin_pages` | filter | Modify the final merged admin page registry |
 | `examplepress_mu_can_edit_app_files` | filter | Control filesystem editor access |
+| `examplepress_mu_github_inline_tree_threshold` | filter | Inline-content size threshold for `GitHub::pushScaffold` (default: 1 MB) |
 
 ## WP-CLI
 

@@ -7,11 +7,14 @@ namespace ExamplePress\MU\Config;
 use ExamplePress\MU\Infrastructure\Helpers;
 
 /**
- * Reads and caches the platform configuration from examplepress.json.
+ * Reads, deep-merges and caches the platform configuration from
+ * examplepress.json. The MU plugin's file is the infrastructure baseline;
+ * the active theme's file supplies design tokens and Blockstudio settings
+ * and wins on overlapping keys.
  *
- * CRITICAL FIX: Reads from the MU plugin directory (__DIR__/../../examplepress.json),
- * NOT from get_template_directory(). The MU plugin's examplepress.json is the
- * absolute source of truth since the theme was gutted in v1.2.0.
+ * The final result is cached in $config and exposed via two filters:
+ *  - examplepress_mu_config_raw  (after merge, before normalization)
+ *  - examplepress_mu_config      (final, applied once and cached)
  */
 final class ConfigManager
 {

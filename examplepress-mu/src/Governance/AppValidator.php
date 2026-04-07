@@ -7,9 +7,9 @@ namespace ExamplePress\MU\Governance;
 /**
  * Zero-trust plugin validation.
  *
- * CRITICAL FIX: Hooks both option_active_plugins (single site) AND
- * site_option_active_sitewide_plugins (Multisite) to prevent
- * network-activated rogue plugins from bypassing governance.
+ * Hooks both option_active_plugins (single site) and
+ * site_option_active_sitewide_plugins (Multisite) so that
+ * network-activated plugins cannot bypass governance.
  */
 final class AppValidator
 {
