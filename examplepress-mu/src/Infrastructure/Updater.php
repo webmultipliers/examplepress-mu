@@ -138,10 +138,13 @@ final class Updater
     public static function performUpdate(string $packageUrl, string $checksum = ''): bool
     {
         require_once ABSPATH . 'wp-admin/includes/file.php';
-        \WP_Filesystem();
 
-        /** @var \WP_Filesystem_Base $wp_filesystem */
-        global $wp_filesystem;
+        $wp_filesystem = Helpers::filesystem(forceDirect: true);
+
+        if (!$wp_filesystem) {
+            error_log('ExamplePress MU Updater: Filesystem unavailable — direct access denied.');
+            return false;
+        }
 
         $tempFile = download_url($packageUrl);
 

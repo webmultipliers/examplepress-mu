@@ -146,8 +146,14 @@ final class DependencyManager
         $config = ConfigManager::get();
         $deps = $config['dependencies'] ?? [];
 
-        // Source 2: Active companion apps' examplepress.json files
-        $apps = AppDiscovery::scan();
+        // Source 2: Active companion apps' examplepress.json files.
+        // Only aggregate deps from apps the site operator has actually
+        // activated — otherwise inactive apps in wp-content/plugins would
+        // leak their requirements into the UI and notifications.
+        $apps = array_filter(
+            AppDiscovery::scan(),
+            static fn(array $app): bool => !empty($app['active'])
+        );
         foreach ($apps as $app) {
             $appJsonPath = WP_PLUGIN_DIR . '/' . $app['slug'] . '/examplepress.json';
             if (!file_exists($appJsonPath)) {

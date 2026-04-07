@@ -98,9 +98,9 @@ final class EditorGuard
      * Frontend template resolution MUST be allowed so the block theme's
      * templates/index.html can load the router block.
      *
-     * @return array<int, mixed>|null Empty array in admin, null (pass-through) on frontend.
+     * @return mixed Empty array in admin, upstream result (pass-through) on frontend.
      */
-    public static function guardTemplateResolution(mixed $result, array $query, string $templateType): array|null
+    public static function guardTemplateResolution(mixed $result, array $query, string $templateType): mixed
     {
         // Allow frontend template resolution — the block theme needs it.
         if (!is_admin() && !wp_doing_ajax() && !(defined('REST_REQUEST') && REST_REQUEST)) {

@@ -38,10 +38,7 @@ final class PluginManager
 
     public static function cleanupStaleUpdaterDirs(): void
     {
-        if (wp_doing_ajax() || wp_doing_cron() || defined('REST_REQUEST')) {
-            return;
-        }
-
+        // Runs on the daily examplepress_mu_plugin_cleanup cron hook.
         $pattern = WP_PLUGIN_DIR . '/examplepress-theme-update-*';
         $stale = glob($pattern, GLOB_ONLYDIR);
 
@@ -53,11 +50,9 @@ final class PluginManager
             require_once ABSPATH . 'wp-admin/includes/plugin.php';
         }
 
-        require_once ABSPATH . 'wp-admin/includes/file.php';
-        WP_Filesystem();
-        global $wp_filesystem;
+        $wp_filesystem = Helpers::filesystem(forceDirect: true);
 
-        if (!$wp_filesystem instanceof \WP_Filesystem_Base) {
+        if (!$wp_filesystem) {
             return;
         }
 
@@ -77,10 +72,7 @@ final class PluginManager
 
     public static function cleanupStaleDemoDirs(): void
     {
-        if (wp_doing_ajax() || wp_doing_cron() || defined('REST_REQUEST')) {
-            return;
-        }
-
+        // Runs on the daily examplepress_mu_plugin_cleanup cron hook.
         $pattern = WP_PLUGIN_DIR . '/examplepress-demo-*';
         $stale = glob($pattern, GLOB_ONLYDIR);
 
@@ -92,11 +84,9 @@ final class PluginManager
             require_once ABSPATH . 'wp-admin/includes/plugin.php';
         }
 
-        require_once ABSPATH . 'wp-admin/includes/file.php';
-        WP_Filesystem();
-        global $wp_filesystem;
+        $wp_filesystem = Helpers::filesystem(forceDirect: true);
 
-        if (!$wp_filesystem instanceof \WP_Filesystem_Base) {
+        if (!$wp_filesystem) {
             return;
         }
 

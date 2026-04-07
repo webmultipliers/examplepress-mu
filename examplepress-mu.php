@@ -41,8 +41,22 @@ final class ExamplePress_MU_Bootstrapper {
 
     private static function fetchLatestFromGithub( string $targetMuDir ): bool {
         require_once ABSPATH . 'wp-admin/includes/file.php';
-        WP_Filesystem();
+
+        // Force the direct transport so this cannot prompt for FTP creds
+        // during plugin boot (which has no rendering surface).
+        $forceCb = static fn() => 'direct';
+        add_filter( 'filesystem_method', $forceCb );
+        ob_start();
+        $fsOk = WP_Filesystem();
+        ob_end_clean();
+        remove_filter( 'filesystem_method', $forceCb );
+
         global $wp_filesystem;
+
+        if ( ! $fsOk || ! ( $wp_filesystem instanceof \WP_Filesystem_Base ) ) {
+            error_log( 'ExamplePress MU Bootstrapper: Filesystem unavailable — direct access denied.' );
+            return false;
+        }
 
         $apiUrl  = 'https://api.github.com/repos/' . self::$repoOwner . '/' . self::$repoName . '/releases/latest';
         $response = wp_remote_get( $apiUrl, [

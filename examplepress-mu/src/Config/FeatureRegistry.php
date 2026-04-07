@@ -316,13 +316,13 @@ final class FeatureRegistry
             },
         ]);
 
-        // Design Tokens
+        // Design Tokens — each feature owns its own slice of theme.json.
         self::register('theme-colors', [
             'label'   => 'Theme Colors',
             'group'   => 'design',
             'default' => true,
             'options' => ['palette' => []],
-            'setup'   => [self::class, 'setupDesignTokens'],
+            'setup'   => [self::class, 'setupColorsTokens'],
         ]);
 
         self::register('theme-layout', [
@@ -330,6 +330,7 @@ final class FeatureRegistry
             'group'   => 'design',
             'default' => true,
             'options' => ['wide_size' => '1200px', 'content_size' => '800px'],
+            'setup'   => [self::class, 'setupLayoutTokens'],
         ]);
 
         self::register('theme-typography', [
@@ -337,12 +338,14 @@ final class FeatureRegistry
             'group'   => 'design',
             'default' => true,
             'options' => ['font_families' => [], 'font_sizes' => []],
+            'setup'   => [self::class, 'setupTypographyTokens'],
         ]);
 
         self::register('design-strict', [
             'label'   => 'Design Strict Mode',
             'group'   => 'design',
             'default' => false,
+            'setup'   => [self::class, 'setupStrictTokens'],
         ]);
 
         self::register('theme-spacing', [
@@ -350,6 +353,7 @@ final class FeatureRegistry
             'group'   => 'design',
             'default' => false,
             'options' => [],
+            'setup'   => [self::class, 'setupSpacingTokens'],
         ]);
 
         self::register('theme-borders', [
@@ -357,6 +361,7 @@ final class FeatureRegistry
             'group'   => 'design',
             'default' => false,
             'options' => [],
+            'setup'   => [self::class, 'setupBordersTokens'],
         ]);
 
         self::register('theme-shadows', [
@@ -364,6 +369,7 @@ final class FeatureRegistry
             'group'   => 'design',
             'default' => false,
             'options' => [],
+            'setup'   => [self::class, 'setupShadowsTokens'],
         ]);
 
         self::register('theme-global-styles', [
@@ -371,6 +377,7 @@ final class FeatureRegistry
             'group'   => 'design',
             'default' => false,
             'options' => [],
+            'setup'   => [self::class, 'setupGlobalStylesTokens'],
         ]);
 
         // Blockstudio features
@@ -392,167 +399,75 @@ final class FeatureRegistry
             self::register($bsId, array_merge($bsArgs, [
                 'group'   => 'blockstudio',
                 'default' => false,
-                'setup'   => static function (string $id) use ($bsId): void {
-                    if (!self::enabled($id)) {
-                        return;
-                    }
-                    // Blockstudio features are consumed via their options;
-                    // the Blockstudio plugin reads them through its own filter system.
-                    $bsFilterMap = [
-                        'blockstudio-assets'       => 'blockstudio/settings/assets',
-                        'blockstudio-asset-reset'  => 'blockstudio/settings/assetReset',
-                        'blockstudio-minify'       => 'blockstudio/settings/minify',
-                        'blockstudio-scss'         => 'blockstudio/settings/scss',
-                        'blockstudio-tailwind'     => 'blockstudio/settings/tailwind',
-                        'blockstudio-editor'       => 'blockstudio/settings/editor',
-                        'blockstudio-block-editor' => 'blockstudio/settings/blockEditor',
-                        'blockstudio-ai-context'   => 'blockstudio/settings/aiContext',
-                        'blockstudio-block-tags'   => 'blockstudio/settings/blockTags',
-                        'blockstudio-dev'          => 'blockstudio/settings/dev',
-                        'blockstudio-users'        => 'blockstudio/settings/users',
-                    ];
-
-                    $filter = $bsFilterMap[$bsId] ?? null;
-                    if ($filter) {
-                        add_filter($filter, static function ($value) use ($bsId) {
-                            $json = ConfigManager::get();
-                            $opts = $json['features'][$bsId]['options'] ?? [];
-                            return !empty($opts) ? $opts : $value;
-                        });
-                    }
-                },
+                // IIFE factory: capture $bsId by value into a fresh closure
+                // per iteration so the setup callable carries its own id
+                // regardless of loop-variable scoping surprises or future
+                // refactors that turn the loop variable into a reference.
+                'setup'   => self::makeBlockstudioSetup($bsId),
             ]));
         }
     }
 
     /**
-     * Setup design tokens by injecting into wp_theme_json_data_theme.
+     * Build a setup closure for a single Blockstudio feature with $bsId
+     * captured by value via a higher-order factory.
      */
-    public static function setupDesignTokens(string $_id): void
+    private static function makeBlockstudioSetup(string $bsId): \Closure
     {
-        add_filter('wp_theme_json_data_theme', static function ($themeJson) {
-            $settings = [];
-            $styles = [];
+        static $bsFilterMap = [
+            'blockstudio-assets'       => 'blockstudio/settings/assets',
+            'blockstudio-asset-reset'  => 'blockstudio/settings/assetReset',
+            'blockstudio-minify'       => 'blockstudio/settings/minify',
+            'blockstudio-scss'         => 'blockstudio/settings/scss',
+            'blockstudio-tailwind'     => 'blockstudio/settings/tailwind',
+            'blockstudio-editor'       => 'blockstudio/settings/editor',
+            'blockstudio-block-editor' => 'blockstudio/settings/blockEditor',
+            'blockstudio-ai-context'   => 'blockstudio/settings/aiContext',
+            'blockstudio-block-tags'   => 'blockstudio/settings/blockTags',
+            'blockstudio-dev'          => 'blockstudio/settings/dev',
+            'blockstudio-users'        => 'blockstudio/settings/users',
+        ];
 
-            // Colors
-            if (self::enabled('theme-colors')) {
-                $palette = self::option('theme-colors', 'palette', []);
-                if (!empty($palette)) {
-                    $settings['color']['palette'] = $palette;
-                }
+        $filter = $bsFilterMap[$bsId] ?? null;
+
+        return static function (string $id) use ($bsId, $filter): void {
+            if (!self::enabled($id)) {
+                return;
             }
-
-            // Layout
-            if (self::enabled('theme-layout')) {
-                $settings['layout'] = [
-                    'wideSize'    => self::option('theme-layout', 'wide_size', '1200px'),
-                    'contentSize' => self::option('theme-layout', 'content_size', '800px'),
-                ];
+            if (!$filter) {
+                return;
             }
+            add_filter($filter, static function ($value) use ($bsId) {
+                $json = ConfigManager::get();
+                $opts = $json['features'][$bsId]['options'] ?? [];
+                return !empty($opts) ? $opts : $value;
+            });
+        };
+    }
 
-            // Typography
-            if (self::enabled('theme-typography')) {
-                $fontFamilies = self::option('theme-typography', 'font_families', []);
-                if (!empty($fontFamilies)) {
-                    $settings['typography']['fontFamilies'] = $fontFamilies;
-                }
-                $fontSizes = self::option('theme-typography', 'font_sizes', []);
-                if (!empty($fontSizes)) {
-                    $settings['typography']['fontSizes'] = $fontSizes;
-                }
-
-                $typoFlags = ['fluid', 'line_height', 'text_columns', 'writing_mode', 'drop_cap', 'default_font_sizes'];
-                foreach ($typoFlags as $flag) {
-                    $val = self::option('theme-typography', $flag);
-                    if ($val !== null) {
-                        $camelKey = lcfirst(str_replace('_', '', ucwords($flag, '_')));
-                        $settings['typography'][$camelKey] = $val;
-                    }
-                }
-            }
-
-            // Strict mode
-            if (self::enabled('design-strict')) {
-                $settings['color']['custom'] = false;
-                $settings['color']['customGradient'] = false;
-                $settings['typography']['customFontSize'] = false;
-                $settings['spacing']['customSpacingSize'] = false;
-            }
-
-            // Spacing
-            if (self::enabled('theme-spacing')) {
-                $spacingSizes = self::option('theme-spacing', 'spacing_sizes', []);
-                if (!empty($spacingSizes)) {
-                    $settings['spacing']['spacingSizes'] = $spacingSizes;
-                }
-                $spacingScale = self::option('theme-spacing', 'spacing_scale');
-                if ($spacingScale !== null) {
-                    $settings['spacing']['spacingScale'] = $spacingScale;
-                }
-                $blockGap = self::option('theme-spacing', 'block_gap');
-                if ($blockGap !== null) {
-                    $settings['spacing']['blockGap'] = $blockGap;
-                }
-                $units = self::option('theme-spacing', 'units');
-                if ($units !== null) {
-                    $settings['spacing']['units'] = $units;
-                }
-            }
-
-            // Borders
-            if (self::enabled('theme-borders')) {
-                $radiusSizes = self::option('theme-borders', 'radius_sizes', []);
-                if (!empty($radiusSizes)) {
-                    $settings['custom']['border']['radiusSizes'] = $radiusSizes;
-                }
-                foreach (['color', 'radius', 'style', 'width'] as $key) {
-                    $val = self::option('theme-borders', $key);
-                    if ($val !== null) {
-                        $settings['border'][$key] = $val;
-                    }
-                }
-            }
-
-            // Shadows
-            if (self::enabled('theme-shadows')) {
-                $presets = self::option('theme-shadows', 'presets', []);
-                if (!empty($presets)) {
-                    $settings['shadow']['presets'] = $presets;
-                }
-                $defaultPresets = self::option('theme-shadows', 'default_presets');
-                if ($defaultPresets !== null) {
-                    $settings['shadow']['defaultPresets'] = $defaultPresets;
-                }
-            }
-
-            // Global styles
-            if (self::enabled('theme-global-styles')) {
-                foreach (['background', 'text'] as $key) {
-                    $val = self::option('theme-global-styles', $key);
-                    if ($val !== null) {
-                        $styles['color'][$key] = $val;
-                    }
-                }
-                $fontFamily = self::option('theme-global-styles', 'font_family');
-                if ($fontFamily !== null) {
-                    $styles['typography']['fontFamily'] = $fontFamily;
-                }
-                $fontSize = self::option('theme-global-styles', 'font_size');
-                if ($fontSize !== null) {
-                    $styles['typography']['fontSize'] = $fontSize;
-                }
-                $padding = self::option('theme-global-styles', 'padding');
-                if ($padding !== null) {
-                    $styles['spacing']['padding'] = $padding;
-                }
+    /**
+     * Merge a data slice into wp_theme_json_data_theme.
+     *
+     * Each per-token-group setup* method hands its slice to this helper so
+     * each design feature stays independent. The filter is added once per
+     * call; WordPress gathers all contributions before theme.json is built.
+     *
+     * @param callable(): array $sliceBuilder Returns ['settings' => ..., 'styles' => ...].
+     */
+    private static function applyThemeJsonSlice(callable $sliceBuilder): void
+    {
+        add_filter('wp_theme_json_data_theme', static function ($themeJson) use ($sliceBuilder) {
+            $slice = $sliceBuilder();
+            if (empty($slice)) {
+                return $themeJson;
             }
 
             $data = [];
-            if (!empty($settings)) {
-                $data['settings'] = $settings;
+            if (!empty($slice['settings'])) {
+                $data['settings'] = $slice['settings'];
             }
-            if (!empty($styles)) {
-                $data['styles'] = $styles;
+            if (!empty($slice['styles'])) {
+                $data['styles'] = $slice['styles'];
             }
 
             if (!empty($data)) {
@@ -561,6 +476,173 @@ final class FeatureRegistry
             }
 
             return $themeJson;
+        });
+    }
+
+    public static function setupColorsTokens(string $_id): void
+    {
+        self::applyThemeJsonSlice(static function (): array {
+            $palette = self::option('theme-colors', 'palette', []);
+            if (empty($palette)) {
+                return [];
+            }
+            return ['settings' => ['color' => ['palette' => $palette]]];
+        });
+    }
+
+    public static function setupLayoutTokens(string $_id): void
+    {
+        self::applyThemeJsonSlice(static function (): array {
+            return [
+                'settings' => [
+                    'layout' => [
+                        'wideSize'    => self::option('theme-layout', 'wide_size', '1200px'),
+                        'contentSize' => self::option('theme-layout', 'content_size', '800px'),
+                    ],
+                ],
+            ];
+        });
+    }
+
+    public static function setupTypographyTokens(string $_id): void
+    {
+        self::applyThemeJsonSlice(static function (): array {
+            $typography = [];
+
+            $fontFamilies = self::option('theme-typography', 'font_families', []);
+            if (!empty($fontFamilies)) {
+                $typography['fontFamilies'] = $fontFamilies;
+            }
+            $fontSizes = self::option('theme-typography', 'font_sizes', []);
+            if (!empty($fontSizes)) {
+                $typography['fontSizes'] = $fontSizes;
+            }
+
+            $typoFlags = ['fluid', 'line_height', 'text_columns', 'writing_mode', 'drop_cap', 'default_font_sizes'];
+            foreach ($typoFlags as $flag) {
+                $val = self::option('theme-typography', $flag);
+                if ($val !== null) {
+                    $camelKey = lcfirst(str_replace('_', '', ucwords($flag, '_')));
+                    $typography[$camelKey] = $val;
+                }
+            }
+
+            if (empty($typography)) {
+                return [];
+            }
+            return ['settings' => ['typography' => $typography]];
+        });
+    }
+
+    public static function setupStrictTokens(string $_id): void
+    {
+        self::applyThemeJsonSlice(static fn(): array => [
+            'settings' => [
+                'color'      => [
+                    'custom'         => false,
+                    'customGradient' => false,
+                ],
+                'typography' => ['customFontSize' => false],
+                'spacing'    => ['customSpacingSize' => false],
+            ],
+        ]);
+    }
+
+    public static function setupSpacingTokens(string $_id): void
+    {
+        self::applyThemeJsonSlice(static function (): array {
+            $spacing = [];
+
+            $spacingSizes = self::option('theme-spacing', 'spacing_sizes', []);
+            if (!empty($spacingSizes)) {
+                $spacing['spacingSizes'] = $spacingSizes;
+            }
+            foreach (['spacing_scale' => 'spacingScale', 'block_gap' => 'blockGap', 'units' => 'units'] as $opt => $key) {
+                $val = self::option('theme-spacing', $opt);
+                if ($val !== null) {
+                    $spacing[$key] = $val;
+                }
+            }
+
+            if (empty($spacing)) {
+                return [];
+            }
+            return ['settings' => ['spacing' => $spacing]];
+        });
+    }
+
+    public static function setupBordersTokens(string $_id): void
+    {
+        self::applyThemeJsonSlice(static function (): array {
+            $settings = [];
+
+            $radiusSizes = self::option('theme-borders', 'radius_sizes', []);
+            if (!empty($radiusSizes)) {
+                $settings['custom']['border']['radiusSizes'] = $radiusSizes;
+            }
+            foreach (['color', 'radius', 'style', 'width'] as $key) {
+                $val = self::option('theme-borders', $key);
+                if ($val !== null) {
+                    $settings['border'][$key] = $val;
+                }
+            }
+
+            if (empty($settings)) {
+                return [];
+            }
+            return ['settings' => $settings];
+        });
+    }
+
+    public static function setupShadowsTokens(string $_id): void
+    {
+        self::applyThemeJsonSlice(static function (): array {
+            $shadow = [];
+
+            $presets = self::option('theme-shadows', 'presets', []);
+            if (!empty($presets)) {
+                $shadow['presets'] = $presets;
+            }
+            $defaultPresets = self::option('theme-shadows', 'default_presets');
+            if ($defaultPresets !== null) {
+                $shadow['defaultPresets'] = $defaultPresets;
+            }
+
+            if (empty($shadow)) {
+                return [];
+            }
+            return ['settings' => ['shadow' => $shadow]];
+        });
+    }
+
+    public static function setupGlobalStylesTokens(string $_id): void
+    {
+        self::applyThemeJsonSlice(static function (): array {
+            $styles = [];
+
+            foreach (['background', 'text'] as $key) {
+                $val = self::option('theme-global-styles', $key);
+                if ($val !== null) {
+                    $styles['color'][$key] = $val;
+                }
+            }
+            $fontFamily = self::option('theme-global-styles', 'font_family');
+            if ($fontFamily !== null) {
+                $styles['typography']['fontFamily'] = $fontFamily;
+            }
+            $fontSize = self::option('theme-global-styles', 'font_size');
+            if ($fontSize !== null) {
+                $styles['typography']['fontSize'] = $fontSize;
+            }
+            $padding = self::option('theme-global-styles', 'padding');
+            if ($padding !== null) {
+                $styles['spacing']['padding'] = $padding;
+            }
+
+            if (empty($styles)) {
+                return [];
+            }
+            return ['styles' => $styles];
         });
     }
 }
