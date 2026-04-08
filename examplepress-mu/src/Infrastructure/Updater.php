@@ -18,6 +18,7 @@ final class Updater
 {
     public const CHECK_INTERVAL   = 12 * 3600; // HOUR_IN_SECONDS may not be defined yet.
     public const TRANSIENT_KEY    = 'ep_mu_update_check';
+    public const REMOTE_CACHE_KEY = 'ep_mu_update_remote_cache';
     public const UPDATES_FILENAME = 'updates.json';
     public const CRON_HOOK        = 'examplepress_mu_update_check';
 
@@ -91,6 +92,15 @@ final class Updater
 
         // Fetch succeeded — extend the throttle to the real check interval.
         set_site_transient(self::TRANSIENT_KEY, 'checked', self::CHECK_INTERVAL);
+
+        // Cache the remote payload so the admin UI can read the known-latest
+        // version without hitting GitHub on every page load.
+        set_site_transient(self::REMOTE_CACHE_KEY, [
+            'version'    => $remoteVersion['version'],
+            'package'    => $remoteVersion['package'],
+            'checksum'   => $remoteVersion['checksum'],
+            'fetched_at' => time(),
+        ], self::CHECK_INTERVAL);
 
         if (version_compare($remoteVersion['version'], EXAMPLEPRESS_MU_VERSION, '>')) {
             self::performUpdate($remoteVersion['package'], $remoteVersion['checksum']);
@@ -193,13 +203,205 @@ final class Updater
         );
 
         if ($ok) {
-            // Clear the transient so the next check picks up the new version.
-            // Note: the new code only takes effect on the NEXT request — the
-            // currently-running kernel cannot re-require its own replacement.
+            // Clear the throttle + remote cache so the next check picks up
+            // the new version. Note: the new code only takes effect on the
+            // NEXT request — the currently-running kernel cannot re-require
+            // its own replacement.
             delete_site_transient(self::TRANSIENT_KEY);
+            delete_site_transient(self::REMOTE_CACHE_KEY);
             error_log('ExamplePress MU Updater: Successfully updated to latest version.');
         }
 
         return $ok;
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    //  Admin UI surface
+    //
+    //  Read-only status exposure + manual action helpers. REST controllers
+    //  thin-wrap these so the admin UI can drive the same code path as
+    //  WP-Cron.
+    // ─────────────────────────────────────────────────────────────────
+
+    /**
+     * Structured status payload for the Updates → Kernel tab.
+     *
+     * @return array<string, mixed>
+     */
+    public static function getStatus(): array
+    {
+        $cached        = get_site_transient(self::REMOTE_CACHE_KEY);
+        $remoteVersion = is_array($cached) ? ($cached['version'] ?? null) : null;
+        $remotePackage = is_array($cached) ? ($cached['package'] ?? null) : null;
+        $fetchedAt     = is_array($cached) ? ($cached['fetched_at'] ?? null) : null;
+
+        $updateAvailable = false;
+        if (is_string($remoteVersion) && $remoteVersion !== '') {
+            $updateAvailable = version_compare($remoteVersion, EXAMPLEPRESS_MU_VERSION, '>');
+        }
+
+        $nextScheduled = wp_next_scheduled(self::CRON_HOOK);
+        $throttle      = get_site_transient(self::TRANSIENT_KEY);
+
+        $quarantine      = get_option('ep_mu_quarantined', null);
+        $bootAttempts    = (int) get_option('ep_mu_boot_attempt', 0);
+        $coldStartError  = (string) get_option('ep_mu_coldstart_error', '');
+        $previousExists  = self::hasPreviousVersion();
+
+        return [
+            'current_version'   => EXAMPLEPRESS_MU_VERSION,
+            'remote_version'    => $remoteVersion,
+            'remote_package'    => $remotePackage,
+            'remote_fetched_at' => is_int($fetchedAt) ? $fetchedAt : null,
+            'update_available'  => $updateAvailable,
+            'throttle_state'    => is_string($throttle) ? $throttle : '',
+            'next_scheduled'    => is_int($nextScheduled) ? $nextScheduled : null,
+            'check_interval'    => self::CHECK_INTERVAL,
+            'cron_hook'         => self::CRON_HOOK,
+            'repo'              => self::$repoOwner . '/' . self::$repoName,
+            'previous_version_available' => $previousExists,
+            'quarantined'       => is_array($quarantine) ? $quarantine : null,
+            'boot_attempts'     => $bootAttempts,
+            'coldstart_error'   => $coldStartError,
+        ];
+    }
+
+    /**
+     * Force an immediate GitHub check, bypassing the throttle transient.
+     * Does NOT auto-install, even if a newer version is found — this is
+     * the "refresh the admin UI" button, not the "upgrade now" button.
+     *
+     * @return array{success: bool, status: array<string, mixed>, message?: string}
+     */
+    public static function forceCheck(): array
+    {
+        // Drop the throttle so fetchRemoteVersion() runs fresh.
+        delete_site_transient(self::TRANSIENT_KEY);
+        delete_site_transient(self::REMOTE_CACHE_KEY);
+
+        $remote = self::fetchRemoteVersion();
+
+        if (!$remote) {
+            return [
+                'success' => false,
+                'status'  => self::getStatus(),
+                'message' => 'Could not reach GitHub or the release was missing updates.json.',
+            ];
+        }
+
+        set_site_transient(self::REMOTE_CACHE_KEY, [
+            'version'    => $remote['version'],
+            'package'    => $remote['package'],
+            'checksum'   => $remote['checksum'],
+            'fetched_at' => time(),
+        ], self::CHECK_INTERVAL);
+
+        // Hold the throttle so the next cron tick honors the window.
+        set_site_transient(self::TRANSIENT_KEY, 'checked', self::CHECK_INTERVAL);
+
+        return [
+            'success' => true,
+            'status'  => self::getStatus(),
+        ];
+    }
+
+    /**
+     * Force a download + atomic swap to the currently-known-latest version.
+     * The admin UI equivalent of "wait for cron." Uses the cached remote
+     * payload if available; otherwise fetches fresh.
+     *
+     * @return array{success: bool, status: array<string, mixed>, message?: string}
+     */
+    public static function forceUpdate(): array
+    {
+        $cached = get_site_transient(self::REMOTE_CACHE_KEY);
+
+        if (!is_array($cached) || empty($cached['package'])) {
+            // Nothing cached — fetch first.
+            $remote = self::fetchRemoteVersion();
+            if (!$remote) {
+                return [
+                    'success' => false,
+                    'status'  => self::getStatus(),
+                    'message' => 'Could not resolve a remote version to install.',
+                ];
+            }
+            $cached = $remote + ['fetched_at' => time()];
+        }
+
+        // Refuse to "update" to the same or an older version from this path.
+        // Operators who genuinely want to reinstall the running version can
+        // use a separate reinstall flow — this path is strictly "upgrade."
+        if (!version_compare($cached['version'], EXAMPLEPRESS_MU_VERSION, '>')) {
+            return [
+                'success' => false,
+                'status'  => self::getStatus(),
+                'message' => 'Already on the latest version.',
+            ];
+        }
+
+        $ok = self::performUpdate($cached['package'], $cached['checksum'] ?? '');
+
+        return [
+            'success' => $ok,
+            'status'  => self::getStatus(),
+            'message' => $ok
+                ? 'Kernel updated. The new code will load on the next request.'
+                : 'Update failed. Check error_log for details.',
+        ];
+    }
+
+    /**
+     * Rollback to the retained previous version (examplepress-mu.previous).
+     *
+     * @return array{success: bool, status: array<string, mixed>, message?: string}
+     */
+    public static function rollbackToPrevious(): array
+    {
+        if (!self::hasPreviousVersion()) {
+            return [
+                'success' => false,
+                'status'  => self::getStatus(),
+                'message' => 'No previous version snapshot is available on disk.',
+            ];
+        }
+
+        $ok = \ExamplePress_MU_Bootstrapper::promotePreviousVersion(dirname(EXAMPLEPRESS_MU_DIR));
+
+        if ($ok) {
+            delete_site_transient(self::TRANSIENT_KEY);
+            delete_site_transient(self::REMOTE_CACHE_KEY);
+        }
+
+        return [
+            'success' => $ok,
+            'status'  => self::getStatus(),
+            'message' => $ok
+                ? 'Rolled back to the previous kernel version. The next request will boot it.'
+                : 'Rollback failed. Check error_log for details.',
+        ];
+    }
+
+    /**
+     * Clear the loader's quarantine/fatal-loop state manually. Called by the
+     * admin UI when the operator has manually remediated a broken kernel.
+     */
+    public static function clearQuarantine(): array
+    {
+        \ExamplePress_MU_Bootstrapper::clearQuarantineState();
+        return [
+            'success' => true,
+            'status'  => self::getStatus(),
+            'message' => 'Quarantine state cleared. The loader will attempt a normal boot on the next request.',
+        ];
+    }
+
+    /**
+     * Does a retained `examplepress-mu.previous/` snapshot exist on disk?
+     */
+    public static function hasPreviousVersion(): bool
+    {
+        $previousDir = dirname(EXAMPLEPRESS_MU_DIR) . '/examplepress-mu.previous';
+        return is_dir($previousDir);
     }
 }

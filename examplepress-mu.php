@@ -2,7 +2,7 @@
 /**
  * Plugin Name: ExamplePress MU Bootstrapper
  * Description: Thin loader that fetches and executes the ExamplePress platform kernel from GitHub.
- * Version:     2.1.1
+ * Version:     2.1.2
  * Author:      Web Multipliers
  * Author URI:  https://github.com/webmultipliers
  */
@@ -298,6 +298,22 @@ final class ExamplePress_MU_Bootstrapper {
      */
     public static function markKernelBooted(): void {
         self::$kernelBooted = true;
+    }
+
+    /**
+     * Public manual clear of the fatal-loop counter and quarantine state.
+     * Called by the Updates admin page when an operator has remediated a
+     * broken kernel and wants to stop the loader from short-circuiting on
+     * the next request.
+     */
+    public static function clearQuarantineState(): void {
+        if ( function_exists( 'update_option' ) ) {
+            update_option( self::BOOT_ATTEMPT_OPTION, 0, false );
+        }
+        if ( function_exists( 'delete_option' ) ) {
+            delete_option( self::QUARANTINE_OPTION );
+            delete_option( self::COLDSTART_ERROR_OPTION );
+        }
     }
 
     /**

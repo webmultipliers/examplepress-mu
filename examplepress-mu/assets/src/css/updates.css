@@ -1,0 +1,242 @@
+/*
+ * Updates page — skeleton, toasts, progress, semantic badges,
+ * release list, apps table, pin notice.
+ *
+ * All selectors scoped to `.ep-updates-*` or the `.ep-updates-page`
+ * container so there's no collision risk with other admin pages.
+ */
+
+/* ── Page container ───────────────────────────────────────────── */
+.ep-updates-page {
+	--ep-u-radius: 6px;
+	--ep-u-border: #e0e0e3;
+	--ep-u-muted:  #646970;
+	--ep-u-text:   #1d2327;
+}
+
+/* ── Toasts ───────────────────────────────────────────────────── */
+.ep-updates-notices {
+	position: sticky;
+	top: 32px;
+	z-index: 10;
+	margin-bottom: 12px;
+}
+.ep-updates-toast {
+	margin: 0 0 8px;
+	box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+	animation: ep-u-slide-in 0.2s ease-out;
+}
+@keyframes ep-u-slide-in {
+	from { transform: translateY(-8px); opacity: 0; }
+	to   { transform: translateY(0);     opacity: 1; }
+}
+
+/* ── Skeleton loaders ─────────────────────────────────────────── */
+.ep-updates-skeleton {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	padding: 4px 0;
+}
+.ep-updates-skeleton span {
+	display: block;
+	height: 14px;
+	background: #f0f0f1;
+	border-radius: 4px;
+	animation: ep-u-pulse 1.5s ease-in-out infinite;
+}
+.ep-updates-skeleton span:nth-child(1) { width: 60%; }
+.ep-updates-skeleton span:nth-child(2) { width: 45%; }
+.ep-updates-skeleton span:nth-child(3) { width: 70%; }
+.ep-updates-skeleton span:nth-child(4) { width: 55%; }
+@keyframes ep-u-pulse {
+	0%, 100% { opacity: 0.45; }
+	50%      { opacity: 1;    }
+}
+
+/* ── Status grid ──────────────────────────────────────────────── */
+.ep-updates-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 12px 24px;
+}
+@media (min-width: 900px) {
+	.ep-updates-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+.ep-updates-cell { display: flex; flex-direction: column; gap: 4px; }
+.ep-updates-label {
+	font-size: 11px;
+	text-transform: uppercase;
+	letter-spacing: 0.5px;
+	color: var(--ep-u-muted);
+}
+.ep-updates-value {
+	font-size: 14px;
+	font-weight: 500;
+	color: var(--ep-u-text);
+	word-break: break-word;
+}
+
+/* ── Semantic badges ──────────────────────────────────────────── */
+.ep-updates-badge {
+	display: inline-block;
+	font-size: 12px;
+	font-weight: 600;
+	padding: 3px 10px;
+	border-radius: 11px;
+	line-height: 1.5;
+	white-space: nowrap;
+}
+.ep-updates-badge--current    { background: #d7f0d7; color: #1a5e1a; }
+.ep-updates-badge--update     { background: #fcf0e3; color: #8a6116; }
+.ep-updates-badge--error      { background: #fce4e4; color: #8a1616; }
+.ep-updates-badge--prerelease { background: #e8e0f0; color: #4c3d6e; margin-left: 6px; }
+.ep-updates-badge--info       { background: #e6eef8; color: #244d8a; }
+
+/* ── Progress bar ─────────────────────────────────────────────── */
+.ep-updates-progress {
+	width: 100%;
+	margin-top: 14px;
+}
+.ep-updates-progress-bar {
+	height: 4px;
+	background: #2271b1;
+	border-radius: 2px;
+	animation: ep-u-progress 1.5s ease-in-out infinite;
+	transform-origin: left center;
+}
+@keyframes ep-u-progress {
+	0%   { transform: scaleX(0);   translate: 0;   }
+	50%  { transform: scaleX(0.5); translate: 50%; }
+	100% { transform: scaleX(0);   translate: 100%; }
+}
+.ep-updates-progress-message {
+	font-size: 13px;
+	color: var(--ep-u-muted);
+	margin: 8px 0 0;
+}
+
+/* ── Pin / quarantine notices ─────────────────────────────────── */
+.ep-updates-pin-notice {
+	margin-top: 12px;
+	padding: 10px 14px;
+	background: #fcf0e3;
+	border-left: 4px solid #dba617;
+	border-radius: 0 var(--ep-u-radius) var(--ep-u-radius) 0;
+	font-size: 13px;
+	color: #3c2a00;
+}
+
+/* ── Release history ──────────────────────────────────────────── */
+.ep-updates-release-list {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+.ep-updates-release {
+	border-bottom: 1px solid var(--ep-u-border);
+	padding: 10px 0;
+}
+.ep-updates-release:last-child { border-bottom: none; padding-bottom: 0; }
+.ep-updates-release:first-child { padding-top: 0; }
+
+.ep-updates-release-header {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	width: 100%;
+	background: none;
+	border: none;
+	padding: 4px 0;
+	cursor: pointer;
+	text-align: left;
+	color: var(--ep-u-text);
+}
+.ep-updates-release-header:hover { color: #2271b1; }
+.ep-updates-release-toggle {
+	font-size: 11px;
+	transition: transform 0.15s;
+	flex-shrink: 0;
+	color: var(--ep-u-muted);
+}
+.ep-updates-release.ep-open .ep-updates-release-toggle { transform: rotate(90deg); }
+.ep-updates-release-version {
+	font-weight: 600;
+	font-size: 14px;
+}
+.ep-updates-release-name {
+	color: var(--ep-u-muted);
+	font-size: 13px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	min-width: 0;
+	flex: 1;
+}
+.ep-updates-release-date {
+	margin-left: auto;
+	font-size: 12px;
+	color: #8c8f94;
+	flex-shrink: 0;
+}
+.ep-updates-release-body {
+	display: none;
+	padding: 12px 0 4px 22px;
+	font-size: 13px;
+	line-height: 1.6;
+	color: #3c434a;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+.ep-updates-release.ep-open .ep-updates-release-body { display: block; }
+
+/* ── Apps table ───────────────────────────────────────────────── */
+.ep-updates-apps-table {
+	display: flex;
+	flex-direction: column;
+}
+.ep-updates-apps-row {
+	display: grid;
+	grid-template-columns: 2fr 1fr 1fr 2fr 0.5fr;
+	gap: 12px;
+	align-items: center;
+	padding: 10px 0;
+	border-bottom: 1px solid var(--ep-u-border);
+	font-size: 13px;
+}
+.ep-updates-apps-row:last-child { border-bottom: none; }
+.ep-updates-apps-head {
+	font-size: 11px;
+	text-transform: uppercase;
+	letter-spacing: 0.5px;
+	color: var(--ep-u-muted);
+	font-weight: 600;
+}
+.ep-updates-apps-name {
+	font-weight: 600;
+	color: var(--ep-u-text);
+}
+.ep-updates-apps-repo {
+	display: block;
+	font-size: 11px;
+	color: var(--ep-u-muted);
+	text-decoration: none;
+}
+.ep-updates-apps-repo:hover { text-decoration: underline; }
+
+/* ── Empty states ─────────────────────────────────────────────── */
+.ep-updates-empty {
+	color: var(--ep-u-muted);
+	font-style: italic;
+	padding: 12px 0;
+}
+
+/* ── Mobile ───────────────────────────────────────────────────── */
+@media (max-width: 782px) {
+	.ep-updates-grid { grid-template-columns: 1fr; }
+	.ep-updates-apps-row {
+		grid-template-columns: 1fr;
+		gap: 4px;
+	}
+	.ep-updates-apps-head { display: none; }
+}

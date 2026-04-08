@@ -1,256 +1,314 @@
 /**
- * Updates → Theme — ExamplePress theme update manager.
+ * Updates → Theme tab renderer.
  *
- * The theme update lifecycle lives directly in the MU kernel
- * (Infrastructure\ThemeUpdateProvider) — no companion plugin involved.
- * This UI just talks to /theme-update/* REST endpoints.
+ * Backed by Infrastructure\ThemeUpdateProvider via the /theme-update/*
+ * REST namespace (ThemeUpdateController). Absorbs the full feature set
+ * from the former standalone examplepress-theme-update plugin:
  *
- * Sections:
- *   1. Status + actions (Check, Install, Reinstall)
- *   2. Channel + version pinning
+ *   - Skeleton loader on initial render
+ *   - Semantic status badge (current / update / error)
+ *   - Channel selector with source lock messaging
+ *   - Pin dropdown with sanity warning on current > pinned
+ *   - Install / Reinstall with indeterminate progress
+ *   - Release history with collapsible GitHub release notes
+ *   - WP-native dismissible toasts on every async result
  */
 import { log } from '../lib/logger.js';
+import {
+	toast, revealBody, showProgress, hideProgress,
+	setBadge, api, versionCompare, esc, formatTimestamp,
+} from './ui.js';
 
 export function renderThemeUpdate(data) {
 	const panel = document.getElementById('ep-theme-update-panel');
-	if (!panel || !data.themeUpdate) return;
+	if (!panel) return;
+
+	// ── State ────────────────────────────────────────────────────────
+	let status    = data.themeUpdate || null;
+	let releases  = [];
+	let busy      = false;
 
 	// ── DOM refs ─────────────────────────────────────────────────────
-	const curVerBadge    = document.getElementById('ep-theme-update-current-ver');
-	const latestRow      = document.getElementById('ep-theme-update-latest-row');
-	const latestBadge    = document.getElementById('ep-theme-update-latest-ver');
-	const availableRow   = document.getElementById('ep-theme-update-available-row');
-	const availableBadge = document.getElementById('ep-theme-update-available-ver');
-	const message        = document.getElementById('ep-theme-update-message');
-	const checkBtn       = document.getElementById('ep-theme-update-check-btn');
-	const installBtn     = document.getElementById('ep-theme-update-install-btn');
-	const reinstallBtn   = document.getElementById('ep-theme-update-reinstall-btn');
-	const channelSelect  = document.getElementById('ep-theme-update-channel');
-	const channelSource  = document.getElementById('ep-theme-update-channel-source');
-	const pinSelect      = document.getElementById('ep-theme-update-pin');
-	const settingsMsg    = document.getElementById('ep-theme-update-settings-message');
+	const curVer        = document.getElementById('ep-theme-update-current-ver');
+	const latestVer     = document.getElementById('ep-theme-update-latest-ver');
+	const statusBadge   = document.getElementById('ep-theme-update-status-badge');
+	const lastChecked   = document.getElementById('ep-theme-update-last-checked');
+	const checkBtn      = document.getElementById('ep-theme-update-check-btn');
+	const installBtn    = document.getElementById('ep-theme-update-install-btn');
+	const reinstallBtn  = document.getElementById('ep-theme-update-reinstall-btn');
+	const channelSelect = document.getElementById('ep-theme-update-channel');
+	const channelSource = document.getElementById('ep-theme-update-channel-source');
+	const pinSelect     = document.getElementById('ep-theme-update-pin');
+	const pinNotice     = document.getElementById('ep-theme-update-pin-notice');
+	const releasesList  = document.getElementById('ep-theme-update-releases');
+	const releasesSkel  = document.getElementById('ep-theme-update-releases-skeleton');
 
-	// ── Render state from a status payload ───────────────────────────
+	// ── Render ───────────────────────────────────────────────────────
 
-	function applyStatus(status) {
+	function render() {
 		if (!status) return;
 
-		curVerBadge.textContent = status.current_version || '—';
+		curVer.textContent    = status.current_version || '—';
+		latestVer.textContent = status.latest_version  || '—';
+		lastChecked.textContent = status.last_checked
+			? formatTimestamp(status.last_checked)
+			: 'Never';
 
-		if (status.latest_version) {
-			latestRow.style.display = '';
-			latestBadge.textContent = status.latest_version;
+		// Badge state.
+		if (!status.current_version) {
+			setBadge(statusBadge, 'error', 'Theme not installed');
+		} else if (status.update_available) {
+			const label = status.pinned_version
+				? `Update to ${status.pinned_version}`
+				: `Update to ${status.latest_version || '?'}`;
+			setBadge(statusBadge, 'update', label);
 		} else {
-			latestRow.style.display = 'none';
+			setBadge(statusBadge, 'current', 'Up to date');
 		}
 
-		if (status.update_available && status.latest_version) {
-			availableRow.style.display = '';
-			availableBadge.textContent = status.pinned_version || status.latest_version;
-			installBtn.style.display   = '';
-			installBtn.disabled        = false;
-			installBtn.textContent     = `Install ${status.pinned_version || status.latest_version}`;
-
-			if (status.pinned_version) {
-				message.textContent = `Pinned to ${status.pinned_version} — installed version differs.`;
-			} else {
-				message.textContent = `Update available: ${status.latest_version}.`;
-			}
+		// Install button.
+		if (status.update_available && status.current_version) {
+			installBtn.hidden = false;
+			installBtn.disabled = busy;
+			installBtn.textContent = `Install ${status.pinned_version || status.latest_version}`;
 		} else {
-			availableRow.style.display = 'none';
-			installBtn.style.display   = 'none';
-
-			if (status.last_checked) {
-				const when = new Date(status.last_checked * 1000).toLocaleString();
-				const ch   = status.pinned_version
-					? `pinned to ${status.pinned_version}`
-					: `channel: ${status.channel || 'stable'}`;
-				message.textContent = `Up to date (${ch}). Checked at ${when}.`;
-			} else {
-				message.textContent = `Channel: ${status.channel || 'stable'}. Click Check Now to query GitHub.`;
-			}
+			installBtn.hidden = true;
 		}
 
-		// Channel controls.
+		// Reinstall requires theme to exist.
+		reinstallBtn.disabled = busy || !status.current_version;
+
+		// Channel.
 		if (status.channel) channelSelect.value = status.channel;
-
 		const locked = status.channel_source === 'filter' || status.channel_source === 'constant';
 		channelSelect.disabled = locked;
 		if (locked) {
-			channelSource.textContent = `Channel is locked by a ${status.channel_source}; the admin control is disabled.`;
+			const sourceLabel = status.channel_source === 'filter'
+				? 'a WordPress filter (examplepress_mu_theme_update_channel)'
+				: 'the EP_THEME_UPDATE_CHANNEL constant';
+			channelSource.textContent = `Channel is controlled by ${sourceLabel} and cannot be changed here.`;
 		} else if (status.channel_source === 'auto') {
 			channelSource.textContent = 'Channel auto-detected from the installed theme version string.';
 		} else {
 			channelSource.textContent = '';
 		}
-	}
 
-	// ── REST helpers ─────────────────────────────────────────────────
-
-	async function apiGet(url) {
-		const res = await fetch(url, { headers: { 'X-WP-Nonce': data.nonce } });
-		return res.json();
-	}
-
-	async function apiPost(url, body = null) {
-		const res = await fetch(url, {
-			method:  'POST',
-			headers: { 'Content-Type': 'application/json', 'X-WP-Nonce': data.nonce },
-			body:    body ? JSON.stringify(body) : undefined,
-		});
-		return { ok: res.ok, body: await res.json() };
-	}
-
-	// ── Check Now ────────────────────────────────────────────────────
-
-	checkBtn?.addEventListener('click', async () => {
-		checkBtn.disabled = true;
-		checkBtn.textContent = 'Checking…';
-		message.textContent = 'Flushing cache and querying GitHub…';
-
-		try {
-			const { ok, body } = await apiPost(data.themeUpdateCheckUrl);
-			if (ok) {
-				applyStatus(body);
-			} else {
-				message.textContent = body?.message || body?.data?.message || 'Check failed.';
-			}
-		} catch (err) {
-			message.textContent = 'Network error: ' + err.message;
+		// Pin dropdown selection + sanity warning.
+		if (pinSelect) {
+			pinSelect.value = status.pinned_version || '';
 		}
+		renderPinNotice();
+	}
 
-		checkBtn.disabled = false;
-		checkBtn.textContent = 'Check Now';
-	});
-
-	// ── Install Update ───────────────────────────────────────────────
-
-	installBtn?.addEventListener('click', async () => {
-		installBtn.disabled = true;
-		installBtn.textContent = 'Installing…';
-		message.textContent = 'Downloading and installing the theme update…';
-
-		try {
-			const { ok, body } = await apiPost(data.themeUpdateInstallUrl);
-			if (ok && body?.success) {
-				message.textContent = body.message;
-				log.info(`[ExamplePress] Theme updated to ${body.version}`);
-				// Refresh status after install.
-				const fresh = await apiGet(data.themeUpdateStatusUrl);
-				applyStatus(fresh);
-			} else {
-				const msg = body?.message || body?.data?.message || 'Install failed.';
-				message.textContent = msg;
-				installBtn.disabled    = false;
-				installBtn.textContent = 'Retry Install';
-				log.error(`[ExamplePress] Theme update failed: ${msg}`);
-			}
-		} catch (err) {
-			message.textContent = 'Network error: ' + err.message;
-			installBtn.disabled    = false;
-			installBtn.textContent = 'Retry Install';
-		}
-	});
-
-	// ── Reinstall Current ────────────────────────────────────────────
-
-	reinstallBtn?.addEventListener('click', async () => {
-		if (!confirm('Reinstall the current version of the ExamplePress theme? Local modifications inside the theme directory will be lost.')) {
+	function renderPinNotice() {
+		if (!pinNotice) return;
+		if (!status || !status.pinned_version || !status.current_version) {
+			pinNotice.hidden = true;
 			return;
 		}
-		reinstallBtn.disabled = true;
-		reinstallBtn.textContent = 'Reinstalling…';
-		message.textContent = 'Reinstalling the theme directory from GitHub…';
-
-		try {
-			const { ok, body } = await apiPost(data.themeUpdateReinstallUrl);
-			if (ok && body?.success) {
-				message.textContent = body.message;
-				const fresh = await apiGet(data.themeUpdateStatusUrl);
-				applyStatus(fresh);
-			} else {
-				message.textContent = body?.message || body?.data?.message || 'Reinstall failed.';
-			}
-		} catch (err) {
-			message.textContent = 'Network error: ' + err.message;
-		}
-
-		reinstallBtn.disabled    = false;
-		reinstallBtn.textContent = 'Reinstall Current';
-	});
-
-	// ── Channel ──────────────────────────────────────────────────────
-
-	channelSelect?.addEventListener('change', async () => {
-		if (channelSelect.disabled) return;
-		settingsMsg.style.display = 'none';
-
-		try {
-			const { ok, body } = await apiPost(data.themeUpdateChannelUrl, { channel: channelSelect.value });
-			if (ok) {
-				applyStatus(body);
-				settingsMsg.style.display = '';
-				settingsMsg.textContent   = 'Channel saved.';
-			} else {
-				settingsMsg.style.display = '';
-				settingsMsg.textContent   = body?.message || body?.data?.message || 'Could not save channel.';
-			}
-		} catch (err) {
-			settingsMsg.style.display = '';
-			settingsMsg.textContent   = 'Network error: ' + err.message;
-		}
-	});
-
-	// ── Pin ──────────────────────────────────────────────────────────
-
-	async function loadReleasesIntoPin(currentPin) {
-		try {
-			const body = await apiGet(data.themeUpdateReleasesUrl);
-			if (!body?.releases) return;
-
-			// Preserve the "Latest" default option.
-			pinSelect.innerHTML = '<option value="">Latest (no pin)</option>';
-
-			body.releases.forEach((r) => {
-				const opt = document.createElement('option');
-				opt.value = r.version;
-				const label = r.prerelease ? `${r.version} (pre-release)` : r.version;
-				const date  = r.date ? ` — ${new Date(r.date).toLocaleDateString()}` : '';
-				opt.textContent = `${label}${date}`;
-				pinSelect.appendChild(opt);
-			});
-
-			if (currentPin) {
-				pinSelect.value = currentPin;
-			}
-		} catch (err) {
-			log.error('[ExamplePress] Failed to load theme releases: ' + err.message);
+		const cmp = versionCompare(status.current_version, status.pinned_version);
+		if (cmp > 0) {
+			pinNotice.hidden = false;
+			pinNotice.textContent = `Installed version ${status.current_version} is newer than pinned version ${status.pinned_version}. Clear the pin or pin to a newer version.`;
+		} else {
+			pinNotice.hidden = true;
 		}
 	}
 
-	pinSelect?.addEventListener('change', async () => {
-		settingsMsg.style.display = 'none';
+	function renderReleases() {
+		if (!releasesList || !releasesSkel) return;
+		releasesSkel.hidden = true;
+		releasesList.hidden = false;
 
-		try {
-			const { ok, body } = await apiPost(data.themeUpdatePinUrl, { version: pinSelect.value || null });
-			if (ok) {
-				applyStatus(body);
-				settingsMsg.style.display = '';
-				settingsMsg.textContent   = pinSelect.value
-					? `Pinned to ${pinSelect.value}.`
-					: 'Pin cleared.';
-			} else {
-				settingsMsg.style.display = '';
-				settingsMsg.textContent   = body?.message || body?.data?.message || 'Could not save pin.';
-			}
-		} catch (err) {
-			settingsMsg.style.display = '';
-			settingsMsg.textContent   = 'Network error: ' + err.message;
+		if (!releases.length) {
+			releasesList.innerHTML = '<li class="ep-updates-empty">No releases found.</li>';
+			return;
 		}
-	});
+
+		releasesList.innerHTML = releases.map((r) => {
+			const dateStr = r.date ? new Date(r.date).toLocaleDateString() : '';
+			const prereleaseBadge = r.prerelease
+				? '<span class="ep-updates-badge ep-updates-badge--prerelease">prerelease</span>'
+				: '';
+			const body = r.body
+				? esc(r.body)
+				: '<em>No release notes.</em>';
+			return `
+				<li class="ep-updates-release">
+					<button type="button" class="ep-updates-release-header">
+						<span class="ep-updates-release-toggle">&#9654;</span>
+						<span class="ep-updates-release-version">${esc(r.version || r.tag)}</span>
+						${prereleaseBadge}
+						<span class="ep-updates-release-name">${esc(r.name || '')}</span>
+						<span class="ep-updates-release-date">${esc(dateStr)}</span>
+					</button>
+					<div class="ep-updates-release-body">${body}</div>
+				</li>
+			`;
+		}).join('');
+
+		releasesList.querySelectorAll('.ep-updates-release-header').forEach((h) => {
+			h.addEventListener('click', () => {
+				h.parentElement.classList.toggle('ep-open');
+			});
+		});
+	}
+
+	// ── Loading ──────────────────────────────────────────────────────
+
+	async function refreshStatus() {
+		try {
+			status = await api('GET', data.themeUpdateStatusUrl);
+			render();
+		} catch (err) {
+			toast('error', `Could not load theme status: ${err.message}`);
+		}
+	}
+
+	async function loadReleases() {
+		try {
+			const res = await api('GET', data.themeUpdateReleasesUrl);
+			releases = res.releases || [];
+			buildPinOptions(status && status.pinned_version);
+			renderReleases();
+		} catch (err) {
+			if (releasesSkel) releasesSkel.hidden = true;
+			if (releasesList) {
+				releasesList.hidden = false;
+				releasesList.innerHTML = `<li class="ep-updates-empty">Could not load releases: ${esc(err.message)}</li>`;
+			}
+		}
+	}
+
+	function buildPinOptions(currentPin) {
+		if (!pinSelect) return;
+		pinSelect.innerHTML = '<option value="">Latest (no pin)</option>';
+		releases.forEach((r) => {
+			const opt = document.createElement('option');
+			opt.value = r.version || r.tag;
+			const label = r.prerelease ? `${opt.value} (prerelease)` : opt.value;
+			const dateStr = r.date ? ` — ${new Date(r.date).toLocaleDateString()}` : '';
+			opt.textContent = `${label}${dateStr}`;
+			pinSelect.appendChild(opt);
+		});
+		if (currentPin) pinSelect.value = currentPin;
+	}
+
+	// ── Actions ──────────────────────────────────────────────────────
+
+	async function handleCheck() {
+		setBusy(true);
+		checkBtn.disabled = true;
+		try {
+			status = await api('POST', data.themeUpdateCheckUrl);
+			render();
+			toast('success', 'Update check complete.');
+			loadReleases();
+		} catch (err) {
+			toast('error', err.message);
+		} finally {
+			setBusy(false);
+			checkBtn.disabled = false;
+		}
+	}
+
+	async function handleInstall() {
+		if (!status || !status.update_available) return;
+		setBusy(true);
+		installBtn.disabled = true;
+		showProgress('ep-theme-update-progress', 'Installing theme update…');
+		try {
+			const res = await api('POST', data.themeUpdateInstallUrl);
+			toast('success', res.message || 'Theme updated.');
+			log.info(`[ExamplePress] Theme updated to ${res.version}`);
+			await refreshStatus();
+		} catch (err) {
+			toast('error', err.message);
+		} finally {
+			hideProgress('ep-theme-update-progress');
+			setBusy(false);
+		}
+	}
+
+	async function handleReinstall() {
+		if (!status || !status.current_version) return;
+		const confirmed = window.confirm(
+			`Reinstall ExamplePress v${status.current_version}?\n\n` +
+			'This will replace the current theme files with a clean copy from the release. ' +
+			'Any local modifications to theme files will be lost.'
+		);
+		if (!confirmed) return;
+
+		setBusy(true);
+		reinstallBtn.disabled = true;
+		showProgress('ep-theme-update-progress', 'Reinstalling theme…');
+		try {
+			const res = await api('POST', data.themeUpdateReinstallUrl);
+			toast('success', res.message || 'Theme reinstalled.');
+			await refreshStatus();
+		} catch (err) {
+			toast('error', err.message);
+		} finally {
+			hideProgress('ep-theme-update-progress');
+			setBusy(false);
+		}
+	}
+
+	async function handleChannelChange() {
+		if (channelSelect.disabled) return;
+		setBusy(true);
+		try {
+			status = await api('POST', data.themeUpdateChannelUrl, { channel: channelSelect.value });
+			render();
+			toast('success', `Channel set to ${channelSelect.value}.`);
+			loadReleases();
+		} catch (err) {
+			toast('error', err.message);
+			// Reset to server state.
+			if (status) render();
+		} finally {
+			setBusy(false);
+		}
+	}
+
+	async function handlePinChange() {
+		setBusy(true);
+		try {
+			const version = pinSelect.value || null;
+			status = await api('POST', data.themeUpdatePinUrl, { version });
+			render();
+			toast('success', version ? `Pinned to ${version}.` : 'Pin cleared.');
+		} catch (err) {
+			toast('error', err.message);
+		} finally {
+			setBusy(false);
+		}
+	}
+
+	function setBusy(value) {
+		busy = value;
+		checkBtn.disabled     = value;
+		installBtn.disabled   = value || (status && !status.update_available);
+		reinstallBtn.disabled = value || !(status && status.current_version);
+	}
 
 	// ── Init ─────────────────────────────────────────────────────────
 
-	applyStatus(data.themeUpdate);
-	loadReleasesIntoPin(data.themeUpdate.pinned_version || '');
+	checkBtn.addEventListener('click', handleCheck);
+	installBtn.addEventListener('click', handleInstall);
+	reinstallBtn.addEventListener('click', handleReinstall);
+	channelSelect.addEventListener('change', handleChannelChange);
+	pinSelect.addEventListener('change', handlePinChange);
+
+	// Seed from the initial payload if present, then reveal.
+	if (status) {
+		revealBody('ep-theme-update-skeleton', 'ep-theme-update-body');
+		render();
+	} else {
+		refreshStatus().then(() => {
+			revealBody('ep-theme-update-skeleton', 'ep-theme-update-body');
+		});
+	}
+
+	loadReleases();
 }

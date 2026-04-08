@@ -13,6 +13,8 @@ use ExamplePress\MU\Infrastructure\Notifications;
 use ExamplePress\MU\Infrastructure\PluginManager;
 use ExamplePress\MU\Infrastructure\RouteRegistry;
 use ExamplePress\MU\Infrastructure\ThemeUpdateProvider;
+use ExamplePress\MU\Infrastructure\AppUpdateProvider;
+use ExamplePress\MU\Infrastructure\Updater;
 
 /**
  * Localizes the initial JSON payload (window.ExamplePressData) into the DOM.
@@ -126,6 +128,7 @@ final class DataProvider
     private static function updatesData(): array
     {
         return [
+            // Theme update surface (ThemeUpdateController / ThemeUpdateProvider).
             'themeUpdate'             => ThemeUpdateProvider::getStatus(),
             'themeUpdateStatusUrl'    => esc_url_raw(rest_url('examplepress-mu/v1/theme-update/status')),
             'themeUpdateCheckUrl'     => esc_url_raw(rest_url('examplepress-mu/v1/theme-update/check')),
@@ -134,6 +137,36 @@ final class DataProvider
             'themeUpdateInstallUrl'   => esc_url_raw(rest_url('examplepress-mu/v1/theme-update/install')),
             'themeUpdateReinstallUrl' => esc_url_raw(rest_url('examplepress-mu/v1/theme-update/reinstall')),
             'themeUpdateReleasesUrl'  => esc_url_raw(rest_url('examplepress-mu/v1/theme-update/releases')),
+
+            // Kernel self-update surface (UpdatesController / Infrastructure\Updater).
+            'kernelUpdate'                   => Updater::getStatus(),
+            'kernelUpdateStatusUrl'          => esc_url_raw(rest_url('examplepress-mu/v1/updates/kernel/status')),
+            'kernelUpdateCheckUrl'           => esc_url_raw(rest_url('examplepress-mu/v1/updates/kernel/check')),
+            'kernelUpdateInstallUrl'         => esc_url_raw(rest_url('examplepress-mu/v1/updates/kernel/update')),
+            'kernelUpdateRollbackUrl'        => esc_url_raw(rest_url('examplepress-mu/v1/updates/kernel/rollback')),
+            'kernelUpdateClearQuarantineUrl' => esc_url_raw(rest_url('examplepress-mu/v1/updates/kernel/clear-quarantine')),
+
+            // Companion app updates surface (UpdatesController / AppUpdateProvider).
+            'appsUpdate'          => array_values(array_map(
+                static fn(array $r, string $pluginFile): array => [
+                    'plugin_file'      => $pluginFile,
+                    'slug'             => $r['slug'] ?? '',
+                    'name'             => $r['name'] ?? ($r['slug'] ?? $pluginFile),
+                    'description'      => $r['description'] ?? '',
+                    'owner_repo'       => $r['owner_repo'] ?? '',
+                    'current_version'  => $r['current_version'] ?? '',
+                    'new_version'      => $r['new_version'] ?? '',
+                    'update_available' => !empty($r['update_available']),
+                    'html_url'         => $r['html_url'] ?? '',
+                    'release_url'      => $r['release_url'] ?? '',
+                    'changelog'        => $r['changelog'] ?? '',
+                ],
+                AppUpdateProvider::getUpdateData(),
+                array_keys(AppUpdateProvider::getUpdateData())
+            )),
+            'appsUpdateStatusUrl' => esc_url_raw(rest_url('examplepress-mu/v1/updates/apps/status')),
+            'appsUpdateCheckUrl'  => esc_url_raw(rest_url('examplepress-mu/v1/updates/apps/check')),
+            'pluginsAdminUrl'     => esc_url(admin_url('plugins.php')),
         ];
     }
 
