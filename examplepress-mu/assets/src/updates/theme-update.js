@@ -2,8 +2,7 @@
  * Updates → Theme tab renderer.
  *
  * Backed by Infrastructure\ThemeUpdateProvider via the /theme-update/*
- * REST namespace (ThemeUpdateController). Absorbs the full feature set
- * from the former standalone examplepress-theme-update plugin:
+ * REST namespace (ThemeUpdateController). Feature set:
  *
  *   - Skeleton loader on initial render
  *   - Semantic status badge (current / update / error)

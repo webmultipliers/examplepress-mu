@@ -14,11 +14,10 @@ use Prism\Prism\Prism;
 use Prism\Prism\PrismManager;
 
 /**
- * Boots a hand-rolled Laravel container with the absolute minimum
- * services Prism's text/structured paths require — no Acorn, no
- * illuminate/foundation, no symfony/console.
+ * Boots a minimal Laravel container with only the services Prism's
+ * text/structured paths require.
  *
- * Public API matches the old AcornBridge so callers don't change:
+ * Public API:
  *   - boot()         registers everything; gated by the 'agent' feature
  *   - isAvailable()  was the boot successful
  *   - lastError()    failure detail for UI surfacing

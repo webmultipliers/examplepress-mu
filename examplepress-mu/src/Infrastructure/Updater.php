@@ -204,7 +204,7 @@ final class Updater
 
         if ($ok) {
             // Clear the throttle + remote cache so the next check picks up
-            // the new version. Note: the new code only takes effect on the
+            // the upgraded version. Updated code only takes effect on the
             // NEXT request — the currently-running kernel cannot re-require
             // its own replacement.
             delete_site_transient(self::TRANSIENT_KEY);

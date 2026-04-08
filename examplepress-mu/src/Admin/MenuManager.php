@@ -6,9 +6,8 @@ namespace ExamplePress\MU\Admin;
 
 /**
  * Registers the top-level ExamplePress admin menu and all submenus.
- *
- * Ported from inc/admin/admin-registry.php. Each page is defined
- * declaratively and wired to PageController::render as its callback.
+ * Each page is defined declaratively and wired to PageController::render
+ * as its callback.
  */
 final class MenuManager
 {

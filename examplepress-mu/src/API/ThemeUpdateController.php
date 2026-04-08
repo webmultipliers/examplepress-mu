@@ -9,10 +9,9 @@ use ExamplePress\MU\Infrastructure\ThemeUpdateProvider;
 /**
  * REST API for the ExamplePress theme update pipeline.
  *
- * Replaces the former UpdaterController (which managed the lifecycle of
- * the now-deleted examplepress-theme-update companion plugin). The
- * theme update logic lives directly in the kernel, so these endpoints
- * operate on the theme itself — no plugin-lifecycle semantics.
+ * The theme update logic lives directly in the kernel, so these
+ * endpoints operate on the theme itself — no plugin-lifecycle
+ * semantics.
  *
  * Namespace: examplepress-mu/v1
  * Routes:

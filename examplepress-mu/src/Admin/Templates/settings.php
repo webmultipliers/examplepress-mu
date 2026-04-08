@@ -117,7 +117,7 @@ $ep_github_app_available = \ExamplePress\MU\Infrastructure\GitHub::appIsConfigur
 							<label class="ep-build-label" for="ep-agent-enabled">Enable Agent</label>
 							<label class="ep-troy-auth-row" style="cursor:pointer;">
 								<input type="checkbox" id="ep-agent-enabled" />
-								<span class="ep-build-hint">Boots Roots Acorn + Prism and exposes the "Generate with AI" surfaces. Off by default.</span>
+								<span class="ep-build-hint">Boots the minimal Prism container and exposes the "Generate with AI" surfaces. Off by default.</span>
 							</label>
 						</div>
 						<div class="ep-conn-field">
@@ -129,8 +129,8 @@ $ep_github_app_available = \ExamplePress\MU\Infrastructure\GitHub::appIsConfigur
 						</div>
 						<div class="ep-conn-field">
 							<label class="ep-build-label" for="ep-agent-model">Model</label>
-							<input type="text" id="ep-agent-model" placeholder="claude-3-5-sonnet-latest" />
-							<span class="ep-build-hint">Recommended: <code>claude-3-5-sonnet-latest</code> (Anthropic) or <code>gpt-4o</code> (OpenAI).</span>
+							<select id="ep-agent-model"></select>
+							<span class="ep-build-hint">Models update when you change the provider above.</span>
 						</div>
 						<div class="ep-conn-field">
 							<label class="ep-build-label" for="ep-agent-api-key">API Key</label>

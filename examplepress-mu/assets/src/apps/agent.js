@@ -9,7 +9,7 @@
  *   - Eject → separate ep-agent-eject-modal with type-to-confirm
  *   - Jobs & History button → ep-agent-jobs-modal
  *   - Discoverability: button shows DISABLED when feature is enabled but
- *     not configured (vs hidden entirely under Acorn).
+ *     not configured (vs hidden entirely).
  *   - Runtime errors surfaced inline on the Apps page when boot failed.
  */
 

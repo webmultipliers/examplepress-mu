@@ -13,7 +13,7 @@ use Prism\Prism\Facades\Prism;
  *
  * Provider, model, and API key are read at call-time from WP options:
  *  - ep_agent_provider  (anthropic | openai)
- *  - ep_agent_model     (e.g. claude-3-5-sonnet-latest, gpt-4o)
+ *  - ep_agent_model     (e.g. claude-sonnet-4-6, gpt-4o)
  *  - ep_agent_api_key   (string)
  */
 final class LLMClient
@@ -85,7 +85,7 @@ final class LLMClient
         }
 
         $providerKey = (string) get_option('ep_agent_provider', 'anthropic');
-        $model       = (string) get_option('ep_agent_model', 'claude-3-5-sonnet-latest');
+        $model       = (string) get_option('ep_agent_model', 'claude-sonnet-4-6');
         $apiKey      = (string) get_option('ep_agent_api_key', '');
 
         if (!$apiKey) {
@@ -109,21 +109,72 @@ final class LLMClient
                 ->withClientOptions(['timeout' => 120])
                 ->asStructured();
 
-            $structured = method_exists($response, 'structured') ? $response->structured : null;
-            if (is_array($structured)) {
-                return $structured;
+            // Prism\Structured\Response::$structured is a public readonly
+            // array — the structured-output decoder already ran. Prefer it.
+            if (isset($response->structured) && is_array($response->structured)) {
+                return $response->structured;
             }
 
-            // Fallback: parse text as JSON.
-            $text = is_string($response->text ?? null) ? $response->text : '';
-            $decoded = json_decode($text, true);
-            if (!is_array($decoded)) {
-                throw new \RuntimeException('LLM did not return parseable JSON.');
+            // Fallback: some providers (or schemas they reject) round-trip
+            // the JSON through the text channel instead. Strip any markdown
+            // code fences before decoding.
+            $text = isset($response->text) && is_string($response->text) ? $response->text : '';
+            $decoded = self::decodeJsonLoose($text);
+            if (is_array($decoded)) {
+                return $decoded;
             }
-            return $decoded;
+
+            $preview = $text === '' ? '(empty response)' : substr($text, 0, 200);
+            throw new \RuntimeException('LLM did not return parseable JSON. Preview: ' . $preview);
         } catch (\Throwable $e) {
             throw new \RuntimeException('Prism call failed: ' . $e->getMessage(), 0, $e);
         }
+    }
+
+    /**
+     * Tolerant JSON extractor for the text-channel fallback path. Handles:
+     *   - Plain JSON
+     *   - ```json fenced blocks
+     *   - ``` fenced blocks (no language tag)
+     *   - JSON wrapped in surrounding prose (extracts the first {…})
+     *
+     * Returns null when nothing parses.
+     *
+     * @return array<string,mixed>|null
+     */
+    private static function decodeJsonLoose(string $text): ?array
+    {
+        $text = trim($text);
+        if ($text === '') {
+            return null;
+        }
+
+        // Try the raw payload first.
+        $decoded = json_decode($text, true);
+        if (is_array($decoded)) {
+            return $decoded;
+        }
+
+        // Strip markdown code fences (```json ... ``` or ``` ... ```).
+        if (preg_match('/```(?:json)?\s*(\{.*?\})\s*```/s', $text, $m)) {
+            $decoded = json_decode($m[1], true);
+            if (is_array($decoded)) {
+                return $decoded;
+            }
+        }
+
+        // Last resort: extract the largest balanced top-level object.
+        $start = strpos($text, '{');
+        $end   = strrpos($text, '}');
+        if ($start !== false && $end !== false && $end > $start) {
+            $candidate = substr($text, $start, $end - $start + 1);
+            $decoded = json_decode($candidate, true);
+            if (is_array($decoded)) {
+                return $decoded;
+            }
+        }
+
+        return null;
     }
 
     /**

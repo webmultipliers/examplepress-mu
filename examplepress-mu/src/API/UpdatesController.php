@@ -11,7 +11,7 @@ use ExamplePress\MU\Infrastructure\Updater;
  *
  * The kernel updater is intentionally cron-driven (`Infrastructure\Updater`).
  * Manual install from inside the running kernel is a footgun: the page
- * response comes from the old code already in memory, partial failures
+ * response comes from the in-memory code, partial failures
  * leave the operator debugging from a half-broken kernel. So this
  * controller exposes ONLY:
  *

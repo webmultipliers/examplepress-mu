@@ -380,7 +380,7 @@ final class FeatureRegistry
             'setup'   => [self::class, 'setupGlobalStylesTokens'],
         ]);
 
-        // Generative UI Agent — gates Acorn boot, Prism wiring,
+        // Generative UI Agent — gates PrismContainer boot, Prism wiring,
         // AgentController routes, Action Scheduler hook registration,
         // and the "Generate with AI" admin surfaces. Off by default
         // until the site owner configures a provider + API key.

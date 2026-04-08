@@ -16,10 +16,8 @@ use ExamplePress\MU\Infrastructure\Updater;
 
 /**
  * Localizes the initial JSON payload (window.ExamplePressData) into the DOM.
- *
- * Ported from inc/admin/settings-data.php and per-page data functions in
- * inc/admin/pages/*.php. Each page ID maps to a structured data array that
- * the Vite JS entry point consumes.
+ * Each page ID maps to a structured data array that the Vite JS entry
+ * point consumes.
  */
 final class DataProvider
 {
@@ -136,7 +134,7 @@ final class DataProvider
                 'ready'     => \ExamplePress\MU\Infrastructure\PrismContainer::isAvailable(),
                 'configured'=> (bool) get_option('ep_agent_api_key', ''),
                 'provider'  => (string) get_option('ep_agent_provider', 'anthropic'),
-                'model'     => (string) get_option('ep_agent_model', 'claude-3-5-sonnet-latest'),
+                'model'     => (string) get_option('ep_agent_model', 'claude-sonnet-4-6'),
                 'error'     => \ExamplePress\MU\Infrastructure\PrismContainer::lastError(),
             ],
             'agentGenerateUrl'    => esc_url_raw(rest_url('examplepress-mu/v1/agent/generate')),
@@ -577,7 +575,7 @@ final class DataProvider
         return [
             'origins'   => $origins,
             'conflicts' => $conflicts,
-            'mode'      => $hasOrigins ? 'registry' : 'legacy',
+            'mode'      => $hasOrigins ? 'registry' : 'implicit',
             'resolved'  => $resolved,
         ];
     }
@@ -975,11 +973,12 @@ final class DataProvider
             'agent'            => [
                 'enabled'  => \ExamplePress\MU\Config\FeatureRegistry::enabled('agent'),
                 'provider' => (string) get_option('ep_agent_provider', 'anthropic'),
-                'model'    => (string) get_option('ep_agent_model', 'claude-3-5-sonnet-latest'),
+                'model'    => (string) get_option('ep_agent_model', 'claude-sonnet-4-6'),
                 'hasKey'   => (bool) get_option('ep_agent_api_key', ''),
                 'ready'    => \ExamplePress\MU\Infrastructure\PrismContainer::isAvailable(),
                 'error'    => \ExamplePress\MU\Infrastructure\PrismContainer::lastError(),
-                'testUrl'  => esc_url_raw(rest_url('examplepress-mu/v1/agent/test')),
+                'testUrl'      => esc_url_raw(rest_url('examplepress-mu/v1/agent/test')),
+                'providersUrl' => esc_url_raw(rest_url('examplepress-mu/v1/agent/providers')),
             ],
         ];
     }

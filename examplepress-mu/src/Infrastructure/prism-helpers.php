@@ -55,6 +55,20 @@ if (! function_exists('app')) {
     }
 }
 
+if (! function_exists('resolve')) {
+    /**
+     * Resolve a binding from the Prism container. Identical to app() but
+     * is the spelling Prism's ConfiguresProviders concern reaches for.
+     *
+     * @param string              $abstract
+     * @param array<string,mixed> $parameters
+     */
+    function resolve($abstract, array $parameters = [])
+    {
+        return \Illuminate\Container\Container::getInstance()->make($abstract, $parameters);
+    }
+}
+
 if (! function_exists('event')) {
     /**
      * Fire an event through the Prism container's dispatcher.

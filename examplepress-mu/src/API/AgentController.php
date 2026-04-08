@@ -388,27 +388,29 @@ final class AgentController
         return rest_ensure_response([
             'providers' => [
                 [
-                    'id'     => 'anthropic',
-                    'label'  => 'Anthropic Claude',
-                    'models' => [
-                        'claude-3-5-sonnet-latest',
-                        'claude-3-5-haiku-latest',
-                        'claude-3-opus-latest',
+                    'id'      => 'anthropic',
+                    'label'   => 'Anthropic Claude',
+                    'default' => 'claude-sonnet-4-6',
+                    'models'  => [
+                        ['id' => 'claude-opus-4-6',     'label' => 'Claude Opus 4.6'],
+                        ['id' => 'claude-sonnet-4-6',   'label' => 'Claude Sonnet 4.6 (recommended)'],
+                        ['id' => 'claude-haiku-4-5',    'label' => 'Claude Haiku 4.5'],
                     ],
                 ],
                 [
-                    'id'     => 'openai',
-                    'label'  => 'OpenAI',
-                    'models' => [
-                        'gpt-4o',
-                        'gpt-4o-mini',
-                        'gpt-4-turbo',
+                    'id'      => 'openai',
+                    'label'   => 'OpenAI',
+                    'default' => 'gpt-4o',
+                    'models'  => [
+                        ['id' => 'gpt-4o',      'label' => 'GPT-4o'],
+                        ['id' => 'gpt-4o-mini', 'label' => 'GPT-4o mini'],
+                        ['id' => 'gpt-4-turbo', 'label' => 'GPT-4 Turbo'],
                     ],
                 ],
             ],
             'configured' => [
                 'provider' => (string) get_option('ep_agent_provider', 'anthropic'),
-                'model'    => (string) get_option('ep_agent_model', 'claude-3-5-sonnet-latest'),
+                'model'    => (string) get_option('ep_agent_model', 'claude-sonnet-4-6'),
                 'has_key'  => (bool) get_option('ep_agent_api_key', ''),
             ],
             'feature_enabled' => FeatureRegistry::enabled('agent'),

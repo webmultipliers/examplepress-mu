@@ -7,9 +7,8 @@ namespace ExamplePress\MU\Infrastructure;
 /**
  * GitHub release-based update provider for the ExamplePress theme.
  *
- * Ported from the former `examplepress-theme-update` companion plugin so
- * the kernel can own the theme update lifecycle directly — no extra
- * plugin to install, deactivate, or lose.
+ * Owns the full theme update lifecycle directly inside the kernel —
+ * no companion plugin to install or maintain.
  *
  * Hooks into `pre_set_site_transient_update_themes` to inject an update
  * record for the theme when a newer release exists on GitHub, and

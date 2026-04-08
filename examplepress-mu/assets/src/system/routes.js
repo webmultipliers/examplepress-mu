@@ -5,7 +5,7 @@ import { esc } from '../lib/dom.js';
 import { log } from '../lib/logger.js';
 
 export function renderRoutes() {
-	const routeTopology = window.ExamplePressData.routeTopology || { origins: [], conflicts: {}, mode: 'legacy', resolved: {} };
+	const routeTopology = window.ExamplePressData.routeTopology || { origins: [], conflicts: {}, mode: 'implicit', resolved: {} };
 	const { origins, conflicts } = routeTopology;
 	const statsEl = document.getElementById('ep-routes-stats');
 	const filtersEl = document.getElementById('ep-routes-filters');

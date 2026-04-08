@@ -33,8 +33,8 @@ mu-plugins/
     │   │   ├── GitHub.php           # GitHub App auth, repo creation, push (scaffold + iterative), releases, tree fetch
     │   │   ├── Scaffolder.php       # Template repo scaffolding (Git Database API)
     │   │   ├── Updater.php          # WP-Cron self-updater with atomic swap + rollback
-    │   │   ├── ThemeUpdateProvider.php # GitHub-backed theme update pipeline (absorbed the former examplepress-theme-update companion)
-    │   │   ├── PrismContainer.php   # Minimal Laravel container (no Acorn) booting Prism for the agent
+    │   │   ├── ThemeUpdateProvider.php # GitHub-backed theme update pipeline owned directly by the kernel
+    │   │   ├── PrismContainer.php   # Hand-rolled minimal Laravel container booting Prism for the agent
     │   │   ├── MinimalApplication.php # 32-method Application contract shim, extends Illuminate\Container\Container
     │   │   ├── prism-helpers.php    # Tiny config()/app()/event() globals replacing illuminate/foundation helpers
     │   │   ├── CliCommand.php       # WP-CLI: wp examplepress init
@@ -107,7 +107,7 @@ mu-plugins/
 - **DependencyManager** — aggregates dependencies from both the MU config and active companion apps
 
 **Generative UI Agent** (optional, off by default):
-- **PrismContainer** — boots a hand-rolled Laravel container with the absolute minimum services Prism needs (`container`, `config`, `events`, `http`, `support`). Skips `roots/acorn` and `illuminate/foundation` entirely — `MinimalApplication` is a 32-method shim implementing `Illuminate\Contracts\Foundation\Application`. Total agent-stack vendor footprint: ~23 MB (vs ~58 MB under Acorn). Boot is gated by the `agent` feature flag and fail-soft: a runtime error logs and auto-disables the feature for the request rather than fataling the kernel.
+- **PrismContainer** — boots a hand-rolled Laravel container with the absolute minimum services Prism needs (`container`, `config`, `events`, `http`, `support`). Skips `illuminate/foundation` entirely — `MinimalApplication` is a 32-method shim implementing `Illuminate\Contracts\Foundation\Application`. Total agent-stack vendor footprint: ~23 MB. Boot is gated by the `agent` feature flag and fail-soft: a runtime error logs and auto-disables the feature for the request rather than fataling the kernel.
 - **LLMClient** — wraps Prism's structured-output API. Provider (`anthropic`/`openai`), model, and API key are read at call-time from `ep_agent_provider`/`ep_agent_model`/`ep_agent_api_key` options. The system prompt embeds a strict JSON schema (manifest + files + commit_message + version), the Blockstudio style guide, and the zero-trust security contract.
 - **GenerationJob** — Action Scheduler job runner. Job state lives in a single capped `ep_agent_jobs` option (50 entries, FIFO eviction — no `wp_posts`/serialized-markup bloat). Pipeline: validate → `GitHub::createRepo` → `GitHub::pushFiles` → `GitHub::createRelease` → `AppRegistry::set` → `AppUpdateProvider::flush`. Iteration mode loads the current repo tree via `GitHub::fetchRepoTree` and chains a new commit on top.
 - **AppValidator::validateGenerated** — zero-trust check on every LLM payload. Hard rejects on `eval`/`exec`/`system`/`shell_exec`/`passthru`/`proc_open`/`popen`/backtick operators/`base64_decode($var)`, plus path traversal, absolute paths, and non-boolean `supports_ai_iteration`. Filterable via `examplepress_mu_validate_generated_app`.
@@ -147,7 +147,7 @@ The agent is an optional feature that lets site owners describe a companion app 
 
 1. **Settings → AI Agent** in the admin UI.
 2. Toggle **Enable Agent**.
-3. Pick provider (`anthropic` or `openai`), model (e.g. `claude-3-5-sonnet-latest`, `gpt-4o`), paste API key, save.
+3. Pick provider (`anthropic` or `openai`), model (e.g. `claude-sonnet-4-6`, `gpt-4o`), paste API key, save.
 4. Reload — `PrismContainer::boot()` runs on `after_setup_theme:20`, the **✨ Generate with AI** button appears on the Apps page.
 
 ### Workflow
@@ -164,7 +164,7 @@ The agent is an optional feature that lets site owners describe a companion app 
 
 ### Architectural choices
 
-- **No Acorn.** Originally booted via `roots/acorn`, replaced by a hand-rolled `PrismContainer` + `MinimalApplication` shim. Vendor footprint dropped from ~91 MB to ~56 MB total (~35 MB saved on the agent stack alone — a 60% reduction).
+- **Minimal Prism container.** A `PrismContainer` + `MinimalApplication` shim wires only the six `illuminate/*` sub-packages Prism touches at runtime. Agent stack vendor footprint: ~23 MB.
 - **No `wp_posts` bloat.** All generated code lives only in Git. The kernel only persists an `ep_app` CPT row (slug + version + GitHub coordinates) — identical to manually scaffolded apps.
 - **Zero-trust validation.** Every LLM payload runs through `AppValidator::validateGenerated()` before any disk or GitHub call. Banned tokens (`eval`, `exec`, `system`, `shell_exec`, `passthru`, `proc_open`, `popen`, backticks, `base64_decode($var)`) are hard-rejected. Filterable via `examplepress_mu_validate_generated_app`.
 - **Action Scheduler, not WP-Cron.** Async jobs are enqueued via `as_enqueue_async_action()` so generations survive PHP request timeouts. Requires real server-side cron in production (not WP pseudo-cron).
@@ -178,7 +178,7 @@ The agent reads three options (settable via the UI or `wp option update`):
 |---|---|---|
 | `ep_agent_enabled` | `false` | Toggles the `examplepress_mu_feature_agent` filter via the bridge in `Kernel::boot()` |
 | `ep_agent_provider` | `anthropic` | `anthropic` or `openai` |
-| `ep_agent_model` | `claude-3-5-sonnet-latest` | Free-form |
+| `ep_agent_model` | `claude-sonnet-4-6` | Free-form |
 | `ep_agent_api_key` | — | Stored in `wp_options`. Restrict `manage_options` accordingly. |
 | `ep_agent_jobs` | `[]` | Job state, capped at 50 entries with FIFO eviction |
 

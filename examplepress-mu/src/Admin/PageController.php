@@ -5,11 +5,9 @@ declare(strict_types=1);
 namespace ExamplePress\MU\Admin;
 
 /**
- * Handles routing for the React/JS frontend and renders the wrapper HTML.
- *
- * Ported from inc/admin/pages/shared.php and the per-page render functions.
- * Each admin page renders the same shell; the Vite JS entry point mounts
- * the appropriate UI into #examplepress-app.
+ * Renders the wrapper HTML for every admin page. Each page renders the
+ * same shell; the Vite JS entry point mounts the appropriate UI into
+ * #examplepress-app.
  */
 final class PageController
 {

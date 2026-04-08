@@ -56,11 +56,14 @@ function hydrateForm() {
 
 	if (agentEnabledEl) agentEnabledEl.checked = !!a.enabled;
 	if (agentProviderEl && a.provider) agentProviderEl.value = a.provider;
-	if (agentModelEl && a.model) agentModelEl.value = a.model;
+	if (agentProviderEl) {
+		agentProviderEl.addEventListener('change', () => loadAgentModels(agentProviderEl.value));
+	}
+	loadAgentModels(a.provider || 'anthropic', a.model || '');
 	if (agentKeyEl && a.hasKey) agentKeyEl.placeholder = CONFIGURED;
 	if (agentRuntimeEl) {
 		if (a.ready) {
-			setStatus(agentRuntimeEl, '\u2713 Acorn + Prism ready', true);
+			setStatus(agentRuntimeEl, '\u2713 Prism container ready', true);
 		} else if (a.error) {
 			setStatus(agentRuntimeEl, 'Runtime error: ' + a.error, false);
 		} else if (a.enabled) {
@@ -69,6 +72,41 @@ function hydrateForm() {
 			setStatus(agentRuntimeEl, 'Disabled', null);
 		}
 	}
+}
+
+// Cached providers payload so we don't refetch on every provider change.
+let agentProvidersCache = null;
+
+async function fetchAgentProviders() {
+	if (agentProvidersCache) return agentProvidersCache;
+	const url = (conn().agent && conn().agent.providersUrl) || '';
+	if (!url) return null;
+	try {
+		const res = await fetch(url, { headers: { 'X-WP-Nonce': data().nonce } });
+		agentProvidersCache = await res.json();
+		return agentProvidersCache;
+	} catch (_e) {
+		return null;
+	}
+}
+
+async function loadAgentModels(providerId, preferredModel) {
+	const selectEl = document.getElementById('ep-agent-model');
+	if (!selectEl) return;
+	const payload = await fetchAgentProviders();
+	if (!payload || !Array.isArray(payload.providers)) {
+		selectEl.innerHTML = '<option value="">(no providers available)</option>';
+		return;
+	}
+	const provider = payload.providers.find(p => p.id === providerId) || payload.providers[0];
+	if (!provider) {
+		selectEl.innerHTML = '<option value="">(unknown provider)</option>';
+		return;
+	}
+	const target = preferredModel || provider.default || (provider.models[0] && provider.models[0].id);
+	selectEl.innerHTML = provider.models.map(m =>
+		`<option value="${m.id}"${m.id === target ? ' selected' : ''}>${m.label || m.id}</option>`
+	).join('');
 }
 
 function testAgent(btn) {
