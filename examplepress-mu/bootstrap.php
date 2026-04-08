@@ -71,6 +71,17 @@ if ( file_exists( $autoloader ) ) {
     } );
 }
 
+// ─── Action Scheduler ────────────────────────────────────────────────
+// Loaded as a vendored library (not the WC plugin). The Generative UI
+// Agent uses Action Scheduler for async LLM jobs. Loaded unconditionally
+// so as_enqueue_async_action() is available everywhere — the agent
+// feature flag still gates whether handlers are registered.
+$ep_action_scheduler = __DIR__ . '/vendor/woocommerce/action-scheduler/action-scheduler.php';
+if ( file_exists( $ep_action_scheduler ) ) {
+    require_once $ep_action_scheduler;
+}
+unset( $ep_action_scheduler );
+
 // ─── Boot the Kernel ─────────────────────────────────────────────────
 \ExamplePress\MU\Kernel::boot();
 

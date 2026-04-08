@@ -45,6 +45,84 @@ function hydrateForm() {
 	if (troyPatEl && c.hasTroyGithubPat) troyPatEl.placeholder = CONFIGURED;
 	if (c.hasTroyCreds) setStatus(troyStatus, '\u2713 Authorized', true);
 	if (c.hasGithubApp) setStatus(ghAppStatus, '\u2713 Installed', true);
+
+	// Agent fields.
+	const a = c.agent || {};
+	const agentEnabledEl = document.getElementById('ep-agent-enabled');
+	const agentProviderEl = document.getElementById('ep-agent-provider');
+	const agentModelEl = document.getElementById('ep-agent-model');
+	const agentKeyEl = document.getElementById('ep-agent-api-key');
+	const agentRuntimeEl = document.getElementById('ep-agent-runtime-status');
+
+	if (agentEnabledEl) agentEnabledEl.checked = !!a.enabled;
+	if (agentProviderEl && a.provider) agentProviderEl.value = a.provider;
+	if (agentModelEl && a.model) agentModelEl.value = a.model;
+	if (agentKeyEl && a.hasKey) agentKeyEl.placeholder = CONFIGURED;
+	if (agentRuntimeEl) {
+		if (a.ready) {
+			setStatus(agentRuntimeEl, '\u2713 Acorn + Prism ready', true);
+		} else if (a.error) {
+			setStatus(agentRuntimeEl, 'Runtime error: ' + a.error, false);
+		} else if (a.enabled) {
+			setStatus(agentRuntimeEl, 'Runtime not booted (run composer install).', false);
+		} else {
+			setStatus(agentRuntimeEl, 'Disabled', null);
+		}
+	}
+}
+
+function testAgent(btn) {
+	const statusEl = document.getElementById('ep-test-agent-status');
+	btn.disabled = true;
+	btn.textContent = 'Testing...';
+	setStatus(statusEl, '', null);
+
+	const url = (conn().agent && conn().agent.testUrl) || '';
+	if (!url) {
+		setStatus(statusEl, 'No test URL — save settings and reload first.', false);
+		btn.disabled = false;
+		btn.textContent = 'Test Agent';
+		return;
+	}
+	post(url)
+		.then(d => {
+			if (d.success) {
+				setStatus(statusEl, '\u2713 ' + (d.message || 'Ready'), true);
+			} else {
+				setStatus(statusEl, d.message || (d.data && d.data.message) || 'Test failed.', false);
+			}
+		})
+		.catch(err => setStatus(statusEl, err.message || 'Network error.', false))
+		.finally(() => { btn.disabled = false; btn.textContent = 'Test Agent'; });
+}
+
+function saveAgent(btn) {
+	const statusEl = document.getElementById('ep-conn-status-agent');
+	btn.disabled = true;
+	btn.textContent = 'Saving...';
+	setStatus(statusEl, '', null);
+
+	const enabled = document.getElementById('ep-agent-enabled')?.checked || false;
+	const provider = document.getElementById('ep-agent-provider')?.value || 'anthropic';
+	const model = document.getElementById('ep-agent-model')?.value?.trim() || '';
+	const key = document.getElementById('ep-agent-api-key')?.value?.trim() || '';
+
+	const body = { agent_enabled: enabled, agent_provider: provider };
+	if (model) body.agent_model = model;
+	if (key) body.agent_api_key = key;
+
+	post(data().connectionsUrl, body)
+		.then(res => {
+			if (res.success) {
+				setStatus(statusEl, '\u2713 Saved (reload to re-boot agent runtime)', true);
+				const keyEl = document.getElementById('ep-agent-api-key');
+				if (key && keyEl) { keyEl.value = ''; keyEl.placeholder = CONFIGURED; }
+			} else {
+				setStatus(statusEl, res.message || 'Save failed.', false);
+			}
+		})
+		.catch(err => setStatus(statusEl, err.message || 'Network error.', false))
+		.finally(() => { btn.disabled = false; btn.textContent = 'Save Agent Settings'; });
 }
 
 // ── Save Connections ─────────────────────────────────────────────
@@ -251,4 +329,10 @@ export function initConnectionsUI() {
 	if (troyAuthBtn) troyAuthBtn.addEventListener('click', () => troyAuth(troyAuthBtn));
 	if (testGhBtn) testGhBtn.addEventListener('click', () => testGithub(testGhBtn));
 	if (testTroyBtn) testTroyBtn.addEventListener('click', () => testTroy(testTroyBtn));
+
+	const saveAgentBtn = document.getElementById('ep-conn-save-btn-agent');
+	if (saveAgentBtn) saveAgentBtn.addEventListener('click', () => saveAgent(saveAgentBtn));
+
+	const testAgentBtn = document.getElementById('ep-test-agent-btn');
+	if (testAgentBtn) testAgentBtn.addEventListener('click', () => testAgent(testAgentBtn));
 }

@@ -1,6 +1,6 @@
 # ExamplePress MU
 
-A self-updating WordPress MU plugin that serves as the platform kernel for the ExamplePress ecosystem. Provides governance, routing, feature management, admin UI, companion app lifecycle, REST APIs, and a Vite-powered build pipeline.
+A self-updating WordPress MU plugin that serves as the platform kernel for the ExamplePress ecosystem. Provides governance, routing, feature management, admin UI, companion app lifecycle, REST APIs, an optional generative-UI agent, and a Vite-powered build pipeline.
 
 ## Architecture
 
@@ -13,8 +13,10 @@ mu-plugins/
 ├── package.json                     # npm: vite, nanostores
 ├── vite.config.js                   # 10 entry points → examplepress-mu/dist/
 └── examplepress-mu/                 # Platform kernel
-    ├── bootstrap.php                # Constants, Composer autoloader, Kernel::boot()
+    ├── bootstrap.php                # Constants, Composer autoloader, Action Scheduler, Kernel::boot()
     ├── composer.json                # PSR-4: ExamplePress\MU\ → src/
+    ├── config/
+    │   └── prism.php                # Minimal Prism config (providers, request_timeout) — read by PrismContainer
     ├── src/
     │   ├── Kernel.php               # Single boot entry point
     │   ├── Config/
@@ -28,21 +30,29 @@ mu-plugins/
     │   ├── Infrastructure/
     │   │   ├── AppDiscovery.php     # Scans plugins for examplepress.json
     │   │   ├── AppRegistry.php      # ep_app CPT + CRUD + merged queries + destroy
-    │   │   ├── GitHub.php           # GitHub App auth, repo creation, scaffold push
+    │   │   ├── GitHub.php           # GitHub App auth, repo creation, push (scaffold + iterative), releases, tree fetch
     │   │   ├── Scaffolder.php       # Template repo scaffolding (Git Database API)
     │   │   ├── Updater.php          # WP-Cron self-updater with atomic swap + rollback
     │   │   ├── ThemeUpdateProvider.php # GitHub-backed theme update pipeline (absorbed the former examplepress-theme-update companion)
+    │   │   ├── PrismContainer.php   # Minimal Laravel container (no Acorn) booting Prism for the agent
+    │   │   ├── MinimalApplication.php # 32-method Application contract shim, extends Illuminate\Container\Container
+    │   │   ├── prism-helpers.php    # Tiny config()/app()/event() globals replacing illuminate/foundation helpers
     │   │   ├── CliCommand.php       # WP-CLI: wp examplepress init
     │   │   ├── RouteRegistry.php    # Multi-origin route registration
     │   │   ├── Router.php           # Template dispatch (namespaced, no redeclaration)
     │   │   ├── PluginManager.php    # Updater/demo install + daily-cron stale cleanup
     │   │   ├── Notifications.php    # System warning aggregation + archive REST
     │   │   └── Helpers.php          # Filesystem utilities (hardened, force-direct mode)
+    │   ├── Agent/
+    │   │   ├── LLMClient.php        # Thin wrapper over Prism (Anthropic + OpenAI), structured JSON enforcement
+    │   │   ├── GeneratedApp.php     # Value object — manifest + files + commit_message + version
+    │   │   └── GenerationJob.php    # Action Scheduler job: drafting → writing_code → pushing → done
     │   ├── API/
     │   │   ├── CompanionPluginController.php # Shared base for demo controller (and any future companion plugin controllers)
     │   │   ├── ThemeUpdateController.php     # REST surface for ThemeUpdateProvider (/theme-update/*)
     │   │   ├── AppsController.php       # App CRUD, scaffold, connect, destroy, health, GET /apps
-    │   │   ├── ConnectionsController.php # GitHub/Troy settings, tests, OAuth callbacks
+    │   │   ├── AgentController.php      # /agent/generate, /iterate/{slug}, /eject/{slug}, /jobs/{id}, /providers
+    │   │   ├── ConnectionsController.php # GitHub/Troy/Agent settings, tests, OAuth callbacks
     │   │   ├── DemoController.php       # Demo plugin lifecycle (subclass of CompanionPluginController)
     │   │   └── FilesystemController.php # In-browser editor: tree, read, write
     │   └── Admin/
@@ -96,6 +106,13 @@ mu-plugins/
 - **FeatureRegistry** — toggleable features via `examplepress_mu_feature_{id}` filters. Resolution: PHP filter > JSON config > registration default.
 - **DependencyManager** — aggregates dependencies from both the MU config and active companion apps
 
+**Generative UI Agent** (optional, off by default):
+- **PrismContainer** — boots a hand-rolled Laravel container with the absolute minimum services Prism needs (`container`, `config`, `events`, `http`, `support`). Skips `roots/acorn` and `illuminate/foundation` entirely — `MinimalApplication` is a 32-method shim implementing `Illuminate\Contracts\Foundation\Application`. Total agent-stack vendor footprint: ~23 MB (vs ~58 MB under Acorn). Boot is gated by the `agent` feature flag and fail-soft: a runtime error logs and auto-disables the feature for the request rather than fataling the kernel.
+- **LLMClient** — wraps Prism's structured-output API. Provider (`anthropic`/`openai`), model, and API key are read at call-time from `ep_agent_provider`/`ep_agent_model`/`ep_agent_api_key` options. The system prompt embeds a strict JSON schema (manifest + files + commit_message + version), the Blockstudio style guide, and the zero-trust security contract.
+- **GenerationJob** — Action Scheduler job runner. Job state lives in a single capped `ep_agent_jobs` option (50 entries, FIFO eviction — no `wp_posts`/serialized-markup bloat). Pipeline: validate → `GitHub::createRepo` → `GitHub::pushFiles` → `GitHub::createRelease` → `AppRegistry::set` → `AppUpdateProvider::flush`. Iteration mode loads the current repo tree via `GitHub::fetchRepoTree` and chains a new commit on top.
+- **AppValidator::validateGenerated** — zero-trust check on every LLM payload. Hard rejects on `eval`/`exec`/`system`/`shell_exec`/`passthru`/`proc_open`/`popen`/backtick operators/`base64_decode($var)`, plus path traversal, absolute paths, and non-boolean `supports_ai_iteration`. Filterable via `examplepress_mu_validate_generated_app`.
+- **Eject button** — flips `supports_ai_iteration` to `false` in the manifest, commits, releases a new patch version. The chat panel locks; the repo is now developer-mode only.
+
 **Infrastructure**:
 - **Updater** — WP-Cron job (twicedaily) checks GitHub releases and silently upgrades. Stages payload to a temp dir, swaps atomically, rolls back on failure. No admin login required.
 - **PluginManager** — installs the demo companion plugin; stale-directory cleanup runs on a daily WP-Cron schedule. Demo repo origin is filterable via `examplepress_mu_demo_repo`.
@@ -108,10 +125,11 @@ mu-plugins/
 
 **REST API** — all endpoints under `examplepress-mu/v1`, all using `manage_options` permission (not stripped capabilities):
 - Apps: CRUD, scaffold, connect, health, destroy (with confirmation nonce)
-- Connections: GitHub/Troy settings, tests, OAuth callbacks
+- Connections: GitHub/Troy/Agent settings, tests, OAuth callbacks
 - Demo/Updater: plugin lifecycle management
 - Filesystem: directory tree, file read/write (sandboxed, 1MB limit)
 - Notifications: archive/restore
+- Agent: `POST /agent/generate`, `POST /agent/iterate/{slug}`, `POST /agent/eject/{slug}`, `GET /agent/jobs/{id}`, `GET /agent/jobs`, `GET /agent/providers` — gated by the `agent` feature flag, returns `503 agent_unavailable` if PrismContainer failed to boot
 
 **Admin UI** — 10 pages built with Vite + vanilla JS:
 - Apps, Theme, Navigation, Dependencies, Library, Settings, Notifications, System, Docs, Editor
@@ -120,6 +138,63 @@ mu-plugins/
 ## Configuration
 
 The MU plugin's `examplepress.json` at the repo root is the infrastructure baseline. The theme's `examplepress.json` supplies design tokens. They are deep-merged at runtime — theme values override MU defaults for `design`, `blockstudio`, and `features` keys.
+
+## Generative UI Agent
+
+The agent is an optional feature that lets site owners describe a companion app in natural language and have it scaffolded, validated, pushed to a private GitHub repo, tagged as a release, and installed via the existing AppUpdateProvider pipeline — without ever writing block markup or config to `wp_posts` / `wp_options`.
+
+### Enabling
+
+1. **Settings → AI Agent** in the admin UI.
+2. Toggle **Enable Agent**.
+3. Pick provider (`anthropic` or `openai`), model (e.g. `claude-3-5-sonnet-latest`, `gpt-4o`), paste API key, save.
+4. Reload — `PrismContainer::boot()` runs on `after_setup_theme:20`, the **✨ Generate with AI** button appears on the Apps page.
+
+### Workflow
+
+| Step | What happens |
+|---|---|
+| 1. Prompt | User enters a description on the Apps page. `AgentController::generate` enqueues an Action Scheduler job. |
+| 2. Drafting | `LLMClient::generateApp()` calls Prism with a strict JSON schema (manifest + files + commit_message + version). |
+| 3. Validating | `AppValidator::validateGenerated()` hard-rejects banned tokens, path traversal, malformed manifests. |
+| 4. Pushing | `GitHub::createRepo` → `GitHub::pushFiles` (initial commit on `main`) → `GitHub::createRelease` (tag `v1.0.0`). |
+| 5. Installing | `AppRegistry::set` + `AppUpdateProvider::flush` — the existing update pipeline picks up the release on the next tick. |
+| 6. Iterating | Per-app **✨ Iterate** affordance loads the current repo tree as context, sends a follow-up prompt, pushes a new commit chained from the parent SHA, releases `v1.0.1`. |
+| 7. Ejecting | **Eject to Developer Mode** flips `supports_ai_iteration: false` in the manifest, commits, releases a new patch. The chat panel locks. |
+
+### Architectural choices
+
+- **No Acorn.** Originally booted via `roots/acorn`, replaced by a hand-rolled `PrismContainer` + `MinimalApplication` shim. Vendor footprint dropped from ~91 MB to ~56 MB total (~35 MB saved on the agent stack alone — a 60% reduction).
+- **No `wp_posts` bloat.** All generated code lives only in Git. The kernel only persists an `ep_app` CPT row (slug + version + GitHub coordinates) — identical to manually scaffolded apps.
+- **Zero-trust validation.** Every LLM payload runs through `AppValidator::validateGenerated()` before any disk or GitHub call. Banned tokens (`eval`, `exec`, `system`, `shell_exec`, `passthru`, `proc_open`, `popen`, backticks, `base64_decode($var)`) are hard-rejected. Filterable via `examplepress_mu_validate_generated_app`.
+- **Action Scheduler, not WP-Cron.** Async jobs are enqueued via `as_enqueue_async_action()` so generations survive PHP request timeouts. Requires real server-side cron in production (not WP pseudo-cron).
+- **Fail-soft boot.** If `PrismContainer::boot()` throws (missing vendor, bad config), it logs and auto-disables the `agent` feature filter for the request. Manual scaffold mode (`+ New App`) keeps working.
+
+### Configuration
+
+The agent reads three options (settable via the UI or `wp option update`):
+
+| Option | Default | Notes |
+|---|---|---|
+| `ep_agent_enabled` | `false` | Toggles the `examplepress_mu_feature_agent` filter via the bridge in `Kernel::boot()` |
+| `ep_agent_provider` | `anthropic` | `anthropic` or `openai` |
+| `ep_agent_model` | `claude-3-5-sonnet-latest` | Free-form |
+| `ep_agent_api_key` | — | Stored in `wp_options`. Restrict `manage_options` accordingly. |
+| `ep_agent_jobs` | `[]` | Job state, capped at 50 entries with FIFO eviction |
+
+The job runner is `Agent\GenerationJob::handle()`, registered against the `ep_agent_generate` Action Scheduler hook in `Kernel::boot()`. Run jobs manually with:
+
+```bash
+wp action-scheduler run --hooks=ep_agent_generate
+```
+
+### Prerequisites for the agent path
+
+- Real server-side cron (e.g. `* * * * * wp cron event run --due-now`). WP pseudo-cron is not acceptable.
+- PHP 8.2+ (Prism requires it).
+- GitHub App with `Administration: R/W`, `Contents: R/W`, `Metadata: Read` on the target org, with permission to create private repos.
+- Active Anthropic and/or OpenAI API credentials.
+- The template repo (resolved via `Scaffolder::getTemplateRepo()`) must contain a clean root `examplepress.json` and be Blockstudio-compatible.
 
 ## Installation
 
@@ -192,6 +267,9 @@ All MU-owned hooks use the `examplepress_mu_` prefix. Theme-owned hooks (`exampl
 | `examplepress_mu_managed_options` | filter | Lock wp_options to specific values |
 | `examplepress_mu_permalink_structure` | filter | Override enforced permalink structure |
 | `examplepress_mu_validate_app` | filter | Final accept/reject decision for an app manifest |
+| `examplepress_mu_validate_generated_app` | filter | Final accept/reject decision for an AI-generated app payload (manifest + files), with banned-token + path-traversal checks already applied |
+| `examplepress_mu_agent_iterate_max_files` | filter | Cap on the number of repo files fed back to the LLM during iteration (default: 80) |
+| `examplepress_mu_feature_agent` | filter | Toggle the Generative UI Agent on/off (also bridged to the `ep_agent_enabled` option) |
 | `examplepress_mu_banned_permissions` | filter | List of permissions that disqualify a manifest |
 | `examplepress_mu_app_scan_excludes` | filter | Plugin-directory entries to skip during app discovery |
 | `examplepress_mu_discovered_apps` | filter | Final discovered app list from `AppDiscovery::scan()` |
@@ -215,6 +293,17 @@ wp examplepress init --force  # Overwrite existing
 
 ## Requirements
 
-- PHP 8.1+
+- PHP **8.2+** (Prism + `illuminate/*` ^12 require it; the kernel itself runs on 8.1, but the agent stack does not)
 - WordPress 6.4+
 - Composer (for autoloader; fallback PSR-4 autoloader included)
+- Real server-side cron (only required if you enable the Generative UI Agent — Action Scheduler must process jobs in the background)
+- ext-fileinfo (Prism requirement)
+
+## Building for Production
+
+```bash
+composer install --no-dev --optimize-autoloader
+npm install && npm run build
+```
+
+The `composer.json` uses a `replace` block (`laravel/framework: 12.99.99`) so the agent stack pulls only six `illuminate/*` sub-packages instead of the full Laravel meta-package — the entire Laravel `view`/`console`/`routing`/`database`/`queue`/`cache`/`log`/`auth`/`broadcasting` chain is excluded by design. See `examplepress-mu/src/Infrastructure/PrismContainer.php` for the rationale.

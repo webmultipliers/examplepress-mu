@@ -55,9 +55,19 @@ if (!defined('ABSPATH')) exit;
 
 			<!-- Toolbar -->
 			<section class="ep-section">
-				<button class="ep-build-submit" id="ep-apps-new-btn">
-					<span class="ep-build-submit-label">+ New App</span>
+				<button class="ep-build-submit" id="ep-apps-generate-btn" style="background:#7c3aed;border-color:#6d28d9;display:none;" title="Generate a new app with AI">
+					<span class="ep-build-submit-label">✨ Generate with AI</span>
 				</button>
+				<button class="ep-build-submit" id="ep-apps-generate-btn-disabled" style="background:#9ca3af;border-color:#6b7280;display:none;cursor:help;" title="Configure provider + API key in Settings → AI Agent">
+					<span class="ep-build-submit-label">✨ Generate with AI (configure first)</span>
+				</button>
+				<button class="ep-apps-btn ep-apps-btn-cancel" id="ep-apps-new-btn" style="margin-left:8px;">
+					<span>+ New App (manual scaffold)</span>
+				</button>
+				<button class="ep-apps-btn ep-apps-btn-cancel" id="ep-apps-jobs-btn" style="margin-left:8px;display:none;" title="View AI generation history">
+					Jobs &amp; History
+				</button>
+				<div id="ep-agent-runtime-warning" class="ep-build-error" style="display:none;margin-top:8px;"></div>
 			</section>
 
 			<!-- Apps Table -->
@@ -202,6 +212,145 @@ if (!defined('ABSPATH')) exit;
 			<div class="ep-apps-modal-foot">
 				<button class="ep-apps-btn ep-apps-btn-cancel" data-modal="ep-apps-troy-modal">Cancel</button>
 				<button class="ep-apps-btn ep-apps-btn-troy" id="ep-apps-troy-submit">Connect to Troy &rarr;</button>
+			</div>
+		</div>
+	</div>
+
+	<!-- Generate-with-AI Modal (new app) -->
+	<div class="ep-modal-overlay" id="ep-agent-modal" style="display:none">
+		<div class="ep-modal" style="max-width:760px">
+			<div class="ep-modal-header">
+				<div>
+					<span class="ep-modal-title">Generate App with AI</span>
+					<span class="ep-modal-id">Describe what you want — the agent drafts, validates, then waits for your review before pushing.</span>
+				</div>
+				<button class="ep-modal-close" data-modal="ep-agent-modal">&times;</button>
+			</div>
+			<div class="ep-modal-body">
+				<div class="ep-build-field">
+					<div style="display:flex;justify-content:space-between;align-items:center;">
+						<label class="ep-build-label" for="ep-agent-prompt">Prompt</label>
+						<span id="ep-agent-model-badge" class="ep-badge" style="font-size:11px;"></span>
+					</div>
+					<textarea class="ep-build-input" id="ep-agent-prompt" rows="5" placeholder="e.g., A staff directory app with a department filter and a card grid layout."></textarea>
+				</div>
+				<div class="ep-scaffold-steps" id="ep-agent-steps"></div>
+				<div id="ep-agent-error" class="ep-build-error" style="display:none"></div>
+
+				<!-- Draft preview (revealed when status === 'drafted') -->
+				<div id="ep-agent-draft-preview" style="display:none;margin-top:14px;border-top:1px solid #e5e7eb;padding-top:12px;">
+					<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;">
+						<strong style="font-size:13px;">Draft ready for review</strong>
+						<span class="ep-modal-id" id="ep-agent-draft-summary"></span>
+					</div>
+					<div id="ep-agent-draft-files" style="max-height:240px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:4px;padding:8px;background:#fafafa;font-family:monospace;font-size:12px;"></div>
+					<div id="ep-agent-draft-file-viewer" style="display:none;max-height:300px;overflow:auto;margin-top:8px;border:1px solid #e5e7eb;border-radius:4px;padding:10px;background:#1e1e1e;color:#e5e7eb;font-family:monospace;font-size:11px;white-space:pre;"></div>
+				</div>
+			</div>
+			<div class="ep-apps-modal-foot">
+				<button class="ep-apps-btn ep-apps-btn-cancel" data-modal="ep-agent-modal" id="ep-agent-cancel-btn">Cancel</button>
+				<button class="ep-apps-btn" id="ep-agent-discard-btn" style="display:none;color:#9b2c2c;">Discard draft</button>
+				<button class="ep-apps-btn" id="ep-agent-retry-btn" style="display:none;">Retry</button>
+				<button class="ep-apps-btn ep-apps-btn-primary" id="ep-agent-submit">Generate Draft</button>
+				<button class="ep-apps-btn ep-apps-btn-primary" id="ep-agent-commit-btn" style="display:none;background:#16a34a;border-color:#15803d;">Push to GitHub</button>
+			</div>
+		</div>
+	</div>
+
+	<!-- Iterate-with-AI Modal (chat thread) -->
+	<div class="ep-modal-overlay" id="ep-agent-iterate-modal" style="display:none">
+		<div class="ep-modal" style="max-width:760px">
+			<div class="ep-modal-header">
+				<div>
+					<span class="ep-modal-title">✨ Iterate with AI</span>
+					<span class="ep-modal-id" id="ep-agent-iterate-slug"></span>
+				</div>
+				<button class="ep-modal-close" data-modal="ep-agent-iterate-modal">&times;</button>
+			</div>
+			<div class="ep-modal-body" style="padding:0;">
+				<!-- Chat thread (newest at bottom) -->
+				<div id="ep-agent-chat-thread" style="max-height:340px;overflow-y:auto;padding:14px 18px;background:#f9fafb;border-bottom:1px solid #e5e7eb;"></div>
+
+				<!-- Composer -->
+				<div style="padding:14px 18px;">
+					<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+						<label class="ep-build-label" for="ep-agent-iterate-prompt" style="margin:0;">Change request</label>
+						<span id="ep-agent-iterate-model-badge" class="ep-badge" style="font-size:11px;"></span>
+					</div>
+					<textarea class="ep-build-input" id="ep-agent-iterate-prompt" rows="3" placeholder="e.g., Make the header text red and add a search bar above the grid."></textarea>
+					<div id="ep-agent-iterate-context-hint" style="font-size:11px;color:#6b7280;margin-top:4px;"></div>
+					<div class="ep-scaffold-steps" id="ep-agent-iterate-steps" style="margin-top:8px;"></div>
+					<div id="ep-agent-iterate-error" class="ep-build-error" style="display:none"></div>
+
+					<!-- Draft preview for iterations -->
+					<div id="ep-agent-iterate-draft-preview" style="display:none;margin-top:12px;border-top:1px solid #e5e7eb;padding-top:10px;">
+						<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;">
+							<strong style="font-size:13px;">Draft ready for review</strong>
+							<span class="ep-modal-id" id="ep-agent-iterate-draft-summary"></span>
+						</div>
+						<div id="ep-agent-iterate-draft-files" style="max-height:200px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:4px;padding:8px;background:#fafafa;font-family:monospace;font-size:12px;"></div>
+					</div>
+				</div>
+				<input type="hidden" id="ep-agent-iterate-target-slug" />
+				<input type="hidden" id="ep-agent-iterate-current-job-id" />
+			</div>
+			<div class="ep-apps-modal-foot">
+				<button class="ep-apps-btn" id="ep-agent-iterate-eject-btn" style="margin-right:auto;color:#9b2c2c;">Eject…</button>
+				<button class="ep-apps-btn ep-apps-btn-cancel" data-modal="ep-agent-iterate-modal">Close</button>
+				<button class="ep-apps-btn" id="ep-agent-iterate-discard-btn" style="display:none;color:#9b2c2c;">Discard draft</button>
+				<button class="ep-apps-btn ep-apps-btn-primary" id="ep-agent-iterate-submit">Send</button>
+				<button class="ep-apps-btn ep-apps-btn-primary" id="ep-agent-iterate-commit-btn" style="display:none;background:#16a34a;border-color:#15803d;">Push to GitHub</button>
+			</div>
+		</div>
+	</div>
+
+	<!-- Eject Confirmation Modal (separate, hardened) -->
+	<div class="ep-modal-overlay" id="ep-agent-eject-modal" style="display:none">
+		<div class="ep-modal" style="max-width:480px">
+			<div class="ep-modal-header">
+				<div>
+					<span class="ep-modal-title" style="color:#9b2c2c;">⚠ Eject to Developer Mode</span>
+					<span class="ep-modal-id">This is irreversible from the UI.</span>
+				</div>
+				<button class="ep-modal-close" data-modal="ep-agent-eject-modal">&times;</button>
+			</div>
+			<div class="ep-modal-body">
+				<p style="margin:0 0 12px;">Ejecting <strong id="ep-agent-eject-slug-display"></strong> will:</p>
+				<ul style="margin:0 0 16px 18px;padding:0;font-size:13px;color:#374151;">
+					<li>Set <code>supports_ai_iteration: false</code> in the manifest</li>
+					<li>Commit the change and tag a new patch release</li>
+					<li>Permanently lock the AI chat interface for this app</li>
+					<li>Hand the GitHub repo to developer-mode-only workflows</li>
+				</ul>
+				<div class="ep-build-field">
+					<label class="ep-build-label" for="ep-agent-eject-confirm">Type the app slug to confirm</label>
+					<input type="text" class="ep-build-input" id="ep-agent-eject-confirm" autocomplete="off" />
+				</div>
+				<div id="ep-agent-eject-error" class="ep-build-error" style="display:none"></div>
+				<input type="hidden" id="ep-agent-eject-target-slug" />
+			</div>
+			<div class="ep-apps-modal-foot">
+				<button class="ep-apps-btn ep-apps-btn-cancel" data-modal="ep-agent-eject-modal">Cancel</button>
+				<button class="ep-apps-btn ep-apps-btn-primary" id="ep-agent-eject-confirm-btn" disabled style="background:#9b2c2c;border-color:#7f1d1d;">Eject</button>
+			</div>
+		</div>
+	</div>
+
+	<!-- Jobs & History Modal -->
+	<div class="ep-modal-overlay" id="ep-agent-jobs-modal" style="display:none">
+		<div class="ep-modal" style="max-width:760px">
+			<div class="ep-modal-header">
+				<div>
+					<span class="ep-modal-title">AI Generation Jobs</span>
+					<span class="ep-modal-id">Recent generations and iterations across all apps</span>
+				</div>
+				<button class="ep-modal-close" data-modal="ep-agent-jobs-modal">&times;</button>
+			</div>
+			<div class="ep-modal-body" style="padding:0;">
+				<div id="ep-agent-jobs-list" style="max-height:480px;overflow-y:auto;"></div>
+			</div>
+			<div class="ep-apps-modal-foot">
+				<button class="ep-apps-btn ep-apps-btn-cancel" data-modal="ep-agent-jobs-modal">Close</button>
 			</div>
 		</div>
 	</div>

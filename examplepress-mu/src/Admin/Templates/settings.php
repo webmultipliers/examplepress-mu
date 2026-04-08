@@ -13,6 +13,7 @@ $ep_github_app_available = \ExamplePress\MU\Infrastructure\GitHub::appIsConfigur
 		<nav class="ep-tabs" role="tablist">
 			<button class="ep-tab" role="tab" aria-selected="true"  aria-controls="p-github" id="t-github" data-tab-id="github">GitHub</button>
 			<button class="ep-tab" role="tab" aria-selected="false" aria-controls="p-troy"   id="t-troy"   data-tab-id="troy">Troy</button>
+			<button class="ep-tab" role="tab" aria-selected="false" aria-controls="p-agent"  id="t-agent"  data-tab-id="agent">AI Agent</button>
 		</nav>
 
 		<div class="ep-panels">
@@ -101,6 +102,57 @@ $ep_github_app_available = \ExamplePress\MU\Infrastructure\GitHub::appIsConfigur
 				<div class="ep-conn-actions">
 					<button class="ep-build-submit" id="ep-conn-save-btn-troy" type="button">Save Connections</button>
 					<span class="ep-conn-status" id="ep-conn-status-troy"></span>
+				</div>
+			</section>
+		</div>
+
+		<!-- AI Agent -->
+		<div class="ep-panel" id="p-agent" role="tabpanel" aria-hidden="true">
+			<section class="ep-section">
+				<div class="ep-section-header"><span class="ep-section-title">Generative UI Agent</span><div class="ep-section-line"></div></div>
+				<p class="ep-section-desc">Configure the LLM provider that powers the "Generate with AI" flow on the Apps page. Generated apps live entirely in private GitHub repos &mdash; nothing is written to <code>wp_posts</code> or <code>wp_options</code> beyond the standard app registry.</p>
+				<div class="ep-connections-grid">
+					<div class="ep-conn-group">
+						<div class="ep-conn-field">
+							<label class="ep-build-label" for="ep-agent-enabled">Enable Agent</label>
+							<label class="ep-troy-auth-row" style="cursor:pointer;">
+								<input type="checkbox" id="ep-agent-enabled" />
+								<span class="ep-build-hint">Boots Roots Acorn + Prism and exposes the "Generate with AI" surfaces. Off by default.</span>
+							</label>
+						</div>
+						<div class="ep-conn-field">
+							<label class="ep-build-label" for="ep-agent-provider">Provider</label>
+							<select id="ep-agent-provider">
+								<option value="anthropic">Anthropic Claude</option>
+								<option value="openai">OpenAI</option>
+							</select>
+						</div>
+						<div class="ep-conn-field">
+							<label class="ep-build-label" for="ep-agent-model">Model</label>
+							<input type="text" id="ep-agent-model" placeholder="claude-3-5-sonnet-latest" />
+							<span class="ep-build-hint">Recommended: <code>claude-3-5-sonnet-latest</code> (Anthropic) or <code>gpt-4o</code> (OpenAI).</span>
+						</div>
+						<div class="ep-conn-field">
+							<label class="ep-build-label" for="ep-agent-api-key">API Key</label>
+							<input type="password" id="ep-agent-api-key" placeholder="sk-..." autocomplete="off" />
+							<span class="ep-build-hint">Stored in <code>wp_options</code> as <code>ep_agent_api_key</code>. Restrict <code>manage_options</code> access accordingly.</span>
+						</div>
+						<div class="ep-conn-field">
+							<div class="ep-troy-auth-row">
+								<button class="ep-demo-btn" id="ep-test-agent-btn" type="button">Test Agent</button>
+								<span class="ep-troy-auth-status" id="ep-test-agent-status"></span>
+							</div>
+						</div>
+						<div class="ep-conn-field">
+							<div class="ep-troy-auth-row">
+								<span class="ep-troy-auth-status" id="ep-agent-runtime-status"></span>
+							</div>
+						</div>
+					</div>
+				</div>
+				<div class="ep-conn-actions">
+					<button class="ep-build-submit" id="ep-conn-save-btn-agent" type="button">Save Agent Settings</button>
+					<span class="ep-conn-status" id="ep-conn-status-agent"></span>
 				</div>
 			</section>
 		</div>

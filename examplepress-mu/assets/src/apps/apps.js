@@ -125,6 +125,9 @@ export function renderAppsTable() {
 			const activateAction = isActive
 				? `<span class="ep-apps-action"><a href="#" data-action="deactivate" data-slug="${esc(app.slug)}">Deactivate</a></span>`
 				: `<span class="ep-apps-action"><a href="${esc(data.adminUrl || '')}plugins.php?s=${esc(app.slug)}" target="_blank">Activate</a></span>`;
+			const iterateLink = app.supports_ai_iteration
+				? `<span class="ep-apps-sep">|</span><span class="ep-apps-action"><a href="#" data-agent-iterate="${esc(app.slug)}" class="ep-apps-action-manage" title="Iterate with AI">✨ Iterate</a></span>`
+				: '';
 			actions = `
 				${activateAction}
 				<span class="ep-apps-sep">|</span>
@@ -133,6 +136,7 @@ export function renderAppsTable() {
 				<span class="ep-apps-sep">|</span>
 				<span class="ep-apps-action"><a href="https://github.com/${esc(ghRepo)}" target="_blank" rel="noopener" class="ep-apps-action-repo">Repo</a></span>
 				${codespaceLink}
+				${iterateLink}
 				<span class="ep-apps-sep">|</span>
 				<span class="ep-apps-action"><a href="#" data-action="manage" data-slug="${esc(app.slug)}" class="ep-apps-action-manage">Manage</a></span>
 				<span class="ep-apps-sep">|</span>

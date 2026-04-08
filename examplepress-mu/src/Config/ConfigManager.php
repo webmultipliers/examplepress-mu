@@ -64,6 +64,11 @@ final class ConfigManager
          * @param array $merged Raw merged config from MU + theme JSON.
          */
         $merged = apply_filters('examplepress_mu_config_raw', $merged);
+        // Defensive: a misbehaving filter callback may return null/non-array.
+        // Coerce so the normalisers (which type-hint array) cannot fatal the kernel.
+        if (!is_array($merged)) {
+            $merged = [];
+        }
 
         $merged = self::normaliseDesign($merged);
         $merged = self::normaliseBlockstudio($merged);
@@ -74,7 +79,8 @@ final class ConfigManager
          *
          * @param array $merged Fully normalized config.
          */
-        self::$config = apply_filters('examplepress_mu_config', $merged);
+        $final = apply_filters('examplepress_mu_config', $merged);
+        self::$config = is_array($final) ? $final : $merged;
 
         return self::$config;
     }

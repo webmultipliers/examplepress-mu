@@ -50,6 +50,25 @@ final class ConnectionsController
                     'description'       => 'GitHub read token for Troy.',
                     'sanitize_callback' => 'sanitize_text_field',
                 ],
+                'agent_provider' => [
+                    'type'              => 'string',
+                    'description'       => 'Generative UI Agent provider (anthropic|openai).',
+                    'sanitize_callback' => 'sanitize_text_field',
+                ],
+                'agent_model' => [
+                    'type'              => 'string',
+                    'description'       => 'Generative UI Agent model id.',
+                    'sanitize_callback' => 'sanitize_text_field',
+                ],
+                'agent_api_key' => [
+                    'type'              => 'string',
+                    'description'       => 'Generative UI Agent API key.',
+                    'sanitize_callback' => 'sanitize_text_field',
+                ],
+                'agent_enabled' => [
+                    'type'              => 'boolean',
+                    'description'       => 'Whether the Generative UI Agent feature is enabled.',
+                ],
             ],
         ]);
 
@@ -90,7 +109,17 @@ final class ConnectionsController
             'ep_app_template_repo' => 'app_template_repo',
             'ep_troy_server_url'   => 'troy_server_url',
             'ep_troy_github_pat'   => 'troy_github_pat',
+            'ep_agent_provider'    => 'agent_provider',
+            'ep_agent_model'       => 'agent_model',
+            'ep_agent_api_key'     => 'agent_api_key',
         ];
+
+        // Boolean toggle for the agent feature flag (stored as a
+        // namespaced option that the FeatureRegistry filter consults).
+        $agentEnabled = $request->get_param('agent_enabled');
+        if ($agentEnabled !== null) {
+            update_option('ep_agent_enabled', (bool) $agentEnabled);
+        }
 
         $updated = [];
 

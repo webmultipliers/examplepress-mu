@@ -92,10 +92,26 @@ final class DataProvider
         $apps = AppDiscovery::scan();
 
         // Generate per-app destroy nonces so the JS can confirm deletions.
+        // Also tag each app with its supports_ai_iteration flag, read
+        // straight from the on-disk manifest, so the UI can decide
+        // whether to render the chat panel or the eject lock.
         $destroyNonces = [];
-        foreach ($apps as $app) {
+        foreach ($apps as &$app) {
             $destroyNonces[$app['slug']] = wp_create_nonce('ep_destroy_' . $app['slug']);
+
+            $manifestPath = WP_PLUGIN_DIR . '/' . $app['slug'] . '/examplepress.json';
+            $supports = false;
+            if (is_readable($manifestPath)) {
+                $manifest = json_decode((string) file_get_contents($manifestPath), true);
+                if (is_array($manifest) && !empty($manifest['supports_ai_iteration'])) {
+                    $supports = true;
+                }
+            }
+            $app['supports_ai_iteration'] = $supports;
         }
+        unset($app);
+
+        $agentEnabled = \ExamplePress\MU\Config\FeatureRegistry::enabled('agent');
 
         return [
             'apps'                => $apps,
@@ -115,6 +131,26 @@ final class DataProvider
             'demoUpdateUrl'       => esc_url_raw(rest_url('examplepress-mu/v1/demo/update')),
             'demoSettingsUrl'     => esc_url_raw(rest_url('examplepress-mu/v1/demo/settings')),
             'demoReleasesUrl'     => esc_url_raw(rest_url('examplepress-mu/v1/demo/releases')),
+            'agent'               => [
+                'enabled'   => $agentEnabled,
+                'ready'     => \ExamplePress\MU\Infrastructure\PrismContainer::isAvailable(),
+                'configured'=> (bool) get_option('ep_agent_api_key', ''),
+                'provider'  => (string) get_option('ep_agent_provider', 'anthropic'),
+                'model'     => (string) get_option('ep_agent_model', 'claude-3-5-sonnet-latest'),
+                'error'     => \ExamplePress\MU\Infrastructure\PrismContainer::lastError(),
+            ],
+            'agentGenerateUrl'    => esc_url_raw(rest_url('examplepress-mu/v1/agent/generate')),
+            'agentIterateUrl'     => esc_url_raw(rest_url('examplepress-mu/v1/agent/iterate/__SLUG__')),
+            'agentEjectUrl'       => esc_url_raw(rest_url('examplepress-mu/v1/agent/eject/__SLUG__')),
+            'agentJobUrl'         => esc_url_raw(rest_url('examplepress-mu/v1/agent/jobs/__ID__')),
+            'agentJobsUrl'        => esc_url_raw(rest_url('examplepress-mu/v1/agent/jobs')),
+            'agentJobsForSlugUrl' => esc_url_raw(rest_url('examplepress-mu/v1/agent/jobs/by-slug/__SLUG__')),
+            'agentJobCommitUrl'   => esc_url_raw(rest_url('examplepress-mu/v1/agent/jobs/__ID__/commit')),
+            'agentJobDiscardUrl'  => esc_url_raw(rest_url('examplepress-mu/v1/agent/jobs/__ID__/discard')),
+            'agentJobRetryUrl'    => esc_url_raw(rest_url('examplepress-mu/v1/agent/jobs/__ID__/retry')),
+            'agentJobFileUrl'     => esc_url_raw(rest_url('examplepress-mu/v1/agent/jobs/__ID__/file')),
+            'agentProvidersUrl'   => esc_url_raw(rest_url('examplepress-mu/v1/agent/providers')),
+            'agentTestUrl'        => esc_url_raw(rest_url('examplepress-mu/v1/agent/test')),
         ];
     }
 
@@ -936,6 +972,15 @@ final class DataProvider
             'troyServerUrl'    => get_option('ep_troy_server_url', ''),
             'testGithubUrl'    => esc_url_raw(rest_url('examplepress-mu/v1/settings/test-github')),
             'testTroyUrl'      => esc_url_raw(rest_url('examplepress-mu/v1/settings/test-troy')),
+            'agent'            => [
+                'enabled'  => \ExamplePress\MU\Config\FeatureRegistry::enabled('agent'),
+                'provider' => (string) get_option('ep_agent_provider', 'anthropic'),
+                'model'    => (string) get_option('ep_agent_model', 'claude-3-5-sonnet-latest'),
+                'hasKey'   => (bool) get_option('ep_agent_api_key', ''),
+                'ready'    => \ExamplePress\MU\Infrastructure\PrismContainer::isAvailable(),
+                'error'    => \ExamplePress\MU\Infrastructure\PrismContainer::lastError(),
+                'testUrl'  => esc_url_raw(rest_url('examplepress-mu/v1/agent/test')),
+            ],
         ];
     }
 

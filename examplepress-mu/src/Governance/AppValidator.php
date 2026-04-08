@@ -286,6 +286,105 @@ final class AppValidator
         self::invalidatePersistentCache();
     }
 
+    /**
+     * Zero-trust validation for AI-generated app payloads.
+     *
+     * Runs BEFORE any code touches disk or GitHub. A failure here means
+     * the generation is discarded — no repo, no commit, no install.
+     *
+     * @param array<string,mixed>                              $manifest Decoded examplepress.json the LLM produced.
+     * @param array<int,array{path:string,contents:string}>   $files    File list the LLM produced.
+     * @return array{ok:bool,errors:array<int,string>}
+     */
+    public static function validateGenerated(array $manifest, array $files): array
+    {
+        $errors = [];
+
+        // Manifest: required fields.
+        if (empty($manifest['name']) || !is_string($manifest['name'])) {
+            $errors[] = 'Manifest missing required field: name.';
+        }
+        if (empty($manifest['slug']) || !is_string($manifest['slug']) || !preg_match('/^[a-z0-9-]+$/', $manifest['slug'])) {
+            $errors[] = 'Manifest missing or invalid field: slug (must match [a-z0-9-]+).';
+        }
+
+        // Manifest: supports_ai_iteration must be boolean if present.
+        if (array_key_exists('supports_ai_iteration', $manifest) && !is_bool($manifest['supports_ai_iteration'])) {
+            $errors[] = 'Manifest field supports_ai_iteration must be a boolean.';
+        }
+
+        // Manifest: banned permissions (reuses existing filter).
+        /** @var array<int,string> $banned */
+        $banned = (array) apply_filters('examplepress_mu_banned_permissions', []);
+        $requested = $manifest['permissions'] ?? [];
+        if (!empty($banned) && is_array($requested)) {
+            $found = array_intersect($requested, $banned);
+            if (!empty($found)) {
+                $errors[] = 'Manifest requests banned permissions: ' . implode(', ', $found);
+            }
+        }
+
+        // Files: must be a non-empty list.
+        if (empty($files)) {
+            $errors[] = 'Generated payload contains no files.';
+        }
+
+        // Banned PHP tokens — hard reject.
+        // base64_decode is rejected only when invoked on a variable; literal
+        // string decodes are still allowed (and can be widened via filter).
+        $bannedPhpPatterns = [
+            '/\beval\s*\(/i'                       => 'eval()',
+            '/\bexec\s*\(/i'                       => 'exec()',
+            '/\bsystem\s*\(/i'                     => 'system()',
+            '/\bshell_exec\s*\(/i'                 => 'shell_exec()',
+            '/\bpassthru\s*\(/i'                   => 'passthru()',
+            '/\bproc_open\s*\(/i'                  => 'proc_open()',
+            '/\bpopen\s*\(/i'                      => 'popen()',
+            '/`[^`]*\$[^`]*`/'                     => 'backtick operator',
+            '/\bbase64_decode\s*\(\s*\$/i'         => 'base64_decode($variable)',
+        ];
+
+        foreach ($files as $i => $file) {
+            if (!is_array($file) || !isset($file['path'], $file['contents'])) {
+                $errors[] = "File entry #{$i} is malformed (expected {path,contents}).";
+                continue;
+            }
+
+            $path     = (string) $file['path'];
+            $contents = (string) $file['contents'];
+
+            // Path traversal / absolute path / escape.
+            if ($path === '' || str_contains($path, '..') || str_starts_with($path, '/') || preg_match('#^[a-zA-Z]:[\\\\/]#', $path)) {
+                $errors[] = "File path is unsafe: {$path}";
+                continue;
+            }
+
+            // PHP file scan.
+            if (str_ends_with($path, '.php')) {
+                foreach ($bannedPhpPatterns as $pattern => $label) {
+                    if (preg_match($pattern, $contents)) {
+                        $errors[] = "File {$path} contains banned token: {$label}";
+                    }
+                }
+            }
+        }
+
+        $result = [
+            'ok'     => empty($errors),
+            'errors' => $errors,
+        ];
+
+        /**
+         * Filter the result of generated-app validation. Return an array
+         * matching the same shape to override.
+         *
+         * @param array{ok:bool,errors:array<int,string>} $result
+         * @param array<string,mixed>                     $manifest
+         * @param array<int,array{path:string,contents:string}> $files
+         */
+        return apply_filters('examplepress_mu_validate_generated_app', $result, $manifest, $files);
+    }
+
     private static function reject(string $pluginBasename, string $reason): void
     {
         self::record($pluginBasename, false);

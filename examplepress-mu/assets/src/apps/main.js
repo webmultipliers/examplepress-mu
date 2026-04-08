@@ -13,6 +13,7 @@ import { initAppsTable, renderAppsTable, initAppsOutsideClick } from './apps.js'
 import { initScaffold } from './scaffold.js';
 import { initTroyModal } from './troy-modal.js';
 import { renderDemo } from './demo.js';
+import { initAgent } from './agent.js';
 
 document.addEventListener('DOMContentLoaded', () => {
 	const data = window.ExamplePressData;
@@ -21,7 +22,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	initLogger(data.devMode);
 	initApi(data.nonce);
 	initModal();
-	initEscapeHandler(['ep-apps-scaffold-modal', 'ep-apps-troy-modal', 'ep-apps-codespace-modal']);
+	initEscapeHandler(['ep-apps-scaffold-modal', 'ep-apps-troy-modal', 'ep-apps-codespace-modal', 'ep-agent-modal', 'ep-agent-iterate-modal', 'ep-agent-eject-modal', 'ep-agent-jobs-modal']);
 	initTabs('apps');
 
 	initApps(data);
@@ -36,6 +37,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	initTroyModal(data);
 	initAppsOutsideClick();
 	renderDemo(data);
+	initAgent(data);
 
 	log.info('[ExamplePress] Apps page ready.');
 });

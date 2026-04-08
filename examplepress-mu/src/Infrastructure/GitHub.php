@@ -381,6 +381,269 @@ final class GitHub
         return true;
     }
 
+    // ── Generic File Push ──────────────────────────────────────────
+
+    /**
+     * Push an arbitrary in-memory file list as a new commit.
+     *
+     * Used by the Generative UI Agent for both initial generation
+     * (parentSha = null, creates main branch) and iteration
+     * (parentSha = current HEAD, advances main).
+     *
+     * @param array<int,array{path:string,contents:string}> $files
+     * @return array{commit_sha:string}|\WP_Error
+     */
+    public static function pushFiles(
+        string $ownerRepo,
+        array $files,
+        string $message,
+        ?string $parentSha = null,
+        string $branch = 'main'
+    ): array|\WP_Error {
+        $pat = self::writeToken();
+        if (!$pat) {
+            return new \WP_Error('no_github_token', 'No GitHub write token available.');
+        }
+
+        $headers = [
+            'Authorization' => "Bearer {$pat}",
+            'Accept'        => 'application/vnd.github.v3+json',
+            'User-Agent'    => 'ExamplePress/' . EXAMPLEPRESS_MU_VERSION,
+            'Content-Type'  => 'application/json',
+        ];
+        $base = "https://api.github.com/repos/{$ownerRepo}";
+
+        $tree = [];
+        foreach ($files as $file) {
+            $path     = (string) ($file['path'] ?? '');
+            $contents = (string) ($file['contents'] ?? '');
+            if ($path === '') {
+                continue;
+            }
+            $tree[] = [
+                'path'    => $path,
+                'mode'    => '100644',
+                'type'    => 'blob',
+                'content' => $contents,
+            ];
+        }
+
+        $treePayload = ['tree' => $tree];
+        if ($parentSha) {
+            // Base the new tree on the existing tree so unchanged files persist.
+            $treePayload['base_tree'] = $parentSha;
+        }
+
+        $treeResp = wp_remote_post("{$base}/git/trees", [
+            'headers' => $headers,
+            'body'    => wp_json_encode($treePayload),
+            'timeout' => 30,
+        ]);
+        if (is_wp_error($treeResp)) {
+            return $treeResp;
+        }
+        $treeBody = json_decode(wp_remote_retrieve_body($treeResp), true);
+        if (empty($treeBody['sha'])) {
+            return new \WP_Error('tree_failed', $treeBody['message'] ?? 'Failed to create git tree.');
+        }
+
+        $commitPayload = [
+            'message' => $message,
+            'tree'    => $treeBody['sha'],
+        ];
+        if ($parentSha) {
+            $commitPayload['parents'] = [$parentSha];
+        }
+
+        $commitResp = wp_remote_post("{$base}/git/commits", [
+            'headers' => $headers,
+            'body'    => wp_json_encode($commitPayload),
+            'timeout' => 30,
+        ]);
+        if (is_wp_error($commitResp)) {
+            return $commitResp;
+        }
+        $commitBody = json_decode(wp_remote_retrieve_body($commitResp), true);
+        if (empty($commitBody['sha'])) {
+            return new \WP_Error('commit_failed', $commitBody['message'] ?? 'Failed to create commit.');
+        }
+
+        // Create or update the branch ref.
+        if (!$parentSha) {
+            $refResp = wp_remote_post("{$base}/git/refs", [
+                'headers' => $headers,
+                'body'    => wp_json_encode([
+                    'ref' => "refs/heads/{$branch}",
+                    'sha' => $commitBody['sha'],
+                ]),
+                'timeout' => 30,
+            ]);
+        } else {
+            $refResp = wp_remote_request("{$base}/git/refs/heads/{$branch}", [
+                'method'  => 'PATCH',
+                'headers' => $headers,
+                'body'    => wp_json_encode([
+                    'sha'   => $commitBody['sha'],
+                    'force' => false,
+                ]),
+                'timeout' => 30,
+            ]);
+        }
+
+        if (is_wp_error($refResp)) {
+            return $refResp;
+        }
+        $refCode = wp_remote_retrieve_response_code($refResp);
+        if ($refCode < 200 || $refCode >= 300) {
+            $refBody = json_decode(wp_remote_retrieve_body($refResp), true);
+            return new \WP_Error('ref_failed', $refBody['message'] ?? "Failed to update branch ref (HTTP {$refCode}).");
+        }
+
+        return ['commit_sha' => (string) $commitBody['sha']];
+    }
+
+    // ── Releases ───────────────────────────────────────────────────
+
+    /**
+     * Create a GitHub release on a repo. Used by the Generative UI Agent
+     * to tag immutable versions after each generation/iteration.
+     *
+     * @return array{tag_name:string,html_url:string,id:int}|\WP_Error
+     */
+    public static function createRelease(
+        string $ownerRepo,
+        string $tag,
+        string $name = '',
+        string $body = '',
+        string $targetCommitish = 'main'
+    ): array|\WP_Error {
+        $pat = self::writeToken();
+
+        if (!$pat) {
+            return new \WP_Error('no_github_token', 'No GitHub write token available.');
+        }
+
+        $response = wp_remote_post("https://api.github.com/repos/{$ownerRepo}/releases", [
+            'headers' => [
+                'Authorization' => "Bearer {$pat}",
+                'Accept'        => 'application/vnd.github.v3+json',
+                'User-Agent'    => 'ExamplePress/' . EXAMPLEPRESS_MU_VERSION,
+                'Content-Type'  => 'application/json',
+            ],
+            'body'    => wp_json_encode([
+                'tag_name'         => $tag,
+                'target_commitish' => $targetCommitish,
+                'name'             => $name ?: $tag,
+                'body'             => $body,
+                'draft'            => false,
+                'prerelease'       => false,
+            ]),
+            'timeout' => 30,
+        ]);
+
+        if (is_wp_error($response)) {
+            return $response;
+        }
+
+        $code = wp_remote_retrieve_response_code($response);
+        $body = json_decode(wp_remote_retrieve_body($response), true);
+
+        if ($code !== 201 || empty($body['tag_name'])) {
+            $msg = $body['message'] ?? "GitHub API returned HTTP {$code}.";
+            return new \WP_Error('release_failed', $msg);
+        }
+
+        return [
+            'tag_name' => (string) $body['tag_name'],
+            'html_url' => (string) ($body['html_url'] ?? ''),
+            'id'       => (int) ($body['id'] ?? 0),
+        ];
+    }
+
+    /**
+     * Fetch the full file tree of a repo at HEAD of the default branch.
+     * Used by the Generative UI Agent to feed current code as context
+     * to the LLM during iteration.
+     *
+     * @return array{files:array<int,array{path:string,contents:string}>,sha:string}|\WP_Error
+     */
+    public static function fetchRepoTree(string $ownerRepo, string $branch = 'main'): array|\WP_Error
+    {
+        $pat = self::writeToken();
+        if (!$pat) {
+            return new \WP_Error('no_github_token', 'No GitHub write token available.');
+        }
+
+        $headers = [
+            'Authorization' => "Bearer {$pat}",
+            'Accept'        => 'application/vnd.github.v3+json',
+            'User-Agent'    => 'ExamplePress/' . EXAMPLEPRESS_MU_VERSION,
+        ];
+
+        // 1. Resolve the branch tip SHA.
+        $ref = wp_remote_get("https://api.github.com/repos/{$ownerRepo}/git/ref/heads/{$branch}", [
+            'headers' => $headers,
+            'timeout' => 15,
+        ]);
+        if (is_wp_error($ref)) {
+            return $ref;
+        }
+        $refBody = json_decode(wp_remote_retrieve_body($ref), true);
+        $sha     = $refBody['object']['sha'] ?? '';
+        if (!$sha) {
+            return new \WP_Error('no_branch', "Branch {$branch} not found on {$ownerRepo}.");
+        }
+
+        // 2. Fetch the recursive tree.
+        $tree = wp_remote_get("https://api.github.com/repos/{$ownerRepo}/git/trees/{$sha}?recursive=1", [
+            'headers' => $headers,
+            'timeout' => 30,
+        ]);
+        if (is_wp_error($tree)) {
+            return $tree;
+        }
+        $treeBody = json_decode(wp_remote_retrieve_body($tree), true);
+        if (empty($treeBody['tree']) || !is_array($treeBody['tree'])) {
+            return new \WP_Error('no_tree', 'Empty or malformed tree response.');
+        }
+
+        // 3. Fetch each blob's content.
+        $files = [];
+        $maxFiles = (int) apply_filters('examplepress_mu_agent_iterate_max_files', 80);
+
+        foreach ($treeBody['tree'] as $entry) {
+            if (($entry['type'] ?? '') !== 'blob') {
+                continue;
+            }
+            if (count($files) >= $maxFiles) {
+                break;
+            }
+            $blob = wp_remote_get("https://api.github.com/repos/{$ownerRepo}/git/blobs/{$entry['sha']}", [
+                'headers' => $headers,
+                'timeout' => 15,
+            ]);
+            if (is_wp_error($blob)) {
+                continue;
+            }
+            $blobBody = json_decode(wp_remote_retrieve_body($blob), true);
+            if (empty($blobBody['content'])) {
+                continue;
+            }
+            $contents = ($blobBody['encoding'] ?? 'base64') === 'base64'
+                ? (string) base64_decode($blobBody['content'])
+                : (string) $blobBody['content'];
+
+            // Skip binary files for context.
+            if (!mb_check_encoding($contents, 'UTF-8')) {
+                continue;
+            }
+
+            $files[] = ['path' => (string) $entry['path'], 'contents' => $contents];
+        }
+
+        return ['files' => $files, 'sha' => $sha];
+    }
+
     // ── Troy Integration ───────────────────────────────────────────
 
     /**

@@ -23,6 +23,9 @@ use ExamplePress\MU\Infrastructure\Helpers;
 use ExamplePress\MU\Infrastructure\Notifications;
 use ExamplePress\MU\Infrastructure\AppUpdateProvider;
 use ExamplePress\MU\Infrastructure\ThemeUpdateProvider;
+use ExamplePress\MU\Infrastructure\PrismContainer;
+use ExamplePress\MU\Agent\GenerationJob;
+use ExamplePress\MU\API\AgentController;
 use ExamplePress\MU\API\AppsController;
 use ExamplePress\MU\API\ConnectionsController;
 use ExamplePress\MU\API\DemoController;
@@ -69,9 +72,49 @@ final class Kernel
         add_action('rest_api_init', [UpdatesController::class, 'register']);
         add_action('rest_api_init', [FilesystemController::class, 'register']);
         add_action('rest_api_init', [Notifications::class, 'registerRoutes']);
+        add_action('rest_api_init', [AgentController::class, 'register']);
 
         // ── Features ────────────────────────────────────────────
         add_action('after_setup_theme', [FeatureRegistry::class, 'bootAll']);
+
+        // ── Generative UI Agent feature toggle ─────────────────
+        // Surface the ep_agent_enabled option through the feature
+        // filter so the settings UI can flip the flag without a
+        // code deploy. Site-level filters can still override.
+        add_filter('examplepress_mu_feature_agent', static function ($enabled) {
+            $opt = \get_option('ep_agent_enabled', null);
+            return $opt === null ? $enabled : (bool) $opt;
+        }, 5);
+
+        // ── Generative UI Agent runtime ────────────────────────
+        // PrismContainer must boot AFTER FeatureRegistry::bootAll() so the
+        // 'agent' feature flag is registered. Action Scheduler hook
+        // is registered unconditionally — the handler short-circuits
+        // gracefully when the feature is off.
+        //
+        // Both invocations are wrapped in defensive closures so that ANY
+        // runtime failure inside the agent stack (missing vendor, parse
+        // error in a Prism file, autoload miss, etc.) cannot fatal the
+        // request. A failed boot logs and increments NO counter — the
+        // kernel itself remains booted and the rest of the admin UI keeps
+        // working. Without this guard, an agent runtime issue could push
+        // the loader past its fatal-loop threshold and trigger quarantine.
+        add_action('after_setup_theme', static function (): void {
+            try {
+                PrismContainer::boot();
+            } catch (\Throwable $e) {
+                error_log('ExamplePress: PrismContainer boot failed (caught): ' . $e->getMessage());
+                add_filter('examplepress_mu_feature_agent', '__return_false', PHP_INT_MAX);
+            }
+        }, 20);
+
+        add_action(GenerationJob::HOOK, static function (string $jobId): void {
+            try {
+                GenerationJob::handle($jobId);
+            } catch (\Throwable $e) {
+                error_log('ExamplePress: GenerationJob handler failed (caught): ' . $e->getMessage());
+            }
+        });
 
         // ── Admin ───────────────────────────────────────────────
         if (is_admin()) {

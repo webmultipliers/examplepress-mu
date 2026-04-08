@@ -2,7 +2,7 @@
 /**
  * Plugin Name: ExamplePress MU Bootstrapper
  * Description: Thin loader that fetches and executes the ExamplePress platform kernel from GitHub.
- * Version:     2.1.2
+ * Version:     2.2.0
  * Author:      Web Multipliers
  * Author URI:  https://github.com/webmultipliers
  */
@@ -37,7 +37,7 @@ final class ExamplePress_MU_Bootstrapper {
     /** Counter threshold that indicates a fatal loop. */
     private const BOOT_ATTEMPT_THRESHOLD = 3;
     /** Minimum PHP version required by the kernel. Loader refuses to require the kernel below this. */
-    private const REQUIRED_PHP = '8.1';
+    private const REQUIRED_PHP = '8.2';
 
     /**
      * Flag set by Kernel::boot() (via markKernelBooted) and checked on
@@ -76,20 +76,102 @@ final class ExamplePress_MU_Bootstrapper {
         if ( ! is_array( $quarantine ) || empty( $quarantine['time'] ) ) {
             return;
         }
-        $loaderMtime = @filemtime( $loaderFile );
-        if ( $loaderMtime === false ) {
+        $quarantineTime = (int) $quarantine['time'];
+
+        // Recovery is signaled by EITHER the loader file OR the kernel
+        // bootstrap file having been updated since the quarantine timestamp.
+        // The loader-only check missed the case where the auto-updater wrote
+        // a new kernel snapshot but left the loader untouched — that legit
+        // recovery would silently stay quarantined. Now both paths recover.
+        $candidates = [
+            $loaderFile,
+            dirname( $loaderFile ) . '/examplepress-mu/bootstrap.php',
+            dirname( $loaderFile ) . '/examplepress-mu/examplepress-mu.php', // 2.x kernel layout
+        ];
+        $newer = false;
+        foreach ( $candidates as $f ) {
+            $mtime = @filemtime( $f );
+            if ( $mtime !== false && $mtime > $quarantineTime ) {
+                $newer = true;
+                break;
+            }
+        }
+        if ( ! $newer ) {
             return;
         }
-        if ( $loaderMtime <= (int) $quarantine['time'] ) {
-            return;
-        }
-        // Loader was updated after the quarantine — assume intentional recovery.
+        // Loader or kernel was updated after the quarantine — assume intentional recovery.
         if ( function_exists( 'update_option' ) ) {
             update_option( self::BOOT_ATTEMPT_OPTION, 0, false );
         }
         if ( function_exists( 'delete_option' ) ) {
             delete_option( self::QUARANTINE_OPTION );
             delete_option( self::COLDSTART_ERROR_OPTION );
+        }
+        if ( function_exists( 'delete_transient' ) ) {
+            delete_transient( self::BACKOFF_KEY );
+            delete_transient( self::INFLIGHT_KEY );
+        }
+    }
+
+    /**
+     * Build the URL for the "Reset boot counter" link in the quarantine
+     * notice. Includes a nonce so the action can't be triggered by a
+     * third party. Falls back gracefully if WordPress isn't loaded.
+     */
+    private static function buildClearQuarantineUrl(): string {
+        $base = function_exists( 'admin_url' ) ? admin_url( 'index.php' ) : '/wp-admin/index.php';
+        $args = [ 'ep_mu_clear_quarantine' => '1' ];
+        if ( function_exists( 'wp_create_nonce' ) ) {
+            $args['_wpnonce'] = wp_create_nonce( 'ep_mu_clear_quarantine' );
+        }
+        return $base . '?' . http_build_query( $args );
+    }
+
+    /**
+     * Admin-init handler for the manual quarantine reset link. Verifies
+     * the nonce and capability, clears state, and redirects back.
+     */
+    public static function maybeHandleManualClear(): void {
+        if ( empty( $_GET['ep_mu_clear_quarantine'] ) ) {
+            return;
+        }
+        if ( ! function_exists( 'current_user_can' ) || ! current_user_can( 'manage_options' ) ) {
+            return;
+        }
+        $nonce = isset( $_GET['_wpnonce'] ) ? sanitize_text_field( wp_unslash( $_GET['_wpnonce'] ) ) : '';
+        if ( ! function_exists( 'wp_verify_nonce' ) || ! wp_verify_nonce( $nonce, 'ep_mu_clear_quarantine' ) ) {
+            return;
+        }
+
+        self::manualClearQuarantine();
+
+        if ( function_exists( 'wp_safe_redirect' ) && function_exists( 'admin_url' ) ) {
+            wp_safe_redirect( admin_url() );
+            exit;
+        }
+    }
+
+    /**
+     * Manual recovery hook: clears the quarantine option and counters
+     * unconditionally. Called from the loader's admin notice via a
+     * one-shot signed query string when the operator clicks "Reset boot
+     * counter" — gives a no-SSH escape hatch even when the loader and
+     * kernel files are both stale.
+     */
+    public static function manualClearQuarantine(): void {
+        if ( ! function_exists( 'current_user_can' ) || ! current_user_can( 'manage_options' ) ) {
+            return;
+        }
+        if ( function_exists( 'update_option' ) ) {
+            update_option( self::BOOT_ATTEMPT_OPTION, 0, false );
+        }
+        if ( function_exists( 'delete_option' ) ) {
+            delete_option( self::QUARANTINE_OPTION );
+            delete_option( self::COLDSTART_ERROR_OPTION );
+        }
+        if ( function_exists( 'delete_transient' ) ) {
+            delete_transient( self::BACKOFF_KEY );
+            delete_transient( self::INFLIGHT_KEY );
         }
     }
 
@@ -201,8 +283,15 @@ final class ExamplePress_MU_Bootstrapper {
                         'attempts' => $state['attempts'],
                     ], false );
                 }
+                // Register the recovery handler — admins can click "Reset
+                // boot counter" in the notice without SSH/file access.
+                if ( function_exists( 'add_action' ) ) {
+                    add_action( 'admin_init', [ self::class, 'maybeHandleManualClear' ] );
+                }
+                $resetUrl = self::buildClearQuarantineUrl();
                 self::registerAdminNotice(
-                    'ExamplePress MU: the kernel appears to be fataling on boot and no previous version is available to roll back to. The kernel has been quarantined. Restore from backup or reinstall.'
+                    'ExamplePress MU: the kernel appears to be fataling on boot and no previous version is available to roll back to. The kernel has been quarantined. Restore from backup or reinstall — '
+                    . '<a href="' . esc_url( $resetUrl ) . '">Reset boot counter and try again</a>.'
                 );
                 return;
 
@@ -383,9 +472,13 @@ final class ExamplePress_MU_Bootstrapper {
             if ( ! current_user_can( 'manage_options' ) ) {
                 return;
             }
+            // Allow a single anchor (used by the quarantine recovery link).
+            // Everything else is stripped — these messages are loader-internal,
+            // never user input.
+            $allowed = [ 'a' => [ 'href' => true ], 'strong' => [], 'code' => [] ];
             printf(
                 '<div class="notice notice-error"><p><strong>ExamplePress MU:</strong> %s</p></div>',
-                esc_html( $message )
+                function_exists( 'wp_kses' ) ? wp_kses( $message, $allowed ) : strip_tags( $message )
             );
         } );
     }
