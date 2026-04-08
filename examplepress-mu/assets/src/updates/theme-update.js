@@ -29,19 +29,30 @@ export function renderThemeUpdate(data) {
 	let busy      = false;
 
 	// ── DOM refs ─────────────────────────────────────────────────────
-	const curVer        = document.getElementById('ep-theme-update-current-ver');
-	const latestVer     = document.getElementById('ep-theme-update-latest-ver');
-	const statusBadge   = document.getElementById('ep-theme-update-status-badge');
-	const lastChecked   = document.getElementById('ep-theme-update-last-checked');
-	const checkBtn      = document.getElementById('ep-theme-update-check-btn');
-	const installBtn    = document.getElementById('ep-theme-update-install-btn');
-	const reinstallBtn  = document.getElementById('ep-theme-update-reinstall-btn');
-	const channelSelect = document.getElementById('ep-theme-update-channel');
-	const channelSource = document.getElementById('ep-theme-update-channel-source');
-	const pinSelect     = document.getElementById('ep-theme-update-pin');
-	const pinNotice     = document.getElementById('ep-theme-update-pin-notice');
-	const releasesList  = document.getElementById('ep-theme-update-releases');
-	const releasesSkel  = document.getElementById('ep-theme-update-releases-skeleton');
+	const $ = (id) => document.getElementById(id);
+	const curVer        = $('ep-theme-update-current-ver');
+	const latestVer     = $('ep-theme-update-latest-ver');
+	const statusBadge   = $('ep-theme-update-status-badge');
+	const lastChecked   = $('ep-theme-update-last-checked');
+	const checkBtn      = $('ep-theme-update-check-btn');
+	const installBtn    = $('ep-theme-update-install-btn');
+	const reinstallBtn  = $('ep-theme-update-reinstall-btn');
+	const channelSelect = $('ep-theme-update-channel');
+	const channelSource = $('ep-theme-update-channel-source');
+	const pinSelect     = $('ep-theme-update-pin');
+	const pinNotice     = $('ep-theme-update-pin-notice');
+	const releasesList  = $('ep-theme-update-releases');
+	const releasesSkel  = $('ep-theme-update-releases-skeleton');
+
+	// Required elements — if any of these are missing the template is broken
+	// in a way the renderer can't compensate for. Bail loud.
+	const required = { curVer, latestVer, statusBadge, lastChecked, checkBtn, installBtn, reinstallBtn, channelSelect, pinSelect };
+	for (const [name, el] of Object.entries(required)) {
+		if (!el) {
+			console.warn(`[ExamplePress] Theme update renderer: missing element "${name}". Aborting.`);
+			return;
+		}
+	}
 
 	// ── Render ───────────────────────────────────────────────────────
 

@@ -36,9 +36,6 @@ if ( ! defined( 'EXAMPLEPRESS_MU_VERSION' ) ) {
     define( 'EXAMPLEPRESS_MU_VERSION', $ep_mu_ver );
     unset( $ep_mu_loader, $ep_mu_ver, $ep_mu_headers );
 }
-// Kernel API version — themes/plugins check this to verify compatibility
-// with the platform contract. Bump when the kernel-facing API changes.
-define( 'EXAMPLEPRESS_MU_API_VERSION', 1 );
 define( 'EXAMPLEPRESS_MU_DIR', __DIR__ );
 define( 'EXAMPLEPRESS_MU_URI', plugins_url( '', __FILE__ ) );
 define( 'EP_MU_ACTIVE', true );

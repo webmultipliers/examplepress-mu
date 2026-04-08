@@ -149,13 +149,9 @@ final class AppUpdateProvider
     /**
      * Get cached update data for all companion apps.
      *
-     * Public so admin surfaces (e.g. the Updates → Apps tab) can read the
-     * same data the injector publishes into the native update_plugins
-     * transient without duplicating the GitHub fetch logic.
-     *
      * @return array<string, array<string, mixed>> Keyed by plugin_file.
      */
-    public static function getUpdateData(): array
+    private static function getUpdateData(): array
     {
         if (self::$memo !== null) {
             return self::$memo;

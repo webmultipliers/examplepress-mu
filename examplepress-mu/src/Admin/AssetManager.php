@@ -12,6 +12,9 @@ final class AssetManager
     /** @var array<string, mixed>|null */
     private static ?array $manifest = null;
 
+    /** @var int|null mtime of the manifest file when $manifest was last read. */
+    private static ?int $manifestMtime = null;
+
     /** @var string[] Vite script handles needing type="module". */
     private static array $viteHandles = [];
 
@@ -147,19 +150,26 @@ final class AssetManager
      */
     private static function resolveManifest(): array
     {
-        if (self::$manifest !== null) {
-            return self::$manifest;
-        }
-
         $path = EXAMPLEPRESS_MU_DIR . '/dist/.vite/manifest.json';
 
         if (!file_exists($path)) {
-            self::$manifest = [];
+            self::$manifest      = [];
+            self::$manifestMtime = null;
+            return self::$manifest;
+        }
+
+        // Bust the in-process cache when the manifest file has changed on
+        // disk. Without this, long-lived PHP-FPM workers keep serving stale
+        // chunk hashes after a rebuild — which causes the browser to load
+        // an old bundle against the new DOM and NPE on missing elements.
+        $mtime = (int) @filemtime($path);
+        if (self::$manifest !== null && self::$manifestMtime === $mtime) {
             return self::$manifest;
         }
 
         $data = json_decode((string) file_get_contents($path), true);
-        self::$manifest = is_array($data) ? $data : [];
+        self::$manifest      = is_array($data) ? $data : [];
+        self::$manifestMtime = $mtime;
 
         return self::$manifest;
     }

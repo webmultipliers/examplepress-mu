@@ -2,11 +2,13 @@
  * Updates → Kernel tab renderer.
  *
  * Backed by Infrastructure\Updater via the /updates/kernel/* REST
- * namespace (UpdatesController). Exposes what the cron-based self-updater
- * already knows, plus manual check / update / rollback / clear-quarantine
- * actions.
+ * namespace (UpdatesController). The kernel updater is intentionally
+ * cron-driven — there are NO manual check or install controls because
+ * triggering an upgrade from inside the very kernel rendering this page
+ * is a footgun. The only actions exposed are the two RECOVERY ones:
+ * rollback to the previous on-disk snapshot, and clear quarantine state.
+ * Both move you AWAY from a broken kernel toward a known-good one.
  */
-import { log } from '../lib/logger.js';
 import {
 	toast, revealBody, showProgress, hideProgress,
 	setBadge, api, esc, formatTimestamp, formatUntil,
@@ -20,18 +22,25 @@ export function renderKernelUpdate(data) {
 	let busy   = false;
 
 	// ── DOM refs ─────────────────────────────────────────────────────
-	const curVer        = document.getElementById('ep-kernel-update-current-ver');
-	const remoteVer     = document.getElementById('ep-kernel-update-remote-ver');
-	const statusBadge   = document.getElementById('ep-kernel-update-status-badge');
-	const lastFetched   = document.getElementById('ep-kernel-update-last-fetched');
-	const nextScheduled = document.getElementById('ep-kernel-update-next-scheduled');
-	const previous      = document.getElementById('ep-kernel-update-previous');
-	const checkBtn      = document.getElementById('ep-kernel-update-check-btn');
-	const installBtn    = document.getElementById('ep-kernel-update-install-btn');
-	const rollbackBtn   = document.getElementById('ep-kernel-update-rollback-btn');
-	const quarantineSection = document.getElementById('ep-kernel-update-quarantine-section');
-	const quarantineNotice  = document.getElementById('ep-kernel-update-quarantine-notice');
-	const clearQuarantineBtn = document.getElementById('ep-kernel-update-clear-quarantine-btn');
+	const $ = (id) => document.getElementById(id);
+	const curVer             = $('ep-kernel-update-current-ver');
+	const remoteVer          = $('ep-kernel-update-remote-ver');
+	const statusBadge        = $('ep-kernel-update-status-badge');
+	const lastFetched        = $('ep-kernel-update-last-fetched');
+	const nextScheduled      = $('ep-kernel-update-next-scheduled');
+	const previous           = $('ep-kernel-update-previous');
+	const rollbackBtn        = $('ep-kernel-update-rollback-btn');
+	const quarantineSection  = $('ep-kernel-update-quarantine-section');
+	const quarantineNotice   = $('ep-kernel-update-quarantine-notice');
+	const clearQuarantineBtn = $('ep-kernel-update-clear-quarantine-btn');
+
+	const required = { curVer, remoteVer, statusBadge, lastFetched, nextScheduled, previous, rollbackBtn };
+	for (const [name, el] of Object.entries(required)) {
+		if (!el) {
+			console.warn(`[ExamplePress] Kernel update renderer: missing element "${name}". Aborting.`);
+			return;
+		}
+	}
 
 	// ── Render ───────────────────────────────────────────────────────
 
@@ -49,20 +58,11 @@ export function renderKernelUpdate(data) {
 		previous.textContent = status.previous_version_available ? 'Available' : 'None';
 
 		if (!status.remote_version) {
-			setBadge(statusBadge, 'info', 'Not yet checked');
+			setBadge(statusBadge, 'info', 'Not yet checked by cron');
 		} else if (status.update_available) {
-			setBadge(statusBadge, 'update', `Update to ${status.remote_version}`);
+			setBadge(statusBadge, 'update', `Cron will install ${status.remote_version}`);
 		} else {
 			setBadge(statusBadge, 'current', 'Up to date');
-		}
-
-		// Install button shown when a newer remote version is known.
-		if (status.update_available) {
-			installBtn.hidden = false;
-			installBtn.disabled = busy;
-			installBtn.textContent = `Install ${status.remote_version}`;
-		} else {
-			installBtn.hidden = true;
 		}
 
 		// Rollback button shown when a previous snapshot exists on disk.
@@ -101,47 +101,6 @@ export function renderKernelUpdate(data) {
 	}
 
 	// ── Actions ──────────────────────────────────────────────────────
-
-	async function handleCheck() {
-		setBusy(true);
-		try {
-			const res = await api('POST', data.kernelUpdateCheckUrl);
-			status = res.status;
-			render();
-			toast('success', status.update_available
-				? `Update available: ${status.remote_version}`
-				: 'Kernel is up to date.');
-		} catch (err) {
-			toast('error', err.message);
-		} finally {
-			setBusy(false);
-		}
-	}
-
-	async function handleInstall() {
-		if (!status || !status.update_available) return;
-		const confirmed = window.confirm(
-			`Install kernel v${status.remote_version}?\n\n` +
-			'The new code will take effect on the next request. ' +
-			'If the new kernel fatals, the loader will auto-rollback to the previous version.'
-		);
-		if (!confirmed) return;
-
-		setBusy(true);
-		showProgress('ep-kernel-update-progress', `Installing kernel v${status.remote_version}…`);
-		try {
-			const res = await api('POST', data.kernelUpdateInstallUrl);
-			status = res.status;
-			render();
-			toast('success', res.message || 'Kernel updated.');
-			log.info(`[ExamplePress] Kernel updated to ${status.current_version}`);
-		} catch (err) {
-			toast('error', err.message);
-		} finally {
-			hideProgress('ep-kernel-update-progress');
-			setBusy(false);
-		}
-	}
 
 	async function handleRollback() {
 		if (!status || !status.previous_version_available) return;
@@ -190,16 +149,12 @@ export function renderKernelUpdate(data) {
 
 	function setBusy(value) {
 		busy = value;
-		checkBtn.disabled    = value;
-		installBtn.disabled  = value || !(status && status.update_available);
 		rollbackBtn.disabled = value || !(status && status.previous_version_available);
 		if (clearQuarantineBtn) clearQuarantineBtn.disabled = value;
 	}
 
 	// ── Init ─────────────────────────────────────────────────────────
 
-	checkBtn.addEventListener('click', handleCheck);
-	installBtn.addEventListener('click', handleInstall);
 	rollbackBtn.addEventListener('click', handleRollback);
 	if (clearQuarantineBtn) clearQuarantineBtn.addEventListener('click', handleClearQuarantine);
 

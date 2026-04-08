@@ -190,40 +190,6 @@
 }
 .ep-updates-release.ep-open .ep-updates-release-body { display: block; }
 
-/* ── Apps table ───────────────────────────────────────────────── */
-.ep-updates-apps-table {
-	display: flex;
-	flex-direction: column;
-}
-.ep-updates-apps-row {
-	display: grid;
-	grid-template-columns: 2fr 1fr 1fr 2fr 0.5fr;
-	gap: 12px;
-	align-items: center;
-	padding: 10px 0;
-	border-bottom: 1px solid var(--ep-u-border);
-	font-size: 13px;
-}
-.ep-updates-apps-row:last-child { border-bottom: none; }
-.ep-updates-apps-head {
-	font-size: 11px;
-	text-transform: uppercase;
-	letter-spacing: 0.5px;
-	color: var(--ep-u-muted);
-	font-weight: 600;
-}
-.ep-updates-apps-name {
-	font-weight: 600;
-	color: var(--ep-u-text);
-}
-.ep-updates-apps-repo {
-	display: block;
-	font-size: 11px;
-	color: var(--ep-u-muted);
-	text-decoration: none;
-}
-.ep-updates-apps-repo:hover { text-decoration: underline; }
-
 /* ── Empty states ─────────────────────────────────────────────── */
 .ep-updates-empty {
 	color: var(--ep-u-muted);
@@ -234,9 +200,4 @@
 /* ── Mobile ───────────────────────────────────────────────────── */
 @media (max-width: 782px) {
 	.ep-updates-grid { grid-template-columns: 1fr; }
-	.ep-updates-apps-row {
-		grid-template-columns: 1fr;
-		gap: 4px;
-	}
-	.ep-updates-apps-head { display: none; }
 }

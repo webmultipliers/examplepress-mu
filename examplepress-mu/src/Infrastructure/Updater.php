@@ -232,7 +232,6 @@ final class Updater
     {
         $cached        = get_site_transient(self::REMOTE_CACHE_KEY);
         $remoteVersion = is_array($cached) ? ($cached['version'] ?? null) : null;
-        $remotePackage = is_array($cached) ? ($cached['package'] ?? null) : null;
         $fetchedAt     = is_array($cached) ? ($cached['fetched_at'] ?? null) : null;
 
         $updateAvailable = false;
@@ -251,7 +250,6 @@ final class Updater
         return [
             'current_version'   => EXAMPLEPRESS_MU_VERSION,
             'remote_version'    => $remoteVersion,
-            'remote_package'    => $remotePackage,
             'remote_fetched_at' => is_int($fetchedAt) ? $fetchedAt : null,
             'update_available'  => $updateAvailable,
             'throttle_state'    => is_string($throttle) ? $throttle : '',
@@ -263,91 +261,6 @@ final class Updater
             'quarantined'       => is_array($quarantine) ? $quarantine : null,
             'boot_attempts'     => $bootAttempts,
             'coldstart_error'   => $coldStartError,
-        ];
-    }
-
-    /**
-     * Force an immediate GitHub check, bypassing the throttle transient.
-     * Does NOT auto-install, even if a newer version is found — this is
-     * the "refresh the admin UI" button, not the "upgrade now" button.
-     *
-     * @return array{success: bool, status: array<string, mixed>, message?: string}
-     */
-    public static function forceCheck(): array
-    {
-        // Drop the throttle so fetchRemoteVersion() runs fresh.
-        delete_site_transient(self::TRANSIENT_KEY);
-        delete_site_transient(self::REMOTE_CACHE_KEY);
-
-        $remote = self::fetchRemoteVersion();
-
-        if (!$remote) {
-            return [
-                'success' => false,
-                'status'  => self::getStatus(),
-                'message' => 'Could not reach GitHub or the release was missing updates.json.',
-            ];
-        }
-
-        set_site_transient(self::REMOTE_CACHE_KEY, [
-            'version'    => $remote['version'],
-            'package'    => $remote['package'],
-            'checksum'   => $remote['checksum'],
-            'fetched_at' => time(),
-        ], self::CHECK_INTERVAL);
-
-        // Hold the throttle so the next cron tick honors the window.
-        set_site_transient(self::TRANSIENT_KEY, 'checked', self::CHECK_INTERVAL);
-
-        return [
-            'success' => true,
-            'status'  => self::getStatus(),
-        ];
-    }
-
-    /**
-     * Force a download + atomic swap to the currently-known-latest version.
-     * The admin UI equivalent of "wait for cron." Uses the cached remote
-     * payload if available; otherwise fetches fresh.
-     *
-     * @return array{success: bool, status: array<string, mixed>, message?: string}
-     */
-    public static function forceUpdate(): array
-    {
-        $cached = get_site_transient(self::REMOTE_CACHE_KEY);
-
-        if (!is_array($cached) || empty($cached['package'])) {
-            // Nothing cached — fetch first.
-            $remote = self::fetchRemoteVersion();
-            if (!$remote) {
-                return [
-                    'success' => false,
-                    'status'  => self::getStatus(),
-                    'message' => 'Could not resolve a remote version to install.',
-                ];
-            }
-            $cached = $remote + ['fetched_at' => time()];
-        }
-
-        // Refuse to "update" to the same or an older version from this path.
-        // Operators who genuinely want to reinstall the running version can
-        // use a separate reinstall flow — this path is strictly "upgrade."
-        if (!version_compare($cached['version'], EXAMPLEPRESS_MU_VERSION, '>')) {
-            return [
-                'success' => false,
-                'status'  => self::getStatus(),
-                'message' => 'Already on the latest version.',
-            ];
-        }
-
-        $ok = self::performUpdate($cached['package'], $cached['checksum'] ?? '');
-
-        return [
-            'success' => $ok,
-            'status'  => self::getStatus(),
-            'message' => $ok
-                ? 'Kernel updated. The new code will load on the next request.'
-                : 'Update failed. Check error_log for details.',
         ];
     }
 

@@ -12,8 +12,6 @@ use ExamplePress\MU\Infrastructure\AppRegistry;
 use ExamplePress\MU\Infrastructure\Notifications;
 use ExamplePress\MU\Infrastructure\PluginManager;
 use ExamplePress\MU\Infrastructure\RouteRegistry;
-use ExamplePress\MU\Infrastructure\ThemeUpdateProvider;
-use ExamplePress\MU\Infrastructure\AppUpdateProvider;
 use ExamplePress\MU\Infrastructure\Updater;
 
 /**
@@ -85,7 +83,7 @@ final class DataProvider
     // ── Per-Page Data ────────────────────────────────────────────
 
     /**
-     * Apps page: companion app management, scaffold, updater, demo.
+     * Apps page: companion app management, scaffold, demo.
      *
      * @return array<string, mixed>
      */
@@ -127,9 +125,16 @@ final class DataProvider
      */
     private static function updatesData(): array
     {
+        // The initial payload is intentionally LIGHTWEIGHT. The JS bootstraps
+        // each tab from these URLs and calls /status on first render, so we
+        // do NOT want to trigger synchronous GitHub fetches during the page
+        // render itself — that would block the page for 10+ seconds on a
+        // cold cache and fail outright on a rate-limit. The renderers seed
+        // from null and pull fresh data via REST after DOMContentLoaded.
+
         return [
-            // Theme update surface (ThemeUpdateController / ThemeUpdateProvider).
-            'themeUpdate'             => ThemeUpdateProvider::getStatus(),
+            // Theme update surface — null seed; JS calls /theme-update/status.
+            'themeUpdate'             => null,
             'themeUpdateStatusUrl'    => esc_url_raw(rest_url('examplepress-mu/v1/theme-update/status')),
             'themeUpdateCheckUrl'     => esc_url_raw(rest_url('examplepress-mu/v1/theme-update/check')),
             'themeUpdateChannelUrl'   => esc_url_raw(rest_url('examplepress-mu/v1/theme-update/channel')),
@@ -138,35 +143,16 @@ final class DataProvider
             'themeUpdateReinstallUrl' => esc_url_raw(rest_url('examplepress-mu/v1/theme-update/reinstall')),
             'themeUpdateReleasesUrl'  => esc_url_raw(rest_url('examplepress-mu/v1/theme-update/releases')),
 
-            // Kernel self-update surface (UpdatesController / Infrastructure\Updater).
+            // Kernel self-update surface. The kernel updater is intentionally
+            // cron-driven and there are NO manual check/install endpoints —
+            // only read-only status + the two recovery actions (rollback,
+            // clear quarantine) which move you AWAY from a broken kernel.
+            // getStatus() is option-and-transient only, no network, so it's
+            // safe to seed inline.
             'kernelUpdate'                   => Updater::getStatus(),
             'kernelUpdateStatusUrl'          => esc_url_raw(rest_url('examplepress-mu/v1/updates/kernel/status')),
-            'kernelUpdateCheckUrl'           => esc_url_raw(rest_url('examplepress-mu/v1/updates/kernel/check')),
-            'kernelUpdateInstallUrl'         => esc_url_raw(rest_url('examplepress-mu/v1/updates/kernel/update')),
             'kernelUpdateRollbackUrl'        => esc_url_raw(rest_url('examplepress-mu/v1/updates/kernel/rollback')),
             'kernelUpdateClearQuarantineUrl' => esc_url_raw(rest_url('examplepress-mu/v1/updates/kernel/clear-quarantine')),
-
-            // Companion app updates surface (UpdatesController / AppUpdateProvider).
-            'appsUpdate'          => array_values(array_map(
-                static fn(array $r, string $pluginFile): array => [
-                    'plugin_file'      => $pluginFile,
-                    'slug'             => $r['slug'] ?? '',
-                    'name'             => $r['name'] ?? ($r['slug'] ?? $pluginFile),
-                    'description'      => $r['description'] ?? '',
-                    'owner_repo'       => $r['owner_repo'] ?? '',
-                    'current_version'  => $r['current_version'] ?? '',
-                    'new_version'      => $r['new_version'] ?? '',
-                    'update_available' => !empty($r['update_available']),
-                    'html_url'         => $r['html_url'] ?? '',
-                    'release_url'      => $r['release_url'] ?? '',
-                    'changelog'        => $r['changelog'] ?? '',
-                ],
-                AppUpdateProvider::getUpdateData(),
-                array_keys(AppUpdateProvider::getUpdateData())
-            )),
-            'appsUpdateStatusUrl' => esc_url_raw(rest_url('examplepress-mu/v1/updates/apps/status')),
-            'appsUpdateCheckUrl'  => esc_url_raw(rest_url('examplepress-mu/v1/updates/apps/check')),
-            'pluginsAdminUrl'     => esc_url(admin_url('plugins.php')),
         ];
     }
 
@@ -903,6 +889,7 @@ final class DataProvider
             ['name' => 'examplepress_mu_theme_update_channel',   'type' => 'filter', 'desc' => 'Override the resolved theme update channel (stable|development). Highest priority.'],
             ['name' => 'examplepress_mu_theme_manifest_url',     'type' => 'filter', 'desc' => 'Override the updates.json manifest URL per channel.'],
             ['name' => 'examplepress_mu_theme_variant',          'type' => 'filter', 'desc' => 'Pick a specific package variant from the manifest (default: "full").'],
+            ['name' => 'examplepress_mu_should_update_now',      'type' => 'filter', 'desc' => 'Per-cron-tick gate on the kernel self-updater. Return false to skip — useful for quiet hours or release freezes.'],
             ['name' => 'examplepress_mu_demo_repo',               'type' => 'filter', 'desc' => 'Override the GitHub repo used for the demo companion plugin.'],
             ['name' => 'examplepress_mu_enforce_permalinks',      'type' => 'filter', 'desc' => 'Opt out of /%postname%/ enforcement.'],
             ['name' => 'examplepress_mu_disallow_file_edit',      'type' => 'filter', 'desc' => 'Opt out of the DISALLOW_FILE_EDIT define.'],

@@ -8,11 +8,18 @@ use ExamplePress\MU\Infrastructure\GitHub;
 use ExamplePress\MU\Infrastructure\Helpers;
 
 /**
- * Shared base class for companion-plugin REST controllers (updater, demo).
+ * Shared base class for companion-plugin REST controllers.
  *
- * Subclasses declare a small amount of identity (route prefix, repo slug,
- * plugin file, option keys, asset name) and inherit identical install /
- * uninstall / check / settings / update / releases endpoints.
+ * Currently the only consumer is `DemoController`. The base is kept as a
+ * deliberate extension point so future companion plugins (analytics,
+ * payment gateways, etc.) can register lifecycle endpoints by declaring
+ * a small amount of identity (route prefix, repo slug, plugin file,
+ * option keys, asset name) and inheriting identical install / uninstall /
+ * check / settings / update / releases handlers.
+ *
+ * If you're adding a third subclass and find yourself fighting the shape,
+ * inline the base back into its consumers — one consumer doesn't justify
+ * an abstract layer, but two genuinely-similar consumers do.
  */
 abstract class CompanionPluginController
 {

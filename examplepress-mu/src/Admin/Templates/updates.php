@@ -2,10 +2,16 @@
 /**
  * Template: Updates
  *
- * Unified update surface for every channel the MU owns:
- *   - Theme  : ExamplePress theme (ThemeUpdateProvider)
- *   - Kernel : MU self-updater    (Infrastructure\Updater)
- *   - Apps   : Companion apps     (AppUpdateProvider)
+ * Two-tab update surface:
+ *   - Theme  : ExamplePress theme update lifecycle (ThemeUpdateProvider).
+ *   - Kernel : Read-only MU self-updater status + recovery actions
+ *              (Infrastructure\Updater). The kernel updater is intentionally
+ *              cron-driven; this tab cannot trigger an install — only
+ *              rollback to a retained snapshot or clear quarantine state.
+ *
+ * Companion app updates do NOT live here — they have a dedicated Apps page
+ * for lifecycle management and AppUpdateProvider publishes update records
+ * into WordPress's native Plugins screen for the actual upgrade flow.
  *
  * Rendered by PageController::render(). All dynamic content is populated
  * by the Vite entry at assets/src/updates/main.js against the payload in
@@ -18,7 +24,6 @@ if (!defined('ABSPATH')) exit;
 		<nav class="ep-tabs" role="tablist">
 			<button class="ep-tab" role="tab" aria-selected="true"  aria-controls="p-theme-update"  id="t-theme-update"  data-tab-id="theme-update">Theme</button>
 			<button class="ep-tab" role="tab" aria-selected="false" aria-controls="p-kernel-update" id="t-kernel-update" data-tab-id="kernel-update">Kernel</button>
-			<button class="ep-tab" role="tab" aria-selected="false" aria-controls="p-apps-update"   id="t-apps-update"   data-tab-id="apps-update">Apps</button>
 		</nav>
 
 		<div class="ep-panels ep-updates-page">
@@ -119,7 +124,7 @@ if (!defined('ABSPATH')) exit;
 
 			<section class="ep-section">
 				<div class="ep-section-header"><span class="ep-section-title">ExamplePress MU Kernel</span><div class="ep-section-line"></div></div>
-				<p class="ep-section-desc">The MU kernel self-updates from its own GitHub releases on a WP-Cron schedule. These controls expose the state of the cron check and let you force a check, install, or rollback manually.</p>
+				<p class="ep-section-desc">The MU kernel self-updates from its own GitHub releases on a WP-Cron schedule. This is intentionally cron-driven &mdash; the kernel cannot meaningfully install itself from inside the running request. The controls below are limited to read-only status plus the two recovery actions (rollback to the previous on-disk snapshot, clear quarantine state) which move <em>away from</em> a broken kernel toward a known-good one.</p>
 
 				<div class="ep-demo-panel" id="ep-kernel-update-panel">
 					<div class="ep-updates-skeleton" id="ep-kernel-update-skeleton">
@@ -141,11 +146,11 @@ if (!defined('ABSPATH')) exit;
 								<div><span class="ep-updates-badge" id="ep-kernel-update-status-badge">&mdash;</span></div>
 							</div>
 							<div class="ep-updates-cell">
-								<div class="ep-updates-label">Last fetched</div>
+								<div class="ep-updates-label">Last fetched (cron)</div>
 								<div class="ep-updates-value" id="ep-kernel-update-last-fetched">Never</div>
 							</div>
 							<div class="ep-updates-cell">
-								<div class="ep-updates-label">Next scheduled</div>
+								<div class="ep-updates-label">Next scheduled (cron)</div>
 								<div class="ep-updates-value" id="ep-kernel-update-next-scheduled">&mdash;</div>
 							</div>
 							<div class="ep-updates-cell">
@@ -155,8 +160,6 @@ if (!defined('ABSPATH')) exit;
 						</div>
 
 						<div class="ep-demo-actions" style="margin-top:16px;">
-							<button class="ep-demo-btn ep-demo-btn-primary" id="ep-kernel-update-check-btn">Check Now</button>
-							<button class="ep-demo-btn ep-demo-btn-primary" id="ep-kernel-update-install-btn" hidden>Install Update</button>
 							<button class="ep-demo-btn" id="ep-kernel-update-rollback-btn" hidden>Rollback to Previous</button>
 						</div>
 
@@ -176,31 +179,6 @@ if (!defined('ABSPATH')) exit;
 					<div class="ep-updates-pin-notice" id="ep-kernel-update-quarantine-notice"></div>
 					<div class="ep-demo-actions" style="margin-top:12px;">
 						<button class="ep-demo-btn ep-demo-btn-danger" id="ep-kernel-update-clear-quarantine-btn">Clear Quarantine State</button>
-					</div>
-				</div>
-			</section>
-		</div>
-
-		<!-- ═══════════════════════════════════════════════════════════════
-		     TAB 3 — Apps
-		     ═══════════════════════════════════════════════════════════════ -->
-		<div class="ep-panel" id="p-apps-update" role="tabpanel" aria-hidden="true">
-
-			<section class="ep-section">
-				<div class="ep-section-header"><span class="ep-section-title">Companion Apps</span><div class="ep-section-line"></div></div>
-				<p class="ep-section-desc">ExamplePress companion apps publish update records into WordPress's native <strong>Dashboard &rarr; Updates</strong> screen via <code>AppUpdateProvider</code>. This tab summarises what the provider currently knows; applying an update happens on the standard <a href="#" id="ep-apps-update-plugins-link">Plugins screen</a>.</p>
-
-				<div class="ep-demo-panel">
-					<div class="ep-updates-skeleton" id="ep-apps-update-skeleton">
-						<span></span><span></span><span></span>
-					</div>
-
-					<div id="ep-apps-update-body" hidden>
-						<div class="ep-demo-actions" style="margin-bottom:12px;">
-							<button class="ep-demo-btn ep-demo-btn-primary" id="ep-apps-update-refresh-btn">Refresh</button>
-						</div>
-						<div id="ep-apps-update-empty" class="ep-updates-empty" hidden>No companion apps with GitHub repos are currently installed.</div>
-						<div class="ep-updates-apps-table" id="ep-apps-update-table"></div>
 					</div>
 				</div>
 			</section>

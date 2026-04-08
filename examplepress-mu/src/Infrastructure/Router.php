@@ -13,6 +13,13 @@ namespace ExamplePress\MU\Infrastructure;
 final class Router
 {
     /**
+     * Kernel API contract version. Themes/plugins assert against this to
+     * verify compatibility with the platform. Bump when the kernel-facing
+     * API changes in a breaking way.
+     */
+    public const API_VERSION = 1;
+
+    /**
      * Resolve the current route via the route origin registry.
      *
      * @return array{namespace: string, slug: string}

@@ -52,6 +52,7 @@ mu-plugins/
     │       ├── DataProvider.php     # window.ExamplePressData localization
     │       └── Templates/           # Per-page HTML skeletons (tabs, panels, modals)
     │           ├── apps.php
+    │           ├── updates.php
     │           ├── theme.php
     │           ├── navigation.php
     │           ├── dependencies.php
@@ -64,6 +65,7 @@ mu-plugins/
     └── assets/
         └── src/                     # Vite entry points (JS + CSS per admin page)
             ├── apps/
+            ├── updates/
             ├── theme/
             ├── navigation/
             ├── dependencies/
@@ -73,7 +75,7 @@ mu-plugins/
             ├── system/
             ├── docs/
             ├── editor/
-            ├── css/                 # admin-settings.css, login.css, base.css
+            ├── css/                 # admin-settings.css, base.css, updates.css, login.css
             ├── lib/                 # Shared JS (api, tabs, modal, dom, datatable)
             └── stores/              # Nanostores state (apps, connections, notifications)
 ```
@@ -181,6 +183,7 @@ All MU-owned hooks use the `examplepress_mu_` prefix. Theme-owned hooks (`exampl
 | `examplepress_mu_theme_update_channel` | filter | Force the theme update channel (`stable` or `development`); highest-priority override |
 | `examplepress_mu_theme_manifest_url` | filter | Override the `updates.json` manifest URL per channel |
 | `examplepress_mu_theme_variant` | filter | Pick a package variant from the manifest (default: `full`) |
+| `examplepress_mu_should_update_now` | filter | Per-cron-tick gate on the kernel self-updater (default: `true`). Return `false` to skip a tick — useful for quiet hours, publish-in-progress locks, or release freezes. |
 | `examplepress_mu_demo_repo` | filter | Override the GitHub repo used for the demo plugin |
 | `examplepress_mu_bypass_editor_guard` | filter | Bypass FSE guards programmatically |
 | `examplepress_mu_enforce_permalinks` | filter | Opt out of `/%postname%/` enforcement |
