@@ -12,6 +12,7 @@ use ExamplePress\MU\Infrastructure\AppRegistry;
 use ExamplePress\MU\Infrastructure\Notifications;
 use ExamplePress\MU\Infrastructure\PluginManager;
 use ExamplePress\MU\Infrastructure\RouteRegistry;
+use ExamplePress\MU\Infrastructure\ThemeUpdateProvider;
 
 /**
  * Localizes the initial JSON payload (window.ExamplePressData) into the DOM.
@@ -103,16 +104,14 @@ final class DataProvider
             'editorUrl'           => MenuManager::pageUrl('editor', ['app' => '__SLUG__']),
             'troyCloudUrl'        => get_option('ep_troy_server_url', ''),
             'adminUrl'            => esc_url(admin_url()),
-            'updater'             => [
-                'status'          => PluginManager::getUpdaterStatus(),
-                'current_version' => PluginManager::getUpdaterPluginVersion(),
-            ],
-            'updaterInstallUrl'   => esc_url_raw(rest_url('examplepress-mu/v1/updater/install')),
-            'updaterUninstallUrl' => esc_url_raw(rest_url('examplepress-mu/v1/updater/uninstall')),
-            'updaterCheckUrl'     => esc_url_raw(rest_url('examplepress-mu/v1/updater/check')),
-            'updaterUpdateUrl'    => esc_url_raw(rest_url('examplepress-mu/v1/updater/update')),
-            'updaterSettingsUrl'  => esc_url_raw(rest_url('examplepress-mu/v1/updater/settings')),
-            'updaterReleasesUrl'  => esc_url_raw(rest_url('examplepress-mu/v1/updater/releases')),
+            'themeUpdate'           => ThemeUpdateProvider::getStatus(),
+            'themeUpdateStatusUrl'  => esc_url_raw(rest_url('examplepress-mu/v1/theme-update/status')),
+            'themeUpdateCheckUrl'   => esc_url_raw(rest_url('examplepress-mu/v1/theme-update/check')),
+            'themeUpdateChannelUrl' => esc_url_raw(rest_url('examplepress-mu/v1/theme-update/channel')),
+            'themeUpdatePinUrl'     => esc_url_raw(rest_url('examplepress-mu/v1/theme-update/pin')),
+            'themeUpdateInstallUrl' => esc_url_raw(rest_url('examplepress-mu/v1/theme-update/install')),
+            'themeUpdateReinstallUrl' => esc_url_raw(rest_url('examplepress-mu/v1/theme-update/reinstall')),
+            'themeUpdateReleasesUrl'  => esc_url_raw(rest_url('examplepress-mu/v1/theme-update/releases')),
             'demo'                => [
                 'status'          => PluginManager::getDemoStatus(),
                 'current_version' => PluginManager::getDemoPluginVersion(),
@@ -855,7 +854,10 @@ final class DataProvider
             ['name' => 'examplepress_mu_features_booted',         'type' => 'action', 'desc' => 'Fired after every feature has been wired by bootAll().'],
             ['name' => 'examplepress_mu_config_raw',              'type' => 'filter', 'desc' => 'Filter the merged MU + theme config before normalization.'],
             ['name' => 'examplepress_mu_config',                  'type' => 'filter', 'desc' => 'Filter the final normalized config (cached after first call).'],
-            ['name' => 'examplepress_mu_updater_repo',            'type' => 'filter', 'desc' => 'Override the GitHub repo used for the updater companion plugin.'],
+            ['name' => 'examplepress_mu_theme_repo',             'type' => 'filter', 'desc' => 'Override the GitHub repo used for ExamplePress theme updates. Default: webmultipliers/examplepress-theme.'],
+            ['name' => 'examplepress_mu_theme_update_channel',   'type' => 'filter', 'desc' => 'Override the resolved theme update channel (stable|development). Highest priority.'],
+            ['name' => 'examplepress_mu_theme_manifest_url',     'type' => 'filter', 'desc' => 'Override the updates.json manifest URL per channel.'],
+            ['name' => 'examplepress_mu_theme_variant',          'type' => 'filter', 'desc' => 'Pick a specific package variant from the manifest (default: "full").'],
             ['name' => 'examplepress_mu_demo_repo',               'type' => 'filter', 'desc' => 'Override the GitHub repo used for the demo companion plugin.'],
             ['name' => 'examplepress_mu_enforce_permalinks',      'type' => 'filter', 'desc' => 'Opt out of /%postname%/ enforcement.'],
             ['name' => 'examplepress_mu_disallow_file_edit',      'type' => 'filter', 'desc' => 'Opt out of the DISALLOW_FILE_EDIT define.'],

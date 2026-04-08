@@ -22,10 +22,11 @@ use ExamplePress\MU\Infrastructure\PluginManager;
 use ExamplePress\MU\Infrastructure\Helpers;
 use ExamplePress\MU\Infrastructure\Notifications;
 use ExamplePress\MU\Infrastructure\AppUpdateProvider;
+use ExamplePress\MU\Infrastructure\ThemeUpdateProvider;
 use ExamplePress\MU\API\AppsController;
 use ExamplePress\MU\API\ConnectionsController;
 use ExamplePress\MU\API\DemoController;
-use ExamplePress\MU\API\UpdaterController;
+use ExamplePress\MU\API\ThemeUpdateController;
 use ExamplePress\MU\API\FilesystemController;
 use ExamplePress\MU\Admin\MenuManager;
 use ExamplePress\MU\Admin\AssetManager;
@@ -55,6 +56,7 @@ final class Kernel
         AppRegistry::init();
         PluginManager::init();
         AppUpdateProvider::init();
+        ThemeUpdateProvider::init();
         Router::init();
 
         // ── REST API Controllers ────────────────────────────────
@@ -62,7 +64,7 @@ final class Kernel
         add_action('rest_api_init', [AppsController::class, 'register']);
         add_action('rest_api_init', [ConnectionsController::class, 'register']);
         add_action('rest_api_init', [DemoController::class, 'register']);
-        add_action('rest_api_init', [UpdaterController::class, 'register']);
+        add_action('rest_api_init', [ThemeUpdateController::class, 'register']);
         add_action('rest_api_init', [FilesystemController::class, 'register']);
         add_action('rest_api_init', [Notifications::class, 'registerRoutes']);
 

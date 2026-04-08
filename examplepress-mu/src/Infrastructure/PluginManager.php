@@ -12,10 +12,6 @@ namespace ExamplePress\MU\Infrastructure;
  */
 final class PluginManager
 {
-    public const UPDATER_PLUGIN_FILE = 'examplepress-theme-update/examplepress-theme-update.php';
-    public const UPDATER_GITHUB_REPO = 'webmultipliers/examplepress-theme-update';
-    public const UPDATER_THROTTLE_KEY = 'ep_updater_install_attempted';
-
     public const DEMO_PLUGIN_FILE = 'examplepress-demo/examplepress-demo.php';
     public const DEMO_GITHUB_REPO = 'webmultipliers/examplepress-theme-demo';
     public const DEMO_THROTTLE_KEY = 'ep_demo_install_attempted';
@@ -26,45 +22,10 @@ final class PluginManager
     {
         // Run cleanup on a daily cron schedule rather than every admin_init
         // (which performed glob() filesystem scans on every page load).
-        add_action(self::CLEANUP_CRON_HOOK, [self::class, 'cleanupStaleUpdaterDirs']);
         add_action(self::CLEANUP_CRON_HOOK, [self::class, 'cleanupStaleDemoDirs']);
 
         if (!wp_next_scheduled(self::CLEANUP_CRON_HOOK)) {
             wp_schedule_event(time() + HOUR_IN_SECONDS, 'daily', self::CLEANUP_CRON_HOOK);
-        }
-    }
-
-    // ── Cleanup — Updater ─────────────────────────────────────────
-
-    public static function cleanupStaleUpdaterDirs(): void
-    {
-        // Runs on the daily examplepress_mu_plugin_cleanup cron hook.
-        $pattern = WP_PLUGIN_DIR . '/examplepress-theme-update-*';
-        $stale = glob($pattern, GLOB_ONLYDIR);
-
-        if (empty($stale)) {
-            return;
-        }
-
-        if (!function_exists('get_plugins')) {
-            require_once ABSPATH . 'wp-admin/includes/plugin.php';
-        }
-
-        $wp_filesystem = Helpers::filesystem(forceDirect: true);
-
-        if (!$wp_filesystem) {
-            return;
-        }
-
-        foreach ($stale as $dir) {
-            $dirname = basename($dir);
-            $stalePlugin = $dirname . '/examplepress-theme-update.php';
-
-            if (is_plugin_active($stalePlugin)) {
-                deactivate_plugins($stalePlugin, true);
-            }
-
-            $wp_filesystem->delete($dir, true);
         }
     }
 
@@ -103,27 +64,6 @@ final class PluginManager
     }
 
     // ── Install — Updater ─────────────────────────────────────────
-
-    /**
-     * Install (or reinstall) the updater companion plugin from GitHub.
-     *
-     * Uses WP's overwrite_package to cleanly replace an existing install
-     * instead of brittle pre-deletion that causes "Destination already exists".
-     *
-     * @param bool $overwrite Replace existing plugin directory if present.
-     */
-    public static function installUpdater(bool $overwrite = false): true|\WP_Error
-    {
-        require_once ABSPATH . 'wp-admin/includes/file.php';
-
-        $zipUrl = self::resolveUpdaterZipUrl();
-
-        if (!$zipUrl) {
-            return new \WP_Error('ep_updater_no_source', 'Could not determine a download URL for the updater plugin.');
-        }
-
-        return self::installFromZip($zipUrl, 'examplepress-theme-update', $overwrite, 'examplepress-theme-update');
-    }
 
     // ── Install — Demo ────────────────────────────────────────────
 
@@ -215,29 +155,12 @@ final class PluginManager
 
     // ── ZIP URL Resolvers ─────────────────────────────────────────
 
-    public static function updaterRepo(): string
-    {
-        /**
-         * Filter the GitHub repo (owner/name) used for the updater plugin.
-         * Lets fleets point at a private fork or enterprise mirror.
-         */
-        return (string) apply_filters('examplepress_mu_updater_repo', self::UPDATER_GITHUB_REPO);
-    }
-
     public static function demoRepo(): string
     {
         /**
          * Filter the GitHub repo (owner/name) used for the demo plugin.
          */
         return (string) apply_filters('examplepress_mu_demo_repo', self::DEMO_GITHUB_REPO);
-    }
-
-    public static function resolveUpdaterZipUrl(): ?string
-    {
-        return self::resolveZipUrl(
-            self::updaterRepo(),
-            'examplepress-theme-update.zip'
-        );
     }
 
     public static function resolveDemoZipUrl(): ?string
@@ -282,21 +205,6 @@ final class PluginManager
 
     // ── Status helpers ────────────────────────────────────────────
 
-    public static function getUpdaterStatus(): string
-    {
-        if (!function_exists('get_plugins')) {
-            require_once ABSPATH . 'wp-admin/includes/plugin.php';
-        }
-
-        if (is_plugin_active(self::UPDATER_PLUGIN_FILE)) {
-            return 'active';
-        }
-        if (array_key_exists(self::UPDATER_PLUGIN_FILE, get_plugins())) {
-            return 'installed';
-        }
-        return 'not-installed';
-    }
-
     public static function getDemoStatus(): string
     {
         if (!function_exists('get_plugins')) {
@@ -331,15 +239,6 @@ final class PluginManager
         ]);
         return ($headers['theme'] ?? '') === 'examplepress-theme'
             && str_contains($headers['name'] ?? '', 'ExamplePress Demo');
-    }
-
-    public static function getUpdaterPluginVersion(): ?string
-    {
-        if (!function_exists('get_plugins')) {
-            require_once ABSPATH . 'wp-admin/includes/plugin.php';
-        }
-        $plugins = get_plugins();
-        return $plugins[self::UPDATER_PLUGIN_FILE]['Version'] ?? null;
     }
 
     public static function getDemoPluginVersion(): ?string

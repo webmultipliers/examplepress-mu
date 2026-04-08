@@ -31,6 +31,7 @@ mu-plugins/
     │   │   ├── GitHub.php           # GitHub App auth, repo creation, scaffold push
     │   │   ├── Scaffolder.php       # Template repo scaffolding (Git Database API)
     │   │   ├── Updater.php          # WP-Cron self-updater with atomic swap + rollback
+    │   │   ├── ThemeUpdateProvider.php # GitHub-backed theme update pipeline (absorbed the former examplepress-theme-update companion)
     │   │   ├── CliCommand.php       # WP-CLI: wp examplepress init
     │   │   ├── RouteRegistry.php    # Multi-origin route registration
     │   │   ├── Router.php           # Template dispatch (namespaced, no redeclaration)
@@ -38,11 +39,11 @@ mu-plugins/
     │   │   ├── Notifications.php    # System warning aggregation + archive REST
     │   │   └── Helpers.php          # Filesystem utilities (hardened, force-direct mode)
     │   ├── API/
-    │   │   ├── CompanionPluginController.php # Shared base for updater/demo controllers
+    │   │   ├── CompanionPluginController.php # Shared base for demo controller (and any future companion plugin controllers)
+    │   │   ├── ThemeUpdateController.php     # REST surface for ThemeUpdateProvider (/theme-update/*)
     │   │   ├── AppsController.php       # App CRUD, scaffold, connect, destroy, health, GET /apps
     │   │   ├── ConnectionsController.php # GitHub/Troy settings, tests, OAuth callbacks
     │   │   ├── DemoController.php       # Demo plugin lifecycle (subclass of CompanionPluginController)
-    │   │   ├── UpdaterController.php    # Updater plugin lifecycle (subclass of CompanionPluginController)
     │   │   └── FilesystemController.php # In-browser editor: tree, read, write
     │   └── Admin/
     │       ├── MenuManager.php      # Top-level menu + submenu registration
@@ -95,7 +96,8 @@ mu-plugins/
 
 **Infrastructure**:
 - **Updater** — WP-Cron job (twicedaily) checks GitHub releases and silently upgrades. Stages payload to a temp dir, swaps atomically, rolls back on failure. No admin login required.
-- **PluginManager** — installs the updater/demo companion plugins; stale-directory cleanup runs on a daily WP-Cron schedule (not on every `admin_init`). Repo origins are filterable via `examplepress_mu_updater_repo` / `examplepress_mu_demo_repo`.
+- **PluginManager** — installs the demo companion plugin; stale-directory cleanup runs on a daily WP-Cron schedule. Demo repo origin is filterable via `examplepress_mu_demo_repo`.
+- **ThemeUpdateProvider** — owns the full theme update lifecycle directly in the kernel (no companion plugin). Hooks `pre_set_site_transient_update_themes` + `themes_api` to inject GitHub release records into the native Themes screen. Supports a channel/pin model (stable/development) with the same resolution priority as the other update surfaces. Theme repo is filterable via `examplepress_mu_theme_repo` (default: `webmultipliers/examplepress-theme`).
 - **Scaffolder** — creates companion plugins from GitHub template repos using the Git Database API (blob > tree > commit > ref) to avoid rate-limiting
 - **Router + RouteRegistry** — namespaced multi-origin template dispatch. Companion plugins register route origins; the router resolves per-request.
 - **AppRegistry** — persists app records as `ep_app` CPT posts, merging live filesystem state with GitHub/Troy metadata. Bounded query (filter via `examplepress_mu_apps_query_limit`).
@@ -175,7 +177,10 @@ All MU-owned hooks use the `examplepress_mu_` prefix. Theme-owned hooks (`exampl
 | `examplepress_mu_template_prefix` | filter | Override template block prefix (default: `template`) |
 | `examplepress_mu_template_block_name` | filter | Override the assembled block name |
 | `examplepress_mu_template_repo` | filter | Override the scaffold template repository |
-| `examplepress_mu_updater_repo` | filter | Override the GitHub repo (owner/name) used for the updater plugin |
+| `examplepress_mu_theme_repo` | filter | Override the GitHub repo used for ExamplePress theme updates (default: `webmultipliers/examplepress-theme`) |
+| `examplepress_mu_theme_update_channel` | filter | Force the theme update channel (`stable` or `development`); highest-priority override |
+| `examplepress_mu_theme_manifest_url` | filter | Override the `updates.json` manifest URL per channel |
+| `examplepress_mu_theme_variant` | filter | Pick a package variant from the manifest (default: `full`) |
 | `examplepress_mu_demo_repo` | filter | Override the GitHub repo used for the demo plugin |
 | `examplepress_mu_bypass_editor_guard` | filter | Bypass FSE guards programmatically |
 | `examplepress_mu_enforce_permalinks` | filter | Opt out of `/%postname%/` enforcement |

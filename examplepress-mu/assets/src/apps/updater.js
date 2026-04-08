@@ -1,326 +1,219 @@
 /**
- * Dashboard — Updater companion plugin management.
+ * Apps → Updates tab — ExamplePress theme update manager.
+ *
+ * The theme update lifecycle lives directly in the MU kernel
+ * (Infrastructure\ThemeUpdateProvider) — no companion plugin involved.
+ * This UI just talks to /theme-update/* REST endpoints.
  *
  * Sections:
- *   1. Plugin install/uninstall (status badge + actions)
- *   2. Check for updates (flush cache + force re-check)
- *   3. Channel & version pinning settings
+ *   1. Status + actions (Check, Install, Reinstall)
+ *   2. Channel + version pinning
  */
 import { log } from '../lib/logger.js';
 
 export function renderUpdater(data) {
-	const panel = document.getElementById('ep-updater-panel');
-	if (!panel || !data.updater) return;
+	const panel = document.getElementById('ep-theme-update-panel');
+	if (!panel || !data.themeUpdate) return;
 
-	let status = data.updater.status || 'not-installed';
+	// ── DOM refs ─────────────────────────────────────────────────────
+	const curVerBadge    = document.getElementById('ep-theme-update-current-ver');
+	const latestRow      = document.getElementById('ep-theme-update-latest-row');
+	const latestBadge    = document.getElementById('ep-theme-update-latest-ver');
+	const availableRow   = document.getElementById('ep-theme-update-available-row');
+	const availableBadge = document.getElementById('ep-theme-update-available-ver');
+	const message        = document.getElementById('ep-theme-update-message');
+	const checkBtn       = document.getElementById('ep-theme-update-check-btn');
+	const installBtn     = document.getElementById('ep-theme-update-install-btn');
+	const reinstallBtn   = document.getElementById('ep-theme-update-reinstall-btn');
+	const channelSelect  = document.getElementById('ep-theme-update-channel');
+	const channelSource  = document.getElementById('ep-theme-update-channel-source');
+	const pinSelect      = document.getElementById('ep-theme-update-pin');
+	const settingsMsg    = document.getElementById('ep-theme-update-settings-message');
 
-	const badge   = document.getElementById('ep-updater-badge');
-	const message = document.getElementById('ep-updater-message');
-	const actions = document.getElementById('ep-updater-actions');
+	// ── Render state from a status payload ───────────────────────────
 
-	// ── Plugin install/uninstall ─────────────────────────────────────
+	function applyStatus(status) {
+		if (!status) return;
 
-	function renderPlugin() {
-		const badgeMap = {
-			'not-installed': { cls: 'badge-off',  lbl: 'Not Installed' },
-			'installed':     { cls: 'badge-warn', lbl: 'Installed' },
-			'active':        { cls: 'badge-on',   lbl: 'Active' },
-		};
-		const b = badgeMap[status] || badgeMap['not-installed'];
-		badge.className = `ep-badge ${b.cls}`;
-		badge.innerHTML = `<span class="ep-dot"></span>${b.lbl}`;
+		curVerBadge.textContent = status.current_version || '—';
 
-		const messages = {
-			'not-installed': 'The updater plugin is not installed. Click Install to download it from GitHub and activate it.',
-			'installed':     'The updater plugin is installed but not active.',
-			'active':        'The updater plugin is running. Theme updates will be checked automatically via GitHub Releases.',
-		};
-		message.textContent = messages[status] || '';
-
-		let html = '';
-		if (status === 'not-installed') {
-			html += '<button class="ep-demo-btn ep-demo-btn-primary" id="ep-updater-install">Install &amp; Activate</button>';
-		} else if (status === 'installed') {
-			html += '<button class="ep-demo-btn ep-demo-btn-primary" id="ep-updater-install">Activate</button>';
-			html += '<button class="ep-demo-btn ep-demo-btn-danger" id="ep-updater-uninstall">Remove</button>';
-		} else if (status === 'active') {
-			html += '<button class="ep-demo-btn ep-demo-btn-danger" id="ep-updater-uninstall">Remove Plugin</button>';
-		}
-		actions.innerHTML = html;
-
-		bindInstallBtn();
-		bindUninstallBtn();
-		toggleSections();
-	}
-
-	function toggleSections() {
-		const checkSection    = document.getElementById('ep-updater-check-section');
-		const settingsSection = document.getElementById('ep-updater-settings-section');
-		const showCheck    = status === 'active' || status === 'installed';
-		const showSettings = true;
-		if (checkSection)    checkSection.style.display    = showCheck ? '' : 'none';
-		if (settingsSection) settingsSection.style.display = showSettings ? '' : 'none';
-	}
-
-	function bindInstallBtn() {
-		const btn = document.getElementById('ep-updater-install');
-		if (!btn) return;
-		btn.addEventListener('click', async () => {
-			btn.disabled = true;
-			btn.textContent = 'Installing...';
-			log.info('[ExamplePress] Updater install started');
-			try {
-				const res = await fetch(data.updaterInstallUrl, {
-					method: 'POST',
-					headers: { 'Content-Type': 'application/json', 'X-WP-Nonce': data.nonce },
-				});
-				const result = await res.json();
-				if (res.ok && result.success) {
-					status = result.status;
-					renderPlugin();
-					if (status === 'active') initSettings();
-				} else {
-					message.textContent = result.message || result.data?.message || 'Install failed.';
-					btn.disabled = false;
-					btn.textContent = 'Retry Install';
-				}
-			} catch (err) {
-				message.textContent = 'Network error: ' + err.message;
-				btn.disabled = false;
-				btn.textContent = 'Retry Install';
-			}
-		});
-	}
-
-	function bindUninstallBtn() {
-		const btn = document.getElementById('ep-updater-uninstall');
-		if (!btn) return;
-		btn.addEventListener('click', async () => {
-			btn.disabled = true;
-			btn.textContent = 'Removing...';
-			try {
-				const res = await fetch(data.updaterUninstallUrl, {
-					method: 'POST',
-					headers: { 'Content-Type': 'application/json', 'X-WP-Nonce': data.nonce },
-				});
-				const result = await res.json();
-				if (res.ok && result.success) {
-					status = result.status;
-					renderPlugin();
-				} else {
-					message.textContent = result.message || result.data?.message || 'Uninstall failed.';
-					btn.disabled = false;
-					btn.textContent = 'Retry Remove';
-				}
-			} catch (err) {
-				message.textContent = 'Network error: ' + err.message;
-				btn.disabled = false;
-				btn.textContent = 'Retry Remove';
-			}
-		});
-	}
-
-	// ── Check for updates ────────────────────────────────────────────
-
-	function initCheckNow() {
-		const btn          = document.getElementById('ep-updater-check-btn');
-		const curVerBadge  = document.getElementById('ep-updater-current-ver');
-		const targetRow    = document.getElementById('ep-updater-target-row');
-		const targetBadge  = document.getElementById('ep-updater-target-ver');
-		const availRow     = document.getElementById('ep-updater-available-row');
-		const availBadge   = document.getElementById('ep-updater-available-ver');
-		const checkMsg     = document.getElementById('ep-updater-check-message');
-		if (!btn) return;
-
-		// Show installed version from initial payload.
-		if (data.updater.current_version) {
-			curVerBadge.textContent = data.updater.current_version;
+		if (status.latest_version) {
+			latestRow.style.display = '';
+			latestBadge.textContent = status.latest_version;
+		} else {
+			latestRow.style.display = 'none';
 		}
 
-		btn.addEventListener('click', async () => {
-			btn.disabled = true;
-			btn.textContent = 'Checking...';
-			checkMsg.textContent = 'Checking GitHub releases against your channel/pin settings...';
-			targetRow.style.display = 'none';
-			availRow.style.display = 'none';
+		if (status.update_available && status.latest_version) {
+			availableRow.style.display = '';
+			availableBadge.textContent = status.pinned_version || status.latest_version;
+			installBtn.style.display   = '';
+			installBtn.disabled        = false;
+			installBtn.textContent     = `Install ${status.pinned_version || status.latest_version}`;
 
-			try {
-				const res = await fetch(data.updaterCheckUrl, {
-					method: 'POST',
-					headers: { 'Content-Type': 'application/json', 'X-WP-Nonce': data.nonce },
-				});
-				const result = await res.json();
-
-				if (res.ok && result.success) {
-					curVerBadge.textContent = result.current_version || '—';
-
-					// Show the resolved target based on channel/pin.
-					if (result.target) {
-						targetRow.style.display = '';
-						const tag = result.target.prerelease ? ' (pre-release)' : '';
-						targetBadge.textContent = result.target.version + tag;
-					}
-
-					if (result.available) {
-						availRow.style.display = '';
-						const isPinned = result.settings?.pinned_version;
-
-						availBadge.textContent = result.available.version;
-						availBadge.className = 'ep-badge badge-warn';
-
-						if (isPinned) {
-							checkMsg.textContent = `Pinned to ${result.available.version} — installed version differs.`;
-						} else {
-							checkMsg.textContent = `Update available: ${result.available.version}.`;
-						}
-
-						showUpdateButton(result.current_version, result.available.version);
-					} else {
-						availRow.style.display = 'none';
-						hideUpdateButton();
-						const time = new Date(result.checked_at).toLocaleString();
-						const ch = result.settings?.pinned_version
-							? `pinned to ${result.settings.pinned_version}`
-							: `channel: ${result.settings?.channel || 'stable'}`;
-						checkMsg.textContent = `Up to date (${ch}). Checked at ${time}.`;
-					}
-				} else {
-					checkMsg.textContent = result.message || result.data?.message || 'Check failed.';
-				}
-			} catch (err) {
-				checkMsg.textContent = 'Network error: ' + err.message;
+			if (status.pinned_version) {
+				message.textContent = `Pinned to ${status.pinned_version} — installed version differs.`;
+			} else {
+				message.textContent = `Update available: ${status.latest_version}.`;
 			}
+		} else {
+			availableRow.style.display = 'none';
+			installBtn.style.display   = 'none';
 
-			btn.disabled = false;
-			btn.textContent = 'Check Now';
-		});
-	}
-
-	// ── Update Now ───────────────────────────────────────────────────
-
-	function showUpdateButton(fromVersion, toVersion) {
-		const btn = document.getElementById('ep-updater-update-btn');
-		if (!btn) return;
-		btn.style.display = '';
-		btn.disabled = false;
-		btn.textContent = `Update to ${toVersion}`;
-
-		// Remove old listeners by cloning.
-		const fresh = btn.cloneNode(true);
-		btn.parentNode.replaceChild(fresh, btn);
-
-		fresh.addEventListener('click', async () => {
-			const checkMsg = document.getElementById('ep-updater-check-message');
-			const curVerBadge = document.getElementById('ep-updater-current-ver');
-			fresh.disabled = true;
-			fresh.textContent = 'Updating...';
-			checkMsg.textContent = `Downloading and installing ${toVersion}...`;
-
-			try {
-				const res = await fetch(data.updaterUpdateUrl, {
-					method: 'POST',
-					headers: { 'Content-Type': 'application/json', 'X-WP-Nonce': data.nonce },
-					body: JSON.stringify({ from_version: fromVersion }),
-				});
-				const result = await res.json();
-
-				if (res.ok && result.success) {
-					curVerBadge.textContent = result.new_version || toVersion;
-					checkMsg.textContent = result.message;
-					fresh.style.display = 'none';
-
-					const availRow = document.getElementById('ep-updater-available-row');
-					if (availRow) availRow.style.display = 'none';
-
-					// Update plugin status badge too.
-					status = result.status || 'active';
-					renderPlugin();
-
-					log.info(`[ExamplePress] Updater plugin updated: ${fromVersion} → ${result.new_version}`);
-				} else {
-					const msg = result.message || result.data?.message || 'Update failed.';
-					checkMsg.textContent = msg;
-					fresh.disabled = false;
-					fresh.textContent = 'Retry Update';
-					log.error(`[ExamplePress] Updater update error: ${msg}`);
-				}
-			} catch (err) {
-				checkMsg.textContent = 'Network error: ' + err.message;
-				fresh.disabled = false;
-				fresh.textContent = 'Retry Update';
+			if (status.last_checked) {
+				const when = new Date(status.last_checked * 1000).toLocaleString();
+				const ch   = status.pinned_version
+					? `pinned to ${status.pinned_version}`
+					: `channel: ${status.channel || 'stable'}`;
+				message.textContent = `Up to date (${ch}). Checked at ${when}.`;
+			} else {
+				message.textContent = `Channel: ${status.channel || 'stable'}. Click Check Now to query GitHub.`;
 			}
+		}
+
+		// Channel controls.
+		if (status.channel) channelSelect.value = status.channel;
+
+		const locked = status.channel_source === 'filter' || status.channel_source === 'constant';
+		channelSelect.disabled = locked;
+		if (locked) {
+			channelSource.textContent = `Channel is locked by a ${status.channel_source}; the admin control is disabled.`;
+		} else if (status.channel_source === 'auto') {
+			channelSource.textContent = 'Channel auto-detected from the installed theme version string.';
+		} else {
+			channelSource.textContent = '';
+		}
+	}
+
+	// ── REST helpers ─────────────────────────────────────────────────
+
+	async function apiGet(url) {
+		const res = await fetch(url, { headers: { 'X-WP-Nonce': data.nonce } });
+		return res.json();
+	}
+
+	async function apiPost(url, body = null) {
+		const res = await fetch(url, {
+			method:  'POST',
+			headers: { 'Content-Type': 'application/json', 'X-WP-Nonce': data.nonce },
+			body:    body ? JSON.stringify(body) : undefined,
 		});
+		return { ok: res.ok, body: await res.json() };
 	}
 
-	function hideUpdateButton() {
-		const btn = document.getElementById('ep-updater-update-btn');
-		if (btn) btn.style.display = 'none';
-	}
+	// ── Check Now ────────────────────────────────────────────────────
 
-	// ── Settings (channel + pin) ─────────────────────────────────────
+	checkBtn?.addEventListener('click', async () => {
+		checkBtn.disabled = true;
+		checkBtn.textContent = 'Checking…';
+		message.textContent = 'Flushing cache and querying GitHub…';
 
-	async function initSettings() {
-		const channelSelect = document.getElementById('ep-updater-channel');
-		const pinSelect     = document.getElementById('ep-updater-pin');
-		const saveBtn       = document.getElementById('ep-updater-save-settings');
-		const settingsMsg   = document.getElementById('ep-updater-settings-message');
-		if (!channelSelect || !pinSelect || !saveBtn) return;
-
-		// Load current settings.
 		try {
-			const res = await fetch(data.updaterSettingsUrl, {
-				headers: { 'X-WP-Nonce': data.nonce },
-			});
-			const result = await res.json();
-			if (result.channel) channelSelect.value = result.channel;
-
-			// Load releases for the pin dropdown.
-			await loadReleases(pinSelect, result.pinned_version || '');
+			const { ok, body } = await apiPost(data.themeUpdateCheckUrl);
+			if (ok) {
+				applyStatus(body);
+			} else {
+				message.textContent = body?.message || body?.data?.message || 'Check failed.';
+			}
 		} catch (err) {
-			log.error('[ExamplePress] Failed to load updater settings: ' + err.message);
+			message.textContent = 'Network error: ' + err.message;
 		}
 
-		// Save handler.
-		saveBtn.addEventListener('click', async () => {
-			saveBtn.disabled = true;
-			saveBtn.textContent = 'Saving...';
-			settingsMsg.style.display = 'none';
+		checkBtn.disabled = false;
+		checkBtn.textContent = 'Check Now';
+	});
 
-			try {
-				const res = await fetch(data.updaterSettingsUrl, {
-					method: 'POST',
-					headers: { 'Content-Type': 'application/json', 'X-WP-Nonce': data.nonce },
-					body: JSON.stringify({
-						channel: channelSelect.value,
-						pinned_version: pinSelect.value,
-					}),
-				});
-				const result = await res.json();
-				settingsMsg.style.display = '';
-				settingsMsg.textContent = result.message || (result.success ? 'Saved.' : 'Save failed.');
-			} catch (err) {
-				settingsMsg.style.display = '';
-				settingsMsg.textContent = 'Network error: ' + err.message;
-			}
+	// ── Install Update ───────────────────────────────────────────────
 
-			saveBtn.disabled = false;
-			saveBtn.textContent = 'Save Settings';
-		});
-	}
+	installBtn?.addEventListener('click', async () => {
+		installBtn.disabled = true;
+		installBtn.textContent = 'Installing…';
+		message.textContent = 'Downloading and installing the theme update…';
 
-	async function loadReleases(pinSelect, currentPin) {
 		try {
-			const res = await fetch(data.updaterReleasesUrl, {
-				headers: { 'X-WP-Nonce': data.nonce },
-			});
-			const result = await res.json();
+			const { ok, body } = await apiPost(data.themeUpdateInstallUrl);
+			if (ok && body?.success) {
+				message.textContent = body.message;
+				log.info(`[ExamplePress] Theme updated to ${body.version}`);
+				// Refresh status after install.
+				const fresh = await apiGet(data.themeUpdateStatusUrl);
+				applyStatus(fresh);
+			} else {
+				const msg = body?.message || body?.data?.message || 'Install failed.';
+				message.textContent = msg;
+				installBtn.disabled    = false;
+				installBtn.textContent = 'Retry Install';
+				log.error(`[ExamplePress] Theme update failed: ${msg}`);
+			}
+		} catch (err) {
+			message.textContent = 'Network error: ' + err.message;
+			installBtn.disabled    = false;
+			installBtn.textContent = 'Retry Install';
+		}
+	});
 
-			if (!result.success || !result.releases) return;
+	// ── Reinstall Current ────────────────────────────────────────────
 
-			// Keep the "Latest" default option, append releases.
-			result.releases.forEach(r => {
-				const opt  = document.createElement('option');
-				opt.value  = r.version;
+	reinstallBtn?.addEventListener('click', async () => {
+		if (!confirm('Reinstall the current version of the ExamplePress theme? Local modifications inside the theme directory will be lost.')) {
+			return;
+		}
+		reinstallBtn.disabled = true;
+		reinstallBtn.textContent = 'Reinstalling…';
+		message.textContent = 'Reinstalling the theme directory from GitHub…';
+
+		try {
+			const { ok, body } = await apiPost(data.themeUpdateReinstallUrl);
+			if (ok && body?.success) {
+				message.textContent = body.message;
+				const fresh = await apiGet(data.themeUpdateStatusUrl);
+				applyStatus(fresh);
+			} else {
+				message.textContent = body?.message || body?.data?.message || 'Reinstall failed.';
+			}
+		} catch (err) {
+			message.textContent = 'Network error: ' + err.message;
+		}
+
+		reinstallBtn.disabled    = false;
+		reinstallBtn.textContent = 'Reinstall Current';
+	});
+
+	// ── Channel ──────────────────────────────────────────────────────
+
+	channelSelect?.addEventListener('change', async () => {
+		if (channelSelect.disabled) return;
+		settingsMsg.style.display = 'none';
+
+		try {
+			const { ok, body } = await apiPost(data.themeUpdateChannelUrl, { channel: channelSelect.value });
+			if (ok) {
+				applyStatus(body);
+				settingsMsg.style.display = '';
+				settingsMsg.textContent   = 'Channel saved.';
+			} else {
+				settingsMsg.style.display = '';
+				settingsMsg.textContent   = body?.message || body?.data?.message || 'Could not save channel.';
+			}
+		} catch (err) {
+			settingsMsg.style.display = '';
+			settingsMsg.textContent   = 'Network error: ' + err.message;
+		}
+	});
+
+	// ── Pin ──────────────────────────────────────────────────────────
+
+	async function loadReleasesIntoPin(currentPin) {
+		try {
+			const body = await apiGet(data.themeUpdateReleasesUrl);
+			if (!body?.releases) return;
+
+			// Preserve the "Latest" default option.
+			pinSelect.innerHTML = '<option value="">Latest (no pin)</option>';
+
+			body.releases.forEach((r) => {
+				const opt = document.createElement('option');
+				opt.value = r.version;
 				const label = r.prerelease ? `${r.version} (pre-release)` : r.version;
 				const date  = r.date ? ` — ${new Date(r.date).toLocaleDateString()}` : '';
 				opt.textContent = `${label}${date}`;
@@ -331,13 +224,33 @@ export function renderUpdater(data) {
 				pinSelect.value = currentPin;
 			}
 		} catch (err) {
-			log.error('[ExamplePress] Failed to load releases: ' + err.message);
+			log.error('[ExamplePress] Failed to load theme releases: ' + err.message);
 		}
 	}
 
+	pinSelect?.addEventListener('change', async () => {
+		settingsMsg.style.display = 'none';
+
+		try {
+			const { ok, body } = await apiPost(data.themeUpdatePinUrl, { version: pinSelect.value || null });
+			if (ok) {
+				applyStatus(body);
+				settingsMsg.style.display = '';
+				settingsMsg.textContent   = pinSelect.value
+					? `Pinned to ${pinSelect.value}.`
+					: 'Pin cleared.';
+			} else {
+				settingsMsg.style.display = '';
+				settingsMsg.textContent   = body?.message || body?.data?.message || 'Could not save pin.';
+			}
+		} catch (err) {
+			settingsMsg.style.display = '';
+			settingsMsg.textContent   = 'Network error: ' + err.message;
+		}
+	});
+
 	// ── Init ─────────────────────────────────────────────────────────
 
-	renderPlugin();
-	initCheckNow();
-	initSettings();
+	applyStatus(data.themeUpdate);
+	loadReleasesIntoPin(data.themeUpdate.pinned_version || '');
 }
