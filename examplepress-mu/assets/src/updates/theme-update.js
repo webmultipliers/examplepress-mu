@@ -1,5 +1,5 @@
 /**
- * Apps → Updates tab — ExamplePress theme update manager.
+ * Updates → Theme — ExamplePress theme update manager.
  *
  * The theme update lifecycle lives directly in the MU kernel
  * (Infrastructure\ThemeUpdateProvider) — no companion plugin involved.
@@ -11,7 +11,7 @@
  */
 import { log } from '../lib/logger.js';
 
-export function renderUpdater(data) {
+export function renderThemeUpdate(data) {
 	const panel = document.getElementById('ep-theme-update-panel');
 	if (!panel || !data.themeUpdate) return;
 

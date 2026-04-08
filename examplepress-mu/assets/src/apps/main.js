@@ -13,7 +13,6 @@ import { initAppsTable, renderAppsTable, initAppsOutsideClick } from './apps.js'
 import { initScaffold } from './scaffold.js';
 import { initTroyModal } from './troy-modal.js';
 import { renderDemo } from './demo.js';
-import { renderUpdater } from './updater.js';
 
 document.addEventListener('DOMContentLoaded', () => {
 	const data = window.ExamplePressData;
@@ -37,7 +36,6 @@ document.addEventListener('DOMContentLoaded', () => {
 	initTroyModal(data);
 	initAppsOutsideClick();
 	renderDemo(data);
-	renderUpdater(data);
 
 	log.info('[ExamplePress] Apps page ready.');
 });

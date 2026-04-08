@@ -49,6 +49,7 @@ final class DataProvider
 
         return match ($pageId) {
             'apps'           => array_merge($base, self::appsData()),
+            'updates'        => array_merge($base, self::updatesData()),
             'theme'          => array_merge($base, self::themeData()),
             'navigation'     => array_merge($base, self::navigationData()),
             'dependencies'   => array_merge($base, self::dependenciesData()),
@@ -98,20 +99,12 @@ final class DataProvider
 
         return [
             'apps'                => $apps,
-            'destroyNonces'      => $destroyNonces,
+            'destroyNonces'       => $destroyNonces,
             'appsBaseUrl'         => esc_url_raw(rest_url('examplepress-mu/v1/apps')),
             'appsScaffoldUrl'     => esc_url_raw(rest_url('examplepress-mu/v1/apps/scaffold')),
             'editorUrl'           => MenuManager::pageUrl('editor', ['app' => '__SLUG__']),
             'troyCloudUrl'        => get_option('ep_troy_server_url', ''),
             'adminUrl'            => esc_url(admin_url()),
-            'themeUpdate'           => ThemeUpdateProvider::getStatus(),
-            'themeUpdateStatusUrl'  => esc_url_raw(rest_url('examplepress-mu/v1/theme-update/status')),
-            'themeUpdateCheckUrl'   => esc_url_raw(rest_url('examplepress-mu/v1/theme-update/check')),
-            'themeUpdateChannelUrl' => esc_url_raw(rest_url('examplepress-mu/v1/theme-update/channel')),
-            'themeUpdatePinUrl'     => esc_url_raw(rest_url('examplepress-mu/v1/theme-update/pin')),
-            'themeUpdateInstallUrl' => esc_url_raw(rest_url('examplepress-mu/v1/theme-update/install')),
-            'themeUpdateReinstallUrl' => esc_url_raw(rest_url('examplepress-mu/v1/theme-update/reinstall')),
-            'themeUpdateReleasesUrl'  => esc_url_raw(rest_url('examplepress-mu/v1/theme-update/releases')),
             'demo'                => [
                 'status'          => PluginManager::getDemoStatus(),
                 'current_version' => PluginManager::getDemoPluginVersion(),
@@ -122,6 +115,25 @@ final class DataProvider
             'demoUpdateUrl'       => esc_url_raw(rest_url('examplepress-mu/v1/demo/update')),
             'demoSettingsUrl'     => esc_url_raw(rest_url('examplepress-mu/v1/demo/settings')),
             'demoReleasesUrl'     => esc_url_raw(rest_url('examplepress-mu/v1/demo/releases')),
+        ];
+    }
+
+    /**
+     * Updates page: ExamplePress theme update manager.
+     *
+     * @return array<string, mixed>
+     */
+    private static function updatesData(): array
+    {
+        return [
+            'themeUpdate'             => ThemeUpdateProvider::getStatus(),
+            'themeUpdateStatusUrl'    => esc_url_raw(rest_url('examplepress-mu/v1/theme-update/status')),
+            'themeUpdateCheckUrl'     => esc_url_raw(rest_url('examplepress-mu/v1/theme-update/check')),
+            'themeUpdateChannelUrl'   => esc_url_raw(rest_url('examplepress-mu/v1/theme-update/channel')),
+            'themeUpdatePinUrl'       => esc_url_raw(rest_url('examplepress-mu/v1/theme-update/pin')),
+            'themeUpdateInstallUrl'   => esc_url_raw(rest_url('examplepress-mu/v1/theme-update/install')),
+            'themeUpdateReinstallUrl' => esc_url_raw(rest_url('examplepress-mu/v1/theme-update/reinstall')),
+            'themeUpdateReleasesUrl'  => esc_url_raw(rest_url('examplepress-mu/v1/theme-update/releases')),
         ];
     }
 

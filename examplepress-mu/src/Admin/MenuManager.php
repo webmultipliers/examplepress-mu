@@ -218,6 +218,13 @@ final class MenuManager
             'icon'       => 'dashicons-screenoptions',
         ]);
 
+        self::registerPage('updates', [
+            'label'      => __('ExamplePress — Updates', 'examplepress-mu'),
+            'menu_title' => __('Updates', 'examplepress-mu'),
+            'position'   => 5,
+            'icon'       => 'dashicons-update',
+        ]);
+
         self::registerPage('theme', [
             'label'      => __('ExamplePress — Theme', 'examplepress-mu'),
             'menu_title' => __('Theme', 'examplepress-mu'),

@@ -12,6 +12,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         apps:          resolve(__dirname, mu, 'assets/src/apps/main.js'),
+        updates:       resolve(__dirname, mu, 'assets/src/updates/main.js'),
         theme:         resolve(__dirname, mu, 'assets/src/theme/main.js'),
         navigation:    resolve(__dirname, mu, 'assets/src/navigation/main.js'),
         dependencies:  resolve(__dirname, mu, 'assets/src/dependencies/main.js'),
