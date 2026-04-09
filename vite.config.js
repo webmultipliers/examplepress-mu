@@ -21,6 +21,7 @@ export default defineConfig({
         notifications: resolve(__dirname, mu, 'assets/src/notifications/main.js'),
         system:        resolve(__dirname, mu, 'assets/src/system/main.js'),
         docs:          resolve(__dirname, mu, 'assets/src/docs/main.js'),
+        skills:        resolve(__dirname, mu, 'assets/src/skills/main.js'),
         editor:        resolve(__dirname, mu, 'assets/src/editor/main.js'),
       },
       external: ['monaco-editor'],

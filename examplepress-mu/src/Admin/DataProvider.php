@@ -57,6 +57,7 @@ final class DataProvider
             'system'         => array_merge($base, self::systemData()),
             'docs'           => array_merge($base, self::docsData()),
             'editor'         => array_merge($base, self::editorData()),
+            'skills'         => array_merge($base, self::skillsData()),
             default          => $base,
         };
     }
@@ -294,6 +295,51 @@ final class DataProvider
      *
      * @return array<string, mixed>
      */
+    /**
+     * Skills page: agent skill curriculum browser. Loads each skill
+     * file via SkillRegistry, applies merge tags, and ships the
+     * resolved markdown to the JS bundle for client-side rendering.
+     *
+     * @return array<string, mixed>
+     */
+    private static function skillsData(): array
+    {
+        $files = \ExamplePress\MU\Agent\SkillRegistry::collectFiles();
+        $skills = [];
+
+        foreach ($files as $relPath => $absPath) {
+            $raw = is_readable($absPath) ? (string) file_get_contents($absPath) : '';
+            if ($raw === '') {
+                continue;
+            }
+            $body = \ExamplePress\MU\Agent\MergeTags::apply($raw);
+
+            // Extract a human title from the first H1, falling back to filename.
+            $title = '';
+            if (preg_match('/^#\s+(.+)$/m', $body, $m)) {
+                $title = trim($m[1]);
+            }
+            if ($title === '') {
+                $title = ucwords(str_replace(['-', '_'], ' ', preg_replace('/\.md$/', '', $relPath) ?? $relPath));
+            }
+
+            $id = preg_replace('/[^a-z0-9-]+/i', '-', strtolower(preg_replace('/\.md$/', '', $relPath) ?? $relPath));
+
+            $skills[] = [
+                'id'    => $id,
+                'name'  => $relPath,
+                'title' => $title,
+                'bytes' => strlen($body),
+                'body'  => $body,
+            ];
+        }
+
+        return [
+            'skills' => $skills,
+            'tags'   => \ExamplePress\MU\Agent\MergeTags::all(),
+        ];
+    }
+
     private static function editorData(): array
     {
         // phpcs:ignore WordPress.Security.NonceVerification.Recommended

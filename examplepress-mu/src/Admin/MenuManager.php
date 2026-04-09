@@ -280,6 +280,13 @@ final class MenuManager
             'icon'       => 'dashicons-media-document',
         ]);
 
+        self::registerPage('skills', [
+            'label'      => __('ExamplePress — Agent Skills', 'examplepress-mu'),
+            'menu_title' => __('Skills', 'examplepress-mu'),
+            'position'   => 75,
+            'icon'       => 'dashicons-welcome-learn-more',
+        ]);
+
         self::registerPage('editor', [
             'label'      => __('ExamplePress — Editor', 'examplepress-mu'),
             'menu_title' => __('Editor', 'examplepress-mu'),
