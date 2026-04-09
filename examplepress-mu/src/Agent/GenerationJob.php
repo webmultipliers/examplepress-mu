@@ -45,28 +45,36 @@ final class GenerationJob
     /**
      * Enqueue a new generation job and return its id.
      *
-     * @param array{prompt:string,mode:string,target_slug?:string,user_id?:int,auto_commit?:bool} $args
+     * @param array{
+     *   prompt:string,
+     *   mode:string,
+     *   target_slug?:string,
+     *   user_id?:int,
+     *   auto_commit?:bool,
+     *   error_context?:array<string,mixed>
+     * } $args
      */
     public static function enqueue(array $args): string
     {
         $jobId = wp_generate_uuid4();
 
         $job = [
-            'id'          => $jobId,
-            'mode'        => (string) ($args['mode'] ?? 'generate'),
-            'prompt'      => (string) ($args['prompt'] ?? ''),
-            'target_slug' => (string) ($args['target_slug'] ?? ''),
-            'user_id'     => (int) ($args['user_id'] ?? get_current_user_id()),
-            'auto_commit' => (bool) ($args['auto_commit'] ?? false),
-            'status'      => 'pending',
-            'step'        => self::STEP_QUEUED,
-            'errors'      => [],
-            'draft'       => null,   // populated after Phase 1
-            'result'      => null,   // populated after Phase 2
-            'provider'    => (string) get_option('ep_agent_provider', 'anthropic'),
-            'model'       => (string) get_option('ep_agent_model', ''),
-            'created_at'  => time(),
-            'updated_at'  => time(),
+            'id'            => $jobId,
+            'mode'          => (string) ($args['mode'] ?? 'generate'),
+            'prompt'        => (string) ($args['prompt'] ?? ''),
+            'target_slug'   => (string) ($args['target_slug'] ?? ''),
+            'user_id'       => (int) ($args['user_id'] ?? get_current_user_id()),
+            'auto_commit'   => (bool) ($args['auto_commit'] ?? false),
+            'error_context' => is_array($args['error_context'] ?? null) ? $args['error_context'] : null,
+            'status'        => 'pending',
+            'step'          => self::STEP_QUEUED,
+            'errors'        => [],
+            'draft'         => null,   // populated after Phase 1
+            'result'        => null,   // populated after Phase 2
+            'provider'      => (string) get_option('ep_agent_provider', 'anthropic'),
+            'model'         => (string) get_option('ep_agent_model', ''),
+            'created_at'    => time(),
+            'updated_at'    => time(),
         ];
 
         self::saveJob($job);
@@ -95,10 +103,16 @@ final class GenerationJob
             self::updateJob($jobId, ['status' => 'running', 'step' => self::STEP_DRAFTING]);
 
             // Phase 1: draft only.
-            if ($job['mode'] === 'iterate') {
-                self::draftIterate($job);
-            } else {
-                self::draftGenerate($job);
+            switch ($job['mode']) {
+                case 'iterate':
+                    self::draftIterate($job);
+                    break;
+                case 'repair':
+                    self::draftRepair($job);
+                    break;
+                default:
+                    self::draftGenerate($job);
+                    break;
             }
 
             // After drafting, only proceed to commit if auto_commit is on.
@@ -125,7 +139,9 @@ final class GenerationJob
 
         try {
             self::updateJob($jobId, ['status' => 'running', 'step' => self::STEP_PUSHING]);
-            if ($job['mode'] === 'iterate') {
+            // Repair commits go through the iterate path — same parent SHA,
+            // same patch-bump release, same AppRegistry update.
+            if ($job['mode'] === 'iterate' || $job['mode'] === 'repair') {
                 self::commitIterate($job);
             } else {
                 self::commitGenerate($job);
@@ -242,6 +258,118 @@ final class GenerationJob
         $draft['version']    = $newVersion;
         $draft['parent_sha'] = $tree['sha'];
         $draft['owner_repo'] = $ownerRepo;
+
+        self::updateJob($jobId, [
+            'status' => 'drafted',
+            'step'   => self::STEP_REVIEW,
+            'draft'  => $draft,
+        ]);
+    }
+
+    /**
+     * Repair mode: targeted fix for a reported error.
+     *
+     * Same shape as draftIterate (loads repo tree, drafts via LLM,
+     * stores draft for review) but uses LLMClient::repairApp() with
+     * a strict minimum-change system prompt and computes a per-file
+     * change summary so the preview UI can highlight which files
+     * were touched.
+     *
+     * @param array<string,mixed> $job
+     */
+    private static function draftRepair(array $job): void
+    {
+        $jobId = (string) $job['id'];
+        $slug  = (string) $job['target_slug'];
+
+        if (!$slug) {
+            self::fail($jobId, 'Repair job missing target_slug.');
+            return;
+        }
+
+        $errorContext = is_array($job['error_context'] ?? null) ? $job['error_context'] : [];
+        if (empty($errorContext['error_message'])) {
+            self::fail($jobId, 'Repair job missing error_message in error_context.');
+            return;
+        }
+
+        $record = AppRegistry::get($slug);
+        if (!$record || empty($record['github']['owner_repo'])) {
+            self::fail($jobId, "App {$slug} is not registered or has no GitHub repo.");
+            return;
+        }
+        $ownerRepo = (string) $record['github']['owner_repo'];
+
+        $manifestPath = WP_PLUGIN_DIR . '/' . $slug . '/examplepress.json';
+        $manifest = is_readable($manifestPath)
+            ? (array) json_decode((string) file_get_contents($manifestPath), true)
+            : [];
+
+        if (empty($manifest['supports_ai_iteration'])) {
+            self::fail($jobId, "App {$slug} does not support AI iteration (ejected to developer mode).");
+            return;
+        }
+
+        $tree = GitHub::fetchRepoTree($ownerRepo);
+        if (is_wp_error($tree)) {
+            self::fail($jobId, 'Fetch repo tree: ' . $tree->get_error_message());
+            return;
+        }
+
+        $generated = LLMClient::repairApp(
+            (string) ($job['prompt'] ?? ''),
+            $tree['files'],
+            $manifest,
+            $errorContext
+        );
+
+        self::updateJob($jobId, ['step' => self::STEP_WRITING]);
+
+        $validation = AppValidator::validateGenerated($generated->manifest, $generated->files);
+        if (!$validation['ok']) {
+            self::fail($jobId, 'Validation failed: ' . implode(' ', $validation['errors']));
+            return;
+        }
+
+        $newVersion = $generated->version ?: self::bumpPatch((string) ($manifest['version'] ?? '1.0.0'));
+
+        $draft = self::draftPayload($generated);
+        $draft['version']    = $newVersion;
+        $draft['parent_sha'] = $tree['sha'];
+        $draft['owner_repo'] = $ownerRepo;
+
+        // Compute per-file change summary so the preview UI can show
+        // "X files modified, Y unchanged" — the surgical contract for
+        // repair mode is "touch as little as possible". This is the
+        // single most important UX signal for the user reviewing.
+        $previousByPath = [];
+        foreach ($tree['files'] as $f) {
+            $previousByPath[(string) $f['path']] = (string) $f['contents'];
+        }
+        $modified = 0;
+        $added    = 0;
+        $unchanged = 0;
+        foreach ($draft['files'] as &$file) {
+            $path = (string) ($file['path'] ?? '');
+            if (!isset($previousByPath[$path])) {
+                $file['change'] = 'added';
+                $added++;
+            } elseif ($previousByPath[$path] !== (string) ($file['contents'] ?? '')) {
+                $file['change'] = 'modified';
+                $modified++;
+            } else {
+                $file['change'] = 'unchanged';
+                $unchanged++;
+            }
+        }
+        unset($file);
+        $removed = count($previousByPath) - $unchanged - $modified;
+        $draft['change_summary'] = [
+            'modified'  => $modified,
+            'added'     => $added,
+            'unchanged' => $unchanged,
+            'removed'   => max(0, $removed),
+        ];
 
         self::updateJob($jobId, [
             'status' => 'drafted',
@@ -512,8 +640,9 @@ final class GenerationJob
         $summary = $job;
         if (isset($summary['draft']['files']) && is_array($summary['draft']['files'])) {
             $summary['draft']['files'] = array_map(static fn($f) => [
-                'path'  => (string) ($f['path'] ?? ''),
-                'bytes' => (int) ($f['bytes'] ?? 0),
+                'path'   => (string) ($f['path'] ?? ''),
+                'bytes'  => (int) ($f['bytes'] ?? 0),
+                'change' => isset($f['change']) ? (string) $f['change'] : null,
             ], $summary['draft']['files']);
         }
         return $summary;

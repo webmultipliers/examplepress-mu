@@ -20,6 +20,7 @@ use ExamplePress\MU\Infrastructure\GitHub;
  * Routes (all require manage_options):
  *   POST   /agent/generate                  { prompt }            → { job_id }
  *   POST   /agent/iterate/{slug}            { prompt }            → { job_id }
+ *   POST   /agent/repair/{slug}             { error_message, error_file?, error_line?, prompt? } → { job_id }
  *   POST   /agent/eject/{slug}                                    → { ok, version }
  *   POST   /agent/jobs/{id}/commit                                → { ok }
  *   POST   /agent/jobs/{id}/discard                               → { ok }
@@ -65,6 +66,45 @@ final class AgentController
                     'required'          => true,
                     'type'              => 'string',
                     'sanitize_callback' => 'sanitize_textarea_field',
+                ],
+            ],
+        ]);
+
+        register_rest_route('examplepress-mu/v1', '/agent/repair/(?P<slug>[a-z0-9-]+)', [
+            'methods'             => 'POST',
+            'callback'            => [self::class, 'repair'],
+            'permission_callback' => [self::class, 'permissionCheck'],
+            'args'                => [
+                'slug' => ['required' => true, 'type' => 'string', 'sanitize_callback' => 'sanitize_title'],
+                'error_message' => [
+                    'required'          => true,
+                    'type'              => 'string',
+                    'sanitize_callback' => 'sanitize_textarea_field',
+                    'validate_callback' => static function ($v) {
+                        if (!is_string($v) || strlen(trim($v)) < 3) {
+                            return new \WP_Error('invalid_error', 'error_message must be at least 3 characters.');
+                        }
+                        return true;
+                    },
+                ],
+                'error_file' => [
+                    'type'              => 'string',
+                    'sanitize_callback' => 'sanitize_text_field',
+                    'default'           => '',
+                ],
+                'error_line' => [
+                    'type'              => 'integer',
+                    'default'           => 0,
+                ],
+                'stack_trace' => [
+                    'type'              => 'string',
+                    'sanitize_callback' => 'sanitize_textarea_field',
+                    'default'           => '',
+                ],
+                'prompt' => [
+                    'type'              => 'string',
+                    'sanitize_callback' => 'sanitize_textarea_field',
+                    'default'           => '',
                 ],
             ],
         ]);
@@ -202,6 +242,49 @@ final class AgentController
             'prompt'      => (string) $request->get_param('prompt'),
             'target_slug' => $slug,
             'user_id'     => get_current_user_id(),
+        ]);
+
+        return rest_ensure_response([
+            'success' => true,
+            'job_id'  => $jobId,
+        ]);
+    }
+
+    public static function repair(\WP_REST_Request $request): \WP_REST_Response|\WP_Error
+    {
+        if ($err = self::ensureFeature()) {
+            return $err;
+        }
+
+        $slug = (string) $request->get_param('slug');
+        $record = AppRegistry::get($slug);
+        if (!$record) {
+            return new \WP_Error('app_not_found', "App {$slug} not found.", ['status' => 404]);
+        }
+
+        $manifestPath = WP_PLUGIN_DIR . '/' . $slug . '/examplepress.json';
+        if (!is_readable($manifestPath)) {
+            return new \WP_Error('manifest_missing', 'App manifest missing on disk.', ['status' => 404]);
+        }
+        $manifest = (array) json_decode((string) file_get_contents($manifestPath), true);
+        if (empty($manifest['supports_ai_iteration'])) {
+            return new \WP_Error('not_iterable', 'This app has been ejected from AI iteration.', ['status' => 409]);
+        }
+
+        $errorContext = [
+            'error_message' => (string) $request->get_param('error_message'),
+            'error_file'    => (string) $request->get_param('error_file'),
+            'error_line'    => (int) $request->get_param('error_line'),
+            'stack_trace'   => (string) $request->get_param('stack_trace'),
+            'reported_at'   => time(),
+        ];
+
+        $jobId = GenerationJob::enqueue([
+            'mode'          => 'repair',
+            'prompt'        => (string) $request->get_param('prompt'),
+            'target_slug'   => $slug,
+            'user_id'       => get_current_user_id(),
+            'error_context' => $errorContext,
         ]);
 
         return rest_ensure_response([

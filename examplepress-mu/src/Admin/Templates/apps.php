@@ -304,6 +304,63 @@ if (!defined('ABSPATH')) exit;
 		</div>
 	</div>
 
+	<!-- Repair Modal (surgical fix for a reported error) -->
+	<div class="ep-modal-overlay" id="ep-agent-repair-modal" style="display:none">
+		<div class="ep-modal" style="max-width:680px">
+			<div class="ep-modal-header">
+				<div>
+					<span class="ep-modal-title">🛠 Repair with AI</span>
+					<span class="ep-modal-id" id="ep-agent-repair-slug"></span>
+				</div>
+				<button class="ep-modal-close" data-modal="ep-agent-repair-modal">&times;</button>
+			</div>
+			<div class="ep-modal-body">
+				<p style="margin:0 0 12px;font-size:13px;color:#374151;">
+					Paste the exact error message from PHP error log, browser, or WordPress activation screen. The agent will produce a <strong>surgical fix</strong> — modifying only the files necessary to resolve this error, preserving everything else byte-identical.
+				</p>
+				<div class="ep-build-field">
+					<label class="ep-build-label" for="ep-agent-repair-error">Error message <span style="color:#9b2c2c;">*</span></label>
+					<textarea class="ep-build-input" id="ep-agent-repair-error" rows="4" placeholder="Fatal error: Uncaught Error: Call to undefined function..."></textarea>
+				</div>
+				<div class="ep-build-field" style="display:flex;gap:10px;">
+					<div style="flex:2;">
+						<label class="ep-build-label" for="ep-agent-repair-file">File (optional)</label>
+						<input type="text" class="ep-build-input" id="ep-agent-repair-file" placeholder="app/templates/front/index.php" />
+					</div>
+					<div style="flex:1;">
+						<label class="ep-build-label" for="ep-agent-repair-line">Line (optional)</label>
+						<input type="number" class="ep-build-input" id="ep-agent-repair-line" placeholder="42" />
+					</div>
+				</div>
+				<div class="ep-build-field">
+					<label class="ep-build-label" for="ep-agent-repair-prompt">Additional notes (optional)</label>
+					<textarea class="ep-build-input" id="ep-agent-repair-prompt" rows="2" placeholder="The variable should default to an empty array when no posts are found."></textarea>
+				</div>
+
+				<div class="ep-scaffold-steps" id="ep-agent-repair-steps"></div>
+				<div id="ep-agent-repair-error-msg" class="ep-build-error" style="display:none"></div>
+
+				<!-- Draft preview with change summary -->
+				<div id="ep-agent-repair-draft-preview" style="display:none;margin-top:12px;border-top:1px solid #e5e7eb;padding-top:10px;">
+					<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;">
+						<strong style="font-size:13px;">Surgical fix ready for review</strong>
+						<span class="ep-modal-id" id="ep-agent-repair-draft-summary"></span>
+					</div>
+					<div id="ep-agent-repair-change-badges" style="margin-bottom:8px;font-size:11px;"></div>
+					<div id="ep-agent-repair-draft-files" style="max-height:240px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:4px;padding:8px;background:#fafafa;font-family:monospace;font-size:12px;"></div>
+				</div>
+				<input type="hidden" id="ep-agent-repair-target-slug" />
+				<input type="hidden" id="ep-agent-repair-current-job-id" />
+			</div>
+			<div class="ep-apps-modal-foot">
+				<button class="ep-apps-btn ep-apps-btn-cancel" data-modal="ep-agent-repair-modal">Cancel</button>
+				<button class="ep-apps-btn" id="ep-agent-repair-discard-btn" style="display:none;color:#9b2c2c;">Discard draft</button>
+				<button class="ep-apps-btn ep-apps-btn-primary" id="ep-agent-repair-submit">Diagnose &amp; Draft Fix</button>
+				<button class="ep-apps-btn ep-apps-btn-primary" id="ep-agent-repair-commit-btn" style="display:none;background:#16a34a;border-color:#15803d;">Push fix to GitHub</button>
+			</div>
+		</div>
+	</div>
+
 	<!-- Eject Confirmation Modal (separate, hardened) -->
 	<div class="ep-modal-overlay" id="ep-agent-eject-modal" style="display:none">
 		<div class="ep-modal" style="max-width:480px">

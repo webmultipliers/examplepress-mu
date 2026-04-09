@@ -73,6 +73,7 @@ export function initAgent(data) {
 	bindIterate();
 	bindEject();
 	bindJobs();
+	bindRepair();
 
 	// Per-row "✨ Iterate" links rendered by apps.js
 	document.addEventListener('click', (e) => {
@@ -80,6 +81,16 @@ export function initAgent(data) {
 		if (!target) return;
 		e.preventDefault();
 		openIterateModal(target.dataset.agentIterate);
+	});
+
+	// Per-row / per-job "🛠 Repair" links.
+	document.addEventListener('click', (e) => {
+		const target = e.target.closest('[data-agent-repair]');
+		if (!target) return;
+		e.preventDefault();
+		openRepairModal(target.dataset.agentRepair, {
+			error: target.dataset.agentRepairError || '',
+		});
 	});
 }
 
@@ -455,6 +466,180 @@ async function onEjectConfirm() {
 	}
 }
 
+// ── Repair (surgical fix for a reported error) ─────────────────
+
+function bindRepair() {
+	document.getElementById('ep-agent-repair-submit')?.addEventListener('click', onRepairSubmit);
+	document.getElementById('ep-agent-repair-commit-btn')?.addEventListener('click', onRepairCommit);
+	document.getElementById('ep-agent-repair-discard-btn')?.addEventListener('click', onRepairDiscard);
+}
+
+let currentRepairJobId = null;
+
+function openRepairModal(slug, prefill = {}) {
+	currentRepairJobId = null;
+	document.getElementById('ep-agent-repair-target-slug').value = slug;
+	document.getElementById('ep-agent-repair-current-job-id').value = '';
+	document.getElementById('ep-agent-repair-slug').textContent = slug;
+	document.getElementById('ep-agent-repair-error').value = prefill.error || '';
+	document.getElementById('ep-agent-repair-file').value = prefill.file || '';
+	document.getElementById('ep-agent-repair-line').value = prefill.line || '';
+	document.getElementById('ep-agent-repair-prompt').value = '';
+	hide(document.getElementById('ep-agent-repair-error-msg'));
+	hide(document.getElementById('ep-agent-repair-draft-preview'));
+	hide(document.getElementById('ep-agent-repair-commit-btn'));
+	hide(document.getElementById('ep-agent-repair-discard-btn'));
+	document.getElementById('ep-agent-repair-steps').innerHTML = '';
+	document.getElementById('ep-agent-repair-draft-files').innerHTML = '';
+	document.getElementById('ep-agent-repair-change-badges').innerHTML = '';
+	const submit = document.getElementById('ep-agent-repair-submit');
+	if (submit) { submit.style.display = ''; submit.disabled = false; submit.textContent = 'Diagnose & Draft Fix'; }
+	openAppModal('ep-agent-repair-modal');
+}
+
+async function onRepairSubmit() {
+	const slug      = document.getElementById('ep-agent-repair-target-slug').value;
+	const errorMsg  = document.getElementById('ep-agent-repair-error').value.trim();
+	const errorFile = document.getElementById('ep-agent-repair-file').value.trim();
+	const errorLine = parseInt(document.getElementById('ep-agent-repair-line').value, 10) || 0;
+	const prompt    = document.getElementById('ep-agent-repair-prompt').value.trim();
+	const errorEl   = document.getElementById('ep-agent-repair-error-msg');
+	const stepsEl   = document.getElementById('ep-agent-repair-steps');
+	const submitEl  = document.getElementById('ep-agent-repair-submit');
+
+	hide(errorEl);
+
+	if (errorMsg.length < 3) {
+		showError(errorEl, 'Error message must be at least 3 characters.');
+		return;
+	}
+
+	submitEl.disabled = true;
+	submitEl.textContent = 'Diagnosing…';
+	renderStep(stepsEl, 'queued');
+
+	try {
+		const url = appData.agentRepairUrl.replace('__SLUG__', encodeURIComponent(slug));
+		const res = await apiFetch(url, {
+			method: 'POST',
+			body: {
+				error_message: errorMsg,
+				error_file:    errorFile,
+				error_line:    errorLine,
+				prompt:        prompt,
+			},
+		});
+		currentRepairJobId = res.job_id;
+		document.getElementById('ep-agent-repair-current-job-id').value = res.job_id;
+
+		const job = await pollJob(res.job_id, (state) => renderStep(stepsEl, state.step));
+
+		if (job.status === 'drafted') {
+			renderRepairDraft(job);
+		} else if (job.status === 'success') {
+			renderStep(stepsEl, 'done');
+			closeAppModal('ep-agent-repair-modal');
+			refreshAppsTable();
+		} else {
+			showError(errorEl, (job.errors || []).join(' ') || 'Repair failed.');
+			renderStep(stepsEl, 'failed');
+		}
+	} catch (err) {
+		log.error('[agent] repair failed', err);
+		showError(errorEl, err.message || 'Repair failed.');
+		renderStep(stepsEl, 'failed');
+	} finally {
+		submitEl.disabled = false;
+		submitEl.textContent = 'Diagnose & Draft Fix';
+	}
+}
+
+async function onRepairCommit() {
+	if (!currentRepairJobId) return;
+	const errorEl = document.getElementById('ep-agent-repair-error-msg');
+	const stepsEl = document.getElementById('ep-agent-repair-steps');
+	const commitBtn = document.getElementById('ep-agent-repair-commit-btn');
+	commitBtn.disabled = true;
+	commitBtn.textContent = 'Pushing…';
+	hide(errorEl);
+	renderStep(stepsEl, 'pushing');
+	try {
+		const url = appData.agentJobCommitUrl.replace('__ID__', encodeURIComponent(currentRepairJobId));
+		const res = await apiFetch(url, { method: 'POST' });
+		if (res.success) {
+			renderStep(stepsEl, 'done');
+			setTimeout(() => { closeAppModal('ep-agent-repair-modal'); refreshAppsTable(); }, 800);
+		} else {
+			showError(errorEl, res.message || 'Push failed.');
+			commitBtn.disabled = false;
+			commitBtn.textContent = 'Push fix to GitHub';
+		}
+	} catch (err) {
+		showError(errorEl, err.message || 'Push failed.');
+		commitBtn.disabled = false;
+		commitBtn.textContent = 'Push fix to GitHub';
+	}
+}
+
+async function onRepairDiscard() {
+	if (!currentRepairJobId) return;
+	if (!confirm('Discard this repair draft?')) return;
+	try {
+		const url = appData.agentJobDiscardUrl.replace('__ID__', encodeURIComponent(currentRepairJobId));
+		await apiFetch(url, { method: 'POST' });
+		closeAppModal('ep-agent-repair-modal');
+	} catch (err) {
+		showError(document.getElementById('ep-agent-repair-error-msg'), err.message || 'Discard failed.');
+	}
+}
+
+function renderRepairDraft(job) {
+	const draft = job.draft;
+	if (!draft) return;
+	const previewEl = document.getElementById('ep-agent-repair-draft-preview');
+	const summaryEl = document.getElementById('ep-agent-repair-draft-summary');
+	const filesEl   = document.getElementById('ep-agent-repair-draft-files');
+	const badgesEl  = document.getElementById('ep-agent-repair-change-badges');
+	const commitBtn = document.getElementById('ep-agent-repair-commit-btn');
+	const discardBtn = document.getElementById('ep-agent-repair-discard-btn');
+	const submitEl  = document.getElementById('ep-agent-repair-submit');
+
+	previewEl.style.display = '';
+	commitBtn.style.display = '';
+	discardBtn.style.display = '';
+	hide(submitEl);
+
+	const totalBytes = (draft.files || []).reduce((s, f) => s + (f.bytes || 0), 0);
+	summaryEl.textContent = `${(draft.files || []).length} files · ${formatBytes(totalBytes)} · v${draft.version || ''}`;
+
+	const cs = draft.change_summary || {};
+	const badge = (label, count, bg) =>
+		count > 0
+			? `<span style="display:inline-block;background:${bg};color:white;padding:2px 8px;border-radius:10px;margin-right:4px;font-weight:600;">${count} ${label}</span>`
+			: '';
+	badgesEl.innerHTML =
+		badge('modified', cs.modified || 0, '#ca8a04') +
+		badge('added', cs.added || 0, '#16a34a') +
+		badge('removed', cs.removed || 0, '#9b2c2c') +
+		`<span style="color:#9ca3af;">${cs.unchanged || 0} unchanged</span>`;
+
+	// Sort files: modified first, then added, then unchanged.
+	const order = { modified: 0, added: 1, unchanged: 2 };
+	const sortedFiles = (draft.files || []).slice().sort(
+		(a, b) => (order[a.change] ?? 99) - (order[b.change] ?? 99)
+	);
+	filesEl.innerHTML = sortedFiles.map(f => {
+		const change = f.change || 'unchanged';
+		const tag = {
+			modified:  '<span style="display:inline-block;width:60px;color:#ca8a04;font-weight:600;">[mod]</span>',
+			added:     '<span style="display:inline-block;width:60px;color:#16a34a;font-weight:600;">[add]</span>',
+			unchanged: '<span style="display:inline-block;width:60px;color:#9ca3af;">[ ]</span>',
+		}[change];
+		const dim = change === 'unchanged' ? 'color:#9ca3af;' : '';
+		return `<div style="padding:2px 0;${dim}">${tag} ${escapeHtml(f.path)} <span style="color:#9ca3af;float:right;">${formatBytes(f.bytes || 0)}</span></div>`;
+	}).join('');
+}
+
 // ── Jobs & History ──────────────────────────────────────────────
 
 function bindJobs() {
@@ -488,20 +673,38 @@ function renderJobsList(jobs) {
 		}[j.status] || '#6b7280';
 		const statusBadge = `<span style="display:inline-block;background:${statusColor};color:white;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">${escapeHtml(j.status || '?')}</span>`;
 		const slug = j.target_slug || '(no slug)';
-		const mode = j.mode === 'iterate' ? '✨ Iterate' : '✨ Generate';
+		const modeLabel = { iterate: '✨ Iterate', repair: '🛠 Repair', generate: '✨ Generate' }[j.mode] || '✨ Generate';
 		const promptPreview = (j.prompt || '').slice(0, 120) + ((j.prompt || '').length > 120 ? '…' : '');
+
+		// Failed jobs with a target slug get a Repair affordance.
+		// Clicking it opens the repair modal pre-populated with the
+		// failure error message so the user can re-attempt as a
+		// surgical fix instead of a wholesale re-generation.
+		const errorText = (j.errors || []).join(' ');
+		const showRepair = j.status === 'failed' && j.target_slug;
+		const repairBtn = showRepair
+			? `<a href="#" data-agent-repair="${escapeHtml(j.target_slug)}" data-agent-repair-error="${escapeAttr(errorText)}" style="font-size:11px;color:#7c3aed;text-decoration:underline;margin-left:8px;">🛠 Repair</a>`
+			: '';
+
+		const errorLine = j.status === 'failed' && errorText
+			? `<div style="font-size:11px;color:#9b2c2c;margin-top:4px;background:#fef2f2;border-left:2px solid #fecaca;padding:4px 8px;">${escapeHtml(errorText.slice(0, 200))}${errorText.length > 200 ? '…' : ''}</div>`
+			: '';
+
 		return `
 			<div style="padding:12px 18px;border-bottom:1px solid #e5e7eb;">
 				<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;">
-					<div><strong>${escapeHtml(slug)}</strong> <span style="color:#6b7280;font-size:12px;">${escapeHtml(mode)}</span></div>
+					<div><strong>${escapeHtml(slug)}</strong> <span style="color:#6b7280;font-size:12px;">${escapeHtml(modeLabel)}</span>${repairBtn}</div>
 					${statusBadge}
 				</div>
 				<div style="font-size:13px;color:#374151;margin-bottom:4px;">${escapeHtml(promptPreview)}</div>
+				${errorLine}
 				<div style="font-size:11px;color:#9ca3af;">${escapeHtml(time)}${j.provider ? ' • ' + escapeHtml(j.provider) + (j.model ? ' / ' + escapeHtml(j.model) : '') : ''}${j.result?.version ? ' • v' + escapeHtml(j.result.version) : ''}</div>
 			</div>
 		`;
 	}).join('');
 }
+
+function escapeAttr(s) { return escapeHtml(s); }
 
 // ── Draft preview ───────────────────────────────────────────────
 

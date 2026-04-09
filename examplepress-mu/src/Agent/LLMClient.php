@@ -58,6 +58,61 @@ final class LLMClient
     }
 
     /**
+     * Repair an existing app — surgical fix for a reported error.
+     *
+     * Identical I/O contract to iterateApp() (full file tree in,
+     * full file tree out) but uses a strict minimum-change system
+     * prompt that biases the model toward touching only the files
+     * necessary to fix the reported error.
+     *
+     * @param array<int,array{path:string,contents:string}> $repoFiles
+     * @param array<string,mixed>                            $manifest
+     * @param array<string,mixed>                            $errorContext
+     */
+    public static function repairApp(string $prompt, array $repoFiles, array $manifest, array $errorContext): GeneratedApp
+    {
+        $system = self::systemPrompt([
+            'mode'          => 'repair',
+            'manifest'      => $manifest,
+            'error_context' => $errorContext,
+        ]);
+
+        $tree = '';
+        foreach ($repoFiles as $f) {
+            $tree .= "\n\n--- FILE: {$f['path']} ---\n{$f['contents']}";
+        }
+
+        // Build a structured error block. Optional fields (file, line,
+        // stack trace) are only included when present so the LLM
+        // doesn't see empty noise.
+        $errorBlock = "## REPORTED ERROR\n\n" . trim((string) ($errorContext['error_message'] ?? ''));
+        if (!empty($errorContext['error_file'])) {
+            $errorBlock .= "\n\nFile: " . $errorContext['error_file'];
+        }
+        if (!empty($errorContext['error_line'])) {
+            $errorBlock .= "\nLine: " . $errorContext['error_line'];
+        }
+        if (!empty($errorContext['stack_trace'])) {
+            $errorBlock .= "\n\nStack trace:\n" . $errorContext['stack_trace'];
+        }
+        if (!empty($prompt)) {
+            $errorBlock .= "\n\n## ADDITIONAL USER NOTES\n\n" . $prompt;
+        }
+
+        $user = "Here is the current app codebase:\n{$tree}\n\n{$errorBlock}\n\n"
+            . "Produce a SURGICAL fix for the reported error. Return the COMPLETE "
+            . "updated file tree. Modify only the files necessary to resolve the "
+            . "error. Every other file MUST be returned byte-identical to its "
+            . "current contents. Do not refactor, do not 'improve' unrelated code, "
+            . "do not rename anything. Bump the patch version in examplepress.json "
+            . "and the bootstrap header.";
+
+        $payload = self::callStructured($system, $user);
+
+        return GeneratedApp::fromArray($payload);
+    }
+
+    /**
      * Test whether the configured provider/model/key are usable.
      * Returns null on success, error string on failure.
      */
@@ -252,12 +307,30 @@ final class LLMClient
     {
         $base = SkillRegistry::compile($context);
 
-        $isIterate = ($context['mode'] ?? '') === 'iterate';
-        if ($isIterate && !empty($context['manifest']['slug'])) {
-            $slug = (string) $context['manifest']['slug'];
+        $mode = (string) ($context['mode'] ?? '');
+        $slug = (string) ($context['manifest']['slug'] ?? '');
+
+        if ($mode === 'iterate' && $slug !== '') {
             $base .= "\n\n## ITERATION MODE\n\n- You are editing the existing app \"{$slug}\".";
             $base .= "\n- Preserve the slug. Bump the version (patch level by default).";
             $base .= "\n- Return the COMPLETE new file tree, not a diff.";
+        }
+
+        if ($mode === 'repair' && $slug !== '') {
+            $base .= "\n\n## REPAIR MODE — SURGICAL FIX\n\n";
+            $base .= "- You are repairing the existing app \"{$slug}\".\n";
+            $base .= "- A specific error has been reported (provided in the user message).\n";
+            $base .= "- Your job is to fix THAT error and ONLY that error.\n";
+            $base .= "- Modify the **minimum number of files** required.\n";
+            $base .= "- Every file you do NOT need to change MUST be returned byte-identical.\n";
+            $base .= "- Do not refactor, rename, restyle, reformat, or 'improve' anything.\n";
+            $base .= "- Do not add new features. Do not add new dependencies.\n";
+            $base .= "- If the fix is unclear or the error is ambiguous, prefer a small,\n";
+            $base .= "  defensive change (add a guard, add a default, add a type cast)\n";
+            $base .= "  over a large speculative rewrite.\n";
+            $base .= "- Bump the patch version in examplepress.json and the bootstrap header.\n";
+            $base .= "- Use the commit message to explain what was fixed in one sentence.\n";
+            $base .= "- Return the COMPLETE file tree. Omitting a file deletes it.\n";
         }
 
         return $base;

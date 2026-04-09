@@ -140,6 +140,7 @@ final class DataProvider
             ],
             'agentGenerateUrl'    => esc_url_raw(rest_url('examplepress-mu/v1/agent/generate')),
             'agentIterateUrl'     => esc_url_raw(rest_url('examplepress-mu/v1/agent/iterate/__SLUG__')),
+            'agentRepairUrl'      => esc_url_raw(rest_url('examplepress-mu/v1/agent/repair/__SLUG__')),
             'agentEjectUrl'       => esc_url_raw(rest_url('examplepress-mu/v1/agent/eject/__SLUG__')),
             'agentJobUrl'         => esc_url_raw(rest_url('examplepress-mu/v1/agent/jobs/__ID__')),
             'agentJobsUrl'        => esc_url_raw(rest_url('examplepress-mu/v1/agent/jobs')),
