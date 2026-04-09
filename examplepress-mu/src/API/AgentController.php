@@ -45,6 +45,28 @@ final class AgentController
             'callback'            => [self::class, 'generate'],
             'permission_callback' => [self::class, 'permissionCheck'],
             'args'                => [
+                'app_name' => [
+                    'required'          => true,
+                    'type'              => 'string',
+                    'sanitize_callback' => 'sanitize_text_field',
+                    'validate_callback' => static function ($v) {
+                        return is_string($v) && mb_strlen(trim($v)) >= 1;
+                    },
+                ],
+                'app_slug' => [
+                    'required'          => true,
+                    'type'              => 'string',
+                    'sanitize_callback' => 'sanitize_title',
+                    'validate_callback' => static function ($v) {
+                        return is_string($v) && preg_match('/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/', trim($v));
+                    },
+                ],
+                'app_description' => [
+                    'required'          => false,
+                    'type'              => 'string',
+                    'default'           => '',
+                    'sanitize_callback' => 'sanitize_text_field',
+                ],
                 'prompt' => [
                     'required'          => true,
                     'type'              => 'string',
@@ -270,10 +292,20 @@ final class AgentController
             return $err;
         }
 
+        $slug = (string) $request->get_param('app_slug');
+
+        // Early conflict check — don't waste an LLM call if the slug exists.
+        if (AppRegistry::getPost($slug)) {
+            return new \WP_Error('slug_exists', "An app with slug \"{$slug}\" already exists. Choose a different slug or use iterate mode.", ['status' => 409]);
+        }
+
         $jobId = GenerationJob::enqueue([
-            'mode'    => 'generate',
-            'prompt'  => (string) $request->get_param('prompt'),
-            'user_id' => get_current_user_id(),
+            'mode'            => 'generate',
+            'prompt'          => (string) $request->get_param('prompt'),
+            'target_slug'     => $slug,
+            'app_name'        => (string) $request->get_param('app_name'),
+            'app_description' => (string) $request->get_param('app_description'),
+            'user_id'         => get_current_user_id(),
         ]);
 
         return rest_ensure_response([

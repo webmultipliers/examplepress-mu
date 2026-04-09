@@ -59,13 +59,15 @@ final class GenerationJob
         $jobId = wp_generate_uuid4();
 
         $job = [
-            'id'            => $jobId,
-            'mode'          => (string) ($args['mode'] ?? 'generate'),
-            'prompt'        => (string) ($args['prompt'] ?? ''),
-            'target_slug'   => (string) ($args['target_slug'] ?? ''),
-            'user_id'       => (int) ($args['user_id'] ?? get_current_user_id()),
-            'auto_commit'   => (bool) ($args['auto_commit'] ?? false),
-            'error_context' => is_array($args['error_context'] ?? null) ? $args['error_context'] : null,
+            'id'              => $jobId,
+            'mode'            => (string) ($args['mode'] ?? 'generate'),
+            'prompt'          => (string) ($args['prompt'] ?? ''),
+            'target_slug'     => (string) ($args['target_slug'] ?? ''),
+            'app_name'        => (string) ($args['app_name'] ?? ''),
+            'app_description' => (string) ($args['app_description'] ?? ''),
+            'user_id'         => (int) ($args['user_id'] ?? get_current_user_id()),
+            'auto_commit'     => (bool) ($args['auto_commit'] ?? false),
+            'error_context'   => is_array($args['error_context'] ?? null) ? $args['error_context'] : null,
             'status'        => 'pending',
             'step'          => self::STEP_QUEUED,
             'errors'        => [],
@@ -91,7 +93,12 @@ final class GenerationJob
             'prompt' => $job['prompt'],
         ];
         if ($job['mode'] === 'generate') {
-            AppRegistry::createPlaceholderDraft($jobId, $jobMeta);
+            AppRegistry::createPlaceholderDraft($jobId, $jobMeta, [
+                'slug'        => $job['target_slug'],
+                'name'        => $job['app_name'],
+                'description' => $job['app_description'],
+            ]);
+            self::log($job, 'Job queued — generating new app "' . $job['app_name'] . '" (' . $job['target_slug'] . ')');
         } elseif ($job['target_slug'] !== '') {
             $statusMap = [
                 'iterate' => 'iterating',
@@ -99,6 +106,7 @@ final class GenerationJob
             ];
             $running = $statusMap[$job['mode']] ?? 'drafting';
             AppRegistry::markDraftRunning($job['target_slug'], $running, $jobMeta);
+            self::log($job, 'Job queued — ' . $job['mode'] . ' on ' . $job['target_slug']);
         }
 
         if (function_exists('as_enqueue_async_action')) {
@@ -123,6 +131,7 @@ final class GenerationJob
 
         try {
             self::updateJob($jobId, ['status' => 'running', 'step' => self::STEP_DRAFTING]);
+            self::log($job, 'Sending prompt to LLM (' . ($job['provider'] ?? 'unknown') . '/' . ($job['model'] ?? 'default') . ')…');
 
             // Phase 1: draft only.
             switch ($job['mode']) {
@@ -271,15 +280,36 @@ final class GenerationJob
     private static function draftGenerate(array $job): void
     {
         $jobId = (string) $job['id'];
+        $slug  = (string) $job['target_slug'];
+        $appName = (string) ($job['app_name'] ?? '');
+        $appDesc = (string) ($job['app_description'] ?? '');
 
-        $generated = LLMClient::generateApp($job['prompt']);
+        // Tell the LLM what slug/name/description to use.
+        $appContext = '';
+        if ($appName !== '') {
+            $appContext .= "\n\nApp Name: {$appName}";
+        }
+        if ($slug !== '') {
+            $appContext .= "\nApp Slug: {$slug}";
+        }
+        if ($appDesc !== '') {
+            $appContext .= "\nApp Description: {$appDesc}";
+        }
+        $fullPrompt = $job['prompt'] . $appContext;
+
+        $generated = LLMClient::generateApp($fullPrompt);
 
         self::updateJob($jobId, ['step' => self::STEP_WRITING]);
+        self::log($job, 'LLM returned ' . count($generated->files) . ' files — processing…');
 
-        $slug = (string) ($generated->manifest['slug'] ?? '');
-        if ($slug === '') {
-            self::fail($jobId, 'Generated manifest is missing slug.');
-            return;
+        // Override the manifest slug/name/description with the user's
+        // values so the LLM can't deviate from what was specified.
+        $generated->manifest['slug'] = $slug;
+        if ($appName !== '') {
+            $generated->manifest['name'] = $appName;
+        }
+        if ($appDesc !== '') {
+            $generated->manifest['description'] = $appDesc;
         }
 
         $payload = self::draftPayload($generated);
@@ -289,39 +319,38 @@ final class GenerationJob
             'prompt' => (string) ($job['prompt'] ?? ''),
         ];
 
-        // Finalize the placeholder draft post created in enqueue().
-        // Renames it to the real slug from the manifest, populates the
-        // payload meta. Returns false if the slug collides with a
-        // different existing app — in which case we mark the
-        // placeholder failed and the user can rename or discard it
-        // from the panel.
+        // The placeholder was already created with the correct slug in
+        // enqueue(), so finalizePlaceholderDraft just writes the payload.
         $finalized = AppRegistry::finalizePlaceholderDraft($jobId, $slug, $payload, $jobMeta);
         if (!$finalized) {
-            // Find the placeholder by job ID so we can record the failure
-            // against it (the slug lookup won't work — we never finalized).
-            $placeholder = AppRegistry::getPostByJobId($jobId);
-            if ($placeholder) {
-                $placeholderSlug = (string) get_post_meta($placeholder->ID, '_ep_plugin_slug', true);
-                AppRegistry::recordDraftFailure($placeholderSlug, [
-                    "Slug \"{$slug}\" collides with an existing app. Discard this draft or use iterate mode.",
-                ], $jobMeta);
-            }
-            self::fail($jobId, "Slug \"{$slug}\" collides with an existing app.");
+            $reason = "Failed to persist draft payload for \"{$slug}\". The generated output may be too large for the database — check MySQL max_allowed_packet and the error log.";
+            AppRegistry::recordDraftFailure($slug, [$reason], $jobMeta);
+            self::fail($jobId, $reason);
             return;
         }
 
-        self::updateJob($jobId, [
-            'target_slug' => $slug,
-            'draft'       => $payload,
-        ]);
+        self::updateJob($jobId, ['draft' => $payload]);
+        self::log($job, 'Draft persisted for "' . $slug . '" — running validation…');
 
-        $validation = AppValidator::validateGenerated($generated->manifest, $generated->files);
-        if (!$validation['ok']) {
-            AppRegistry::recordDraftFailure($slug, $validation['errors'], $jobMeta);
-            self::fail($jobId, 'Validation failed: ' . implode(' ', $validation['errors']));
+        $result = self::validateWithAutoRepair($generated, $job, $slug, $jobMeta);
+        if (!$result['validation']['ok']) {
+            // Update the stashed payload with the (possibly partially repaired) version.
+            $repairedPayload = self::draftPayload($result['generated']);
+            AppRegistry::stashDraftPayload($slug, $repairedPayload, $jobMeta);
+            self::updateJob($jobId, ['draft' => $repairedPayload]);
+            AppRegistry::recordDraftFailure($slug, $result['validation']['errors'], $jobMeta);
+            self::fail($jobId, 'Validation failed: ' . implode(' ', $result['validation']['errors']));
             return;
         }
 
+        // If auto-repair produced a different version, update the stashed payload.
+        if ($result['generated'] !== $generated) {
+            $payload = self::draftPayload($result['generated']);
+            AppRegistry::stashDraftPayload($slug, $payload, $jobMeta);
+            self::updateJob($jobId, ['draft' => $payload]);
+        }
+
+        self::log($job, '✓ Validation passed — ready for review');
         self::updateJob($jobId, [
             'status' => 'drafted',
             'step'   => self::STEP_REVIEW,
@@ -353,11 +382,13 @@ final class GenerationJob
             'prompt' => (string) ($job['prompt'] ?? ''),
         ];
 
+        self::log($job, 'Loading source files for iteration…');
         $context = self::loadIterationContext($slug, $jobId);
         if ($context === null) {
             return; // failed already inside loadIterationContext
         }
         ['files' => $files, 'manifest' => $manifest, 'parent_sha' => $parentSha, 'owner_repo' => $ownerRepo, 'source' => $source] = $context;
+        self::log($job, 'Loaded ' . count($files) . ' files from ' . $source);
 
         if (empty($manifest['supports_ai_iteration'])) {
             self::fail($jobId, "App {$slug} does not support AI iteration (ejected to developer mode).");
@@ -367,6 +398,7 @@ final class GenerationJob
         $generated = LLMClient::iterateApp((string) ($job['prompt'] ?? ''), $files, $manifest);
 
         self::updateJob($jobId, ['step' => self::STEP_WRITING]);
+        self::log($job, 'LLM returned ' . count($generated->files) . ' files — processing…');
 
         $newVersion = $generated->version ?: self::bumpPatch((string) ($manifest['version'] ?? '1.0.0'));
 
@@ -374,21 +406,41 @@ final class GenerationJob
         $payload['version']    = $newVersion;
         $payload['parent_sha'] = $parentSha;
         $payload['owner_repo'] = $ownerRepo;
-        $payload['source']     = $source; // 'stash' or 'github' — UI hint
+        $payload['source']     = $source;
 
-        // Stash on the post BEFORE validating so the user can repair
-        // a bad iteration without losing it.
-        AppRegistry::stashDraftPayload($slug, $payload, $jobMeta);
+        if (!AppRegistry::stashDraftPayload($slug, $payload, $jobMeta)) {
+            self::fail($jobId, "Failed to persist draft payload for \"{$slug}\". The generated output may be too large — check the error log.");
+            return;
+        }
+        self::log($job, 'Draft stashed (v' . $newVersion . ') — running validation…');
 
         self::updateJob($jobId, ['draft' => $payload]);
 
-        $validation = AppValidator::validateGenerated($generated->manifest, $generated->files);
-        if (!$validation['ok']) {
-            AppRegistry::recordDraftFailure($slug, $validation['errors'], $jobMeta);
-            self::fail($jobId, 'Validation failed: ' . implode(' ', $validation['errors']));
+        $result = self::validateWithAutoRepair($generated, $job, $slug, $jobMeta);
+        if (!$result['validation']['ok']) {
+            $repairedPayload = self::draftPayload($result['generated']);
+            $repairedPayload['version']    = $newVersion;
+            $repairedPayload['parent_sha'] = $parentSha;
+            $repairedPayload['owner_repo'] = $ownerRepo;
+            $repairedPayload['source']     = $source;
+            AppRegistry::stashDraftPayload($slug, $repairedPayload, $jobMeta);
+            self::updateJob($jobId, ['draft' => $repairedPayload]);
+            AppRegistry::recordDraftFailure($slug, $result['validation']['errors'], $jobMeta);
+            self::fail($jobId, 'Validation failed: ' . implode(' ', $result['validation']['errors']));
             return;
         }
 
+        if ($result['generated'] !== $generated) {
+            $repairedPayload = self::draftPayload($result['generated']);
+            $repairedPayload['version']    = $newVersion;
+            $repairedPayload['parent_sha'] = $parentSha;
+            $repairedPayload['owner_repo'] = $ownerRepo;
+            $repairedPayload['source']     = $source;
+            AppRegistry::stashDraftPayload($slug, $repairedPayload, $jobMeta);
+            self::updateJob($jobId, ['draft' => $repairedPayload]);
+        }
+
+        self::log($job, '✓ Validation passed — ready for review');
         self::updateJob($jobId, [
             'status' => 'drafted',
             'step'   => self::STEP_REVIEW,
@@ -494,11 +546,13 @@ final class GenerationJob
             'prompt' => (string) ($job['prompt'] ?? ''),
         ];
 
+        self::log($job, 'Loading source files for repair…');
         $context = self::loadIterationContext($slug, $jobId);
         if ($context === null) {
             return;
         }
         ['files' => $files, 'manifest' => $manifest, 'parent_sha' => $parentSha, 'owner_repo' => $ownerRepo, 'source' => $source] = $context;
+        self::log($job, 'Loaded ' . count($files) . ' files from ' . $source . ' — sending repair prompt…');
 
         if (empty($manifest['supports_ai_iteration'])) {
             self::fail($jobId, "App {$slug} does not support AI iteration (ejected to developer mode).");
@@ -513,6 +567,7 @@ final class GenerationJob
         );
 
         self::updateJob($jobId, ['step' => self::STEP_WRITING]);
+        self::log($job, 'LLM returned ' . count($generated->files) . ' files — computing diff…');
 
         $newVersion = $generated->version ?: self::bumpPatch((string) ($manifest['version'] ?? '1.0.0'));
 
@@ -553,21 +608,105 @@ final class GenerationJob
         ];
 
         // Stash on the post BEFORE validating.
-        AppRegistry::stashDraftPayload($slug, $payload, $jobMeta);
+        if (!AppRegistry::stashDraftPayload($slug, $payload, $jobMeta)) {
+            self::fail($jobId, "Failed to persist repair payload for \"{$slug}\". The generated output may be too large — check the error log.");
+            return;
+        }
+        self::log($job, 'Repair stashed (' . $modified . ' modified, ' . $added . ' added, ' . max(0, $removed) . ' removed) — validating…');
 
         self::updateJob($jobId, ['draft' => $payload]);
 
-        $validation = AppValidator::validateGenerated($generated->manifest, $generated->files);
-        if (!$validation['ok']) {
-            AppRegistry::recordDraftFailure($slug, $validation['errors'], $jobMeta);
-            self::fail($jobId, 'Validation failed: ' . implode(' ', $validation['errors']));
+        $result = self::validateWithAutoRepair($generated, $job, $slug, $jobMeta);
+        if (!$result['validation']['ok']) {
+            $repairedPayload = self::draftPayload($result['generated']);
+            $repairedPayload['version']    = $newVersion;
+            $repairedPayload['parent_sha'] = $parentSha;
+            $repairedPayload['owner_repo'] = $ownerRepo;
+            $repairedPayload['source']     = $source;
+            AppRegistry::stashDraftPayload($slug, $repairedPayload, $jobMeta);
+            self::updateJob($jobId, ['draft' => $repairedPayload]);
+            AppRegistry::recordDraftFailure($slug, $result['validation']['errors'], $jobMeta);
+            self::fail($jobId, 'Validation failed: ' . implode(' ', $result['validation']['errors']));
             return;
         }
 
+        if ($result['generated'] !== $generated) {
+            $repairedPayload = self::draftPayload($result['generated']);
+            $repairedPayload['version']    = $newVersion;
+            $repairedPayload['parent_sha'] = $parentSha;
+            $repairedPayload['owner_repo'] = $ownerRepo;
+            $repairedPayload['source']     = $source;
+            AppRegistry::stashDraftPayload($slug, $repairedPayload, $jobMeta);
+            self::updateJob($jobId, ['draft' => $repairedPayload]);
+        }
+
+        self::log($job, '✓ Validation passed — ready for review');
         self::updateJob($jobId, [
             'status' => 'drafted',
             'step'   => self::STEP_REVIEW,
         ]);
+    }
+
+    /**
+     * Validate a generated app. If validation fails, attempt one
+     * automatic repair pass before giving up. Returns the (possibly
+     * repaired) GeneratedApp and the validation result.
+     *
+     * @return array{generated:\ExamplePress\MU\Agent\GeneratedApp,validation:array{ok:bool,errors:array<int,string>}}
+     */
+    private static function validateWithAutoRepair(
+        GeneratedApp $generated,
+        array $job,
+        string $slug,
+        array $jobMeta
+    ): array {
+        $jobId = (string) $job['id'];
+
+        $validation = AppValidator::validateGenerated($generated->manifest, $generated->files);
+        if ($validation['ok']) {
+            return ['generated' => $generated, 'validation' => $validation];
+        }
+
+        // One auto-repair attempt before bothering the user.
+        $errorCount = count($validation['errors']);
+        self::log($job, "⚠ Validation found {$errorCount} error(s) — attempting auto-repair…");
+
+        $errorMessage = implode("\n", $validation['errors']);
+        $repoFiles = [];
+        foreach ($generated->files as $f) {
+            $repoFiles[] = [
+                'path'     => (string) ($f['path'] ?? ''),
+                'contents' => (string) ($f['contents'] ?? ''),
+            ];
+        }
+
+        try {
+            $repaired = LLMClient::repairApp(
+                '',
+                $repoFiles,
+                $generated->manifest,
+                [
+                    'error_message' => "The following validation errors must be fixed:\n\n" . $errorMessage,
+                    'reported_at'   => time(),
+                ]
+            );
+
+            $validation2 = AppValidator::validateGenerated($repaired->manifest, $repaired->files);
+            if ($validation2['ok']) {
+                self::log($job, '✓ Auto-repair fixed all ' . $errorCount . ' error(s)');
+                return ['generated' => $repaired, 'validation' => $validation2];
+            }
+
+            // Repair tried but still failing — return the repaired version
+            // (may have fixed some errors) with the remaining failures.
+            $remaining = count($validation2['errors']);
+            self::log($job, "⚠ Auto-repair resolved " . ($errorCount - $remaining) . " of {$errorCount} error(s), {$remaining} remain");
+            return ['generated' => $repaired, 'validation' => $validation2];
+        } catch (\Throwable $e) {
+            self::log($job, '⚠ Auto-repair failed: ' . $e->getMessage());
+            // Return original validation errors.
+            return ['generated' => $generated, 'validation' => $validation];
+        }
     }
 
     /**
@@ -869,7 +1008,26 @@ final class GenerationJob
         $job['errors'][]   = $error;
         $job['updated_at'] = time();
         self::saveJob($job);
+        self::log($job, '✗ ' . $error);
         error_log("ExamplePress agent job {$jobId} failed: {$error}");
+    }
+
+    /**
+     * Append a line to the draft's activity log. Resolves the slug
+     * from the job's target_slug or placeholder lookup.
+     */
+    private static function log(array $job, string $message): void
+    {
+        $slug = (string) ($job['target_slug'] ?? '');
+        if ($slug === '') {
+            $post = AppRegistry::getPostByJobId((string) $job['id']);
+            if ($post) {
+                $slug = (string) get_post_meta($post->ID, '_ep_plugin_slug', true);
+            }
+        }
+        if ($slug !== '') {
+            AppRegistry::appendLog($slug, $message);
+        }
     }
 
     /**

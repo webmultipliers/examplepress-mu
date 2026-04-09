@@ -6,6 +6,26 @@
  */
 
 /* ═══════════════════════════════════════════════════════════════════
+   Parent wrapper override
+   ═══════════════════════════════════════════════════════════════════
+   The skills template is included inside .ep-layout which defaults
+   to flex-row for sidebar+panel pages. Override it to a padded
+   column flow so the ep-section header and ep-docs grid stack. */
+
+.ep-layout:has(.ep-docs) {
+	flex-direction: column;
+	padding: 2rem 2.25rem;
+	min-height: auto;
+	overflow: visible;
+}
+
+@media (max-width: 780px) {
+	.ep-layout:has(.ep-docs) {
+		padding: 1.25rem 1rem;
+	}
+}
+
+/* ═══════════════════════════════════════════════════════════════════
    Layout
    ═══════════════════════════════════════════════════════════════════ */
 

@@ -222,6 +222,7 @@ final class AppRegistry
     public const META_DRAFT_HISTORY     = '_ep_draft_history';
     public const META_DRAFT_UPDATED_AT  = '_ep_draft_updated_at';
     public const META_DRAFT_PROMPT      = '_ep_draft_prompt';
+    public const META_DRAFT_LOG         = '_ep_draft_log';
 
     /**
      * Create a placeholder draft post the MOMENT the user clicks
@@ -229,23 +230,33 @@ final class AppRegistry
      * so the user can navigate away, see it in the drafts panel, and
      * come back later — no more "trapped in the modal" experience.
      *
-     * The real slug isn't known until the LLM returns the manifest, so
-     * we use a placeholder slug derived from the job ID and overwrite
-     * it via finalizePlaceholderDraft() once the LLM completes.
+     * The slug, name, and description are provided by the user at
+     * generation time so the placeholder immediately reflects the
+     * intended app identity.
      *
      * @param array<string,mixed> $jobMeta { mode, prompt }
+     * @param array<string,mixed> $appIdentity { slug, name, description }
      */
-    public static function createPlaceholderDraft(string $jobId, array $jobMeta = []): int
+    public static function createPlaceholderDraft(string $jobId, array $jobMeta = [], array $appIdentity = []): int
     {
-        $shortId = substr(preg_replace('/[^a-z0-9]/i', '', $jobId) ?? '', 0, 8);
-        $placeholderSlug = 'agent-draft-' . $shortId;
+        $slug  = (string) ($appIdentity['slug'] ?? '');
+        $name  = (string) ($appIdentity['name'] ?? '');
+        $desc  = (string) ($appIdentity['description'] ?? '');
         $prompt = (string) ($jobMeta['prompt'] ?? '');
-        $title = $prompt !== '' ? mb_substr($prompt, 0, 80) : 'Agent draft (in progress)';
+
+        // Fall back to prompt-based title if no name given.
+        if ($slug === '') {
+            $shortId = substr(preg_replace('/[^a-z0-9]/i', '', $jobId) ?? '', 0, 8);
+            $slug = 'agent-draft-' . $shortId;
+        }
+        if ($name === '') {
+            $name = $prompt !== '' ? mb_substr($prompt, 0, 80) : 'Agent draft (in progress)';
+        }
 
         $postId = wp_insert_post([
             'post_type'   => 'ep_app',
-            'post_title'  => $title,
-            'post_name'   => $placeholderSlug,
+            'post_title'  => $name,
+            'post_name'   => $slug,
             'post_status' => 'draft',
         ]);
 
@@ -253,7 +264,10 @@ final class AppRegistry
             return 0;
         }
 
-        update_post_meta($postId, '_ep_plugin_slug', $placeholderSlug);
+        update_post_meta($postId, '_ep_plugin_slug', $slug);
+        if ($desc !== '') {
+            update_post_meta($postId, '_ep_description', $desc);
+        }
         update_post_meta($postId, '_ep_source', 'agent');
         update_post_meta($postId, self::META_DRAFT_STATUS, 'drafting');
         update_post_meta($postId, self::META_DRAFT_ORIGIN_JOB, $jobId);
@@ -324,7 +338,12 @@ final class AppRegistry
         update_post_meta($post->ID, '_ep_plugin_slug', $realSlug);
         update_post_meta($post->ID, '_ep_description', (string) ($manifest['description'] ?? ''));
         update_post_meta($post->ID, '_ep_version', (string) ($manifest['version'] ?? '1.0.0'));
-        update_post_meta($post->ID, self::META_DRAFT_PAYLOAD, wp_json_encode($payload));
+
+        $ok = self::writePayloadMeta($post->ID, $payload);
+        if (!$ok) {
+            return false;
+        }
+
         update_post_meta($post->ID, self::META_DRAFT_STATUS, 'review');
         update_post_meta($post->ID, self::META_DRAFT_UPDATED_AT, (int) time());
 
@@ -423,13 +442,52 @@ final class AppRegistry
             return false;
         }
 
-        update_post_meta($post->ID, self::META_DRAFT_PAYLOAD, wp_json_encode($payload));
+        $ok = self::writePayloadMeta($post->ID, $payload);
+        if (!$ok) {
+            return false;
+        }
+
         update_post_meta($post->ID, self::META_DRAFT_STATUS, 'review');
         update_post_meta($post->ID, self::META_DRAFT_UPDATED_AT, (int) time());
 
         $history = self::getDraftHistory($slug);
         $history[] = self::buildHistoryEntry($jobMeta, 'drafted');
         update_post_meta($post->ID, self::META_DRAFT_HISTORY, wp_json_encode($history));
+
+        return true;
+    }
+
+    /**
+     * Encode and persist the draft payload to post meta. Verifies the
+     * write actually persisted — wp_json_encode can fail on non-UTF-8
+     * data, and update_post_meta can fail silently if the value exceeds
+     * MySQL's max_allowed_packet.
+     */
+    private static function writePayloadMeta(int $postId, array $payload): bool
+    {
+        $json = wp_json_encode($payload);
+        if ($json === false) {
+            error_log('ExamplePress agent: wp_json_encode failed for draft payload (post ' . $postId . '). JSON error: ' . json_last_error_msg());
+            return false;
+        }
+
+        $bytes = strlen($json);
+        if ($bytes > 10 * 1024 * 1024) { // 10 MB sanity cap
+            error_log('ExamplePress agent: draft payload too large (' . number_format($bytes) . ' bytes) for post ' . $postId);
+            return false;
+        }
+
+        update_post_meta($postId, self::META_DRAFT_PAYLOAD, $json);
+
+        // Verify the write persisted. WordPress can fail silently on
+        // large values or DB packet limits.
+        $verify = (string) get_post_meta($postId, self::META_DRAFT_PAYLOAD, true);
+        if ($verify === '' || $verify !== $json) {
+            error_log('ExamplePress agent: draft payload write failed to persist for post ' . $postId . ' (' . number_format($bytes) . ' bytes). Check MySQL max_allowed_packet.');
+            // Clean up the partial/empty meta.
+            delete_post_meta($postId, self::META_DRAFT_PAYLOAD);
+            return false;
+        }
 
         return true;
     }
@@ -525,6 +583,7 @@ final class AppRegistry
         delete_post_meta($post->ID, self::META_DRAFT_STATUS);
         delete_post_meta($post->ID, self::META_DRAFT_ERRORS);
         delete_post_meta($post->ID, self::META_DRAFT_PROMPT);
+        delete_post_meta($post->ID, self::META_DRAFT_LOG);
         delete_post_meta($post->ID, self::META_DRAFT_UPDATED_AT);
         return true;
     }
@@ -554,6 +613,45 @@ final class AppRegistry
         update_post_meta($post->ID, self::META_DRAFT_HISTORY, wp_json_encode($history));
 
         return true;
+    }
+
+    /**
+     * Append a timestamped entry to the draft's activity log.
+     * The log is a lightweight timeline that the UI polls to show
+     * live progress during in-flight jobs.
+     */
+    public static function appendLog(string $slug, string $message): void
+    {
+        $post = self::getPost($slug);
+        if (!$post) {
+            return;
+        }
+        $raw = (string) get_post_meta($post->ID, self::META_DRAFT_LOG, true);
+        $log = $raw !== '' ? (json_decode($raw, true) ?: []) : [];
+        $log[] = [
+            'ts'  => time(),
+            'msg' => $message,
+        ];
+        // Cap at 50 entries so the meta doesn't bloat.
+        if (count($log) > 50) {
+            $log = array_slice($log, -50);
+        }
+        update_post_meta($post->ID, self::META_DRAFT_LOG, wp_json_encode($log));
+    }
+
+    /**
+     * Read the draft activity log.
+     *
+     * @return array<int,array{ts:int,msg:string}>
+     */
+    public static function getDraftLog(string $slug): array
+    {
+        $post = self::getPost($slug);
+        if (!$post) {
+            return [];
+        }
+        $raw = (string) get_post_meta($post->ID, self::META_DRAFT_LOG, true);
+        return $raw !== '' ? (json_decode($raw, true) ?: []) : [];
     }
 
     /**
@@ -644,6 +742,7 @@ final class AppRegistry
                 'change_summary' => is_array($payload['change_summary'] ?? null) ? $payload['change_summary'] : null,
                 'origin_job_id'  => (string) get_post_meta($post->ID, self::META_DRAFT_ORIGIN_JOB, true),
                 'errors'         => is_array($errors) ? $errors : [],
+                'log'            => self::getDraftLog($slug),
             ];
         }
 

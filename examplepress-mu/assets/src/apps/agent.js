@@ -103,23 +103,59 @@ export function initAgent(data) {
 		const resume = e.target.closest('[data-agent-resume-draft]');
 		if (resume) {
 			e.preventDefault();
-			openIterateModal(resume.dataset.agentResumeDraft);
+			openReviewModal(resume.dataset.agentResumeDraft);
 			return;
 		}
 		const retry = e.target.closest('[data-agent-retry-generate]');
 		if (retry) {
 			e.preventDefault();
-			const slug = retry.dataset.agentRetryGenerate;
 			const prompt = retry.dataset.agentRetryPrompt || '';
-			// Discard the failed placeholder, then open generate with prompt pre-filled.
-			try {
-				const url = appData.agentDraftUrl.replace('__SLUG__', encodeURIComponent(slug));
-				await apiFetch(url, { method: 'DELETE' });
-			} catch (_) { /* best-effort cleanup */ }
+			const name   = retry.dataset.agentRetryName || '';
+			const slug   = retry.dataset.agentRetrySlug || '';
+			const desc   = retry.dataset.agentRetryDesc || '';
+			// Open the generate modal with fields pre-filled.
+			// The old draft stays in the panel — it gets discarded
+			// only once the new generation actually starts.
 			const promptEl = document.getElementById('ep-agent-prompt');
-			if (promptEl) promptEl.value = prompt;
+			const nameEl   = document.getElementById('ep-agent-app-name');
+			const slugEl   = document.getElementById('ep-agent-app-slug');
+			const descEl   = document.getElementById('ep-agent-app-description');
+			if (promptEl) { promptEl.value = prompt; promptEl.dataset.preserved = '1'; }
+			if (nameEl)   nameEl.value = name;
+			if (slugEl)   slugEl.value = slug;
+			if (descEl)   descEl.value = desc;
 			openAppModal('ep-agent-modal');
-			await refreshDrafts();
+			return;
+		}
+		const iterateDraft = e.target.closest('[data-agent-iterate-draft]');
+		if (iterateDraft) {
+			e.preventDefault();
+			openIterateModal(iterateDraft.dataset.agentIterateDraft);
+			return;
+		}
+		const push = e.target.closest('[data-agent-push-draft]');
+		if (push) {
+			e.preventDefault();
+			const slug = push.dataset.agentPushDraft;
+			if (!confirm(`Push "${slug}" to GitHub? A new release will be created and the plugin installed.`)) return;
+			push.textContent = 'Pushing…';
+			push.style.pointerEvents = 'none';
+			try {
+				const url = appData.agentDraftCommitUrl.replace('__SLUG__', encodeURIComponent(slug));
+				const res = await apiFetch(url, { method: 'POST' });
+				if (res.success) {
+					await refreshDrafts();
+					refreshAppsTable();
+				} else {
+					alert('Push failed: ' + (res.message || 'Unknown error'));
+					push.textContent = 'Push to GitHub';
+					push.style.pointerEvents = '';
+				}
+			} catch (err) {
+				alert('Push failed: ' + (err.message || err));
+				push.textContent = 'Push to GitHub';
+				push.style.pointerEvents = '';
+			}
 			return;
 		}
 		const copyBtn = e.target.closest('[data-copy-prompt]');
@@ -164,14 +200,23 @@ function bindGenerate() {
 	document.getElementById('ep-agent-commit-btn')?.addEventListener('click', onGenerateCommit);
 	document.getElementById('ep-agent-discard-btn')?.addEventListener('click', onGenerateDiscard);
 	document.getElementById('ep-agent-retry-btn')?.addEventListener('click', onGenerateRetry);
+	bindGenerateFields();
 }
 
 let currentGenerateJobId = null;
 
 function resetGenerateModal() {
 	currentGenerateJobId = null;
+	const nameEl   = document.getElementById('ep-agent-app-name');
+	const slugEl   = document.getElementById('ep-agent-app-slug');
+	const descEl   = document.getElementById('ep-agent-app-description');
 	const promptEl = document.getElementById('ep-agent-prompt');
-	if (promptEl && !promptEl.dataset.preserved) promptEl.value = '';
+	if (!promptEl?.dataset.preserved) {
+		if (nameEl) nameEl.value = '';
+		if (slugEl) slugEl.value = '';
+		if (descEl) descEl.value = '';
+		if (promptEl) promptEl.value = '';
+	}
 	delete promptEl?.dataset.preserved;
 	hide(document.getElementById('ep-agent-error'));
 	hide(document.getElementById('ep-agent-draft-preview'));
@@ -185,16 +230,50 @@ function resetGenerateModal() {
 	document.getElementById('ep-agent-draft-file-viewer').style.display = 'none';
 }
 
+function bindGenerateFields() {
+	const nameEl = document.getElementById('ep-agent-app-name');
+	const slugEl = document.getElementById('ep-agent-app-slug');
+	if (!nameEl || !slugEl) return;
+	let slugManual = false;
+	slugEl.addEventListener('input', () => { slugManual = slugEl.value.trim() !== ''; });
+	nameEl.addEventListener('input', () => {
+		if (slugManual) return;
+		slugEl.value = nameEl.value
+			.toLowerCase()
+			.replace(/[^a-z0-9\s-]/g, '')
+			.replace(/\s+/g, '-')
+			.replace(/-+/g, '-')
+			.replace(/^-|-$/g, '');
+	});
+}
+
 async function onGenerateSubmit() {
+	const nameEl   = document.getElementById('ep-agent-app-name');
+	const slugEl   = document.getElementById('ep-agent-app-slug');
+	const descEl   = document.getElementById('ep-agent-app-description');
 	const promptEl = document.getElementById('ep-agent-prompt');
 	const errorEl  = document.getElementById('ep-agent-error');
 	const submitEl = document.getElementById('ep-agent-submit');
 
+	const name   = (nameEl?.value || '').trim();
+	const slug   = (slugEl?.value || '').trim();
+	const description = (descEl?.value || '').trim();
 	const prompt = (promptEl?.value || '').trim();
 	hide(errorEl);
 
+	if (!name) {
+		showError(errorEl, 'App name is required.');
+		nameEl?.focus();
+		return;
+	}
+	if (!slug || !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(slug)) {
+		showError(errorEl, 'Slug must be lowercase letters, numbers, and hyphens (e.g., team-directory).');
+		slugEl?.focus();
+		return;
+	}
 	if (prompt.length < 5) {
 		showError(errorEl, 'Prompt must be at least 5 characters.');
+		promptEl?.focus();
 		return;
 	}
 
@@ -202,12 +281,7 @@ async function onGenerateSubmit() {
 	submitEl.textContent = 'Starting…';
 
 	try {
-		// Fire-and-track: enqueue the job, then IMMEDIATELY close the
-		// modal and surface the in-flight draft in the panel below.
-		// The user can navigate away, come back later, and the drafts
-		// panel will show the result whenever it's ready. The modal
-		// is no longer a trap.
-		await apiFetch(appData.agentGenerateUrl, { method: 'POST', body: { prompt } });
+		await apiFetch(appData.agentGenerateUrl, { method: 'POST', body: { app_name: name, app_slug: slug, app_description: description, prompt } });
 
 		closeAppModal('ep-agent-modal');
 		await refreshDrafts();
@@ -917,20 +991,27 @@ function renderDraftsFromData(drafts) {
 			? `<div style="font-size:11px;color:#9b2c2c;margin-bottom:8px;background:#fef2f2;border-left:2px solid #fecaca;padding:6px 10px;border-radius:0 4px 4px 0;">${escapeHtml(d.errors.join(' · ').slice(0, 300))}</div>`
 			: '';
 
-		// Action gating: Resume/Repair only work once the draft has a
-		// payload (status=review or failed-with-payload). When a generate
-		// failed before producing files, only "Retry" makes sense.
-		const canResume = status === 'review' || status === 'failed';
+		// Action gating:
+		// - in-flight → "Working…"
+		// - review → Resume + Push (always actionable on success)
+		// - failed with payload → Resume + Repair
+		// - failed without payload → Retry Generate
+		const canAct = status === 'review' || status === 'failed';
 		const hasPayload = !!d.has_payload;
-		let resumeAction, repairAction;
-		if (!canResume) {
+		let resumeAction, repairAction, pushAction;
+		pushAction = '';
+		if (!canAct) {
 			resumeAction = `<span style="font-size:12px;color:#9ca3af;">Working… (you can leave this page)</span>`;
 			repairAction = '';
+		} else if (status === 'review') {
+			resumeAction = `<a href="#" data-agent-resume-draft="${escapeHtml(d.slug)}" style="font-size:12px;color:#7c3aed;text-decoration:underline;">Review Files</a>`;
+			pushAction = `<a href="#" data-agent-push-draft="${escapeHtml(d.slug)}" style="font-size:12px;color:#16a34a;font-weight:600;text-decoration:underline;">Push to GitHub</a>`;
+			repairAction = `<a href="#" data-agent-iterate-draft="${escapeHtml(d.slug)}" style="font-size:12px;color:#2563eb;text-decoration:underline;">Iterate</a>`;
 		} else if (hasPayload) {
 			resumeAction = `<a href="#" data-agent-resume-draft="${escapeHtml(d.slug)}" style="font-size:12px;color:#7c3aed;text-decoration:underline;">Resume / Iterate</a>`;
 			repairAction = `<a href="#" data-agent-repair="${escapeHtml(d.slug)}" data-agent-repair-error="${escapeAttr((d.errors || []).join(' '))}" style="font-size:12px;color:#ca8a04;text-decoration:underline;">🛠 Repair</a>`;
 		} else {
-			resumeAction = `<a href="#" data-agent-retry-generate="${escapeHtml(d.slug)}" data-agent-retry-prompt="${escapeAttr(d.prompt || '')}" style="font-size:12px;color:#7c3aed;text-decoration:underline;">Retry Generate</a>`;
+			resumeAction = `<a href="#" data-agent-retry-generate="${escapeHtml(d.slug)}" data-agent-retry-prompt="${escapeAttr(d.prompt || '')}" data-agent-retry-name="${escapeAttr(d.name || '')}" data-agent-retry-slug="${escapeAttr(d.slug || '')}" data-agent-retry-desc="" style="font-size:12px;color:#7c3aed;text-decoration:underline;">Retry Generate</a>`;
 			repairAction = '';
 		}
 
@@ -952,14 +1033,115 @@ function renderDraftsFromData(drafts) {
 				</div>
 				${promptBlock}
 				${errorBlock}
+				${renderDraftLog(d.log)}
 				<div style="display:flex;gap:12px;align-items:center;">
 					${resumeAction}
 					${repairAction}
+					${pushAction}
 					<a href="#" data-agent-discard-draft="${escapeHtml(d.slug)}" style="font-size:12px;color:#9b2c2c;text-decoration:underline;margin-left:auto;">Discard draft</a>
 				</div>
 			</div>
 		`;
 	}).join('');
+}
+
+// ── Review Modal ───────────────────────────────────────────────
+
+async function openReviewModal(slug) {
+	const slugEl      = document.getElementById('ep-agent-review-slug');
+	const fileListEl  = document.getElementById('ep-agent-review-file-list');
+	const contentsEl  = document.getElementById('ep-agent-review-file-contents');
+	const summaryEl   = document.getElementById('ep-agent-review-summary');
+	const pushBtn     = document.getElementById('ep-agent-review-push-btn');
+
+	slugEl.textContent = slug;
+	fileListEl.innerHTML = '<div style="padding:8px 12px;color:#9ca3af;">Loading…</div>';
+	contentsEl.textContent = '';
+	summaryEl.textContent = '';
+	pushBtn.disabled = false;
+	pushBtn.textContent = 'Push to GitHub';
+	pushBtn.onclick = null;
+
+	openAppModal('ep-agent-review-modal');
+
+	try {
+		const url = appData.agentDraftUrl.replace('__SLUG__', encodeURIComponent(slug));
+		const data = await apiFetch(url);
+		const files = data.payload?.files || [];
+		const totalBytes = files.reduce((s, f) => s + (f.bytes || 0), 0);
+		summaryEl.textContent = `${files.length} files · ${formatBytes(totalBytes)}${data.payload?.version ? ' · v' + data.payload.version : ''}`;
+
+		fileListEl.innerHTML = files.map((f, i) => {
+			const change = f.change || '';
+			const badge = change === 'modified' ? '~' : change === 'added' ? '+' : change === 'removed' ? '−' : '';
+			const badgeColor = change === 'modified' ? '#ca8a04' : change === 'added' ? '#16a34a' : change === 'removed' ? '#9b2c2c' : '';
+			return `<div data-review-file-index="${i}" style="padding:4px 12px;cursor:pointer;display:flex;gap:6px;align-items:center;border-left:2px solid transparent;" title="${escapeAttr(f.path)}">
+				${badge ? `<span style="color:${badgeColor};font-weight:700;font-size:10px;flex-shrink:0;">${badge}</span>` : ''}
+				<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(f.path)}</span>
+				<span style="margin-left:auto;color:#9ca3af;flex-shrink:0;font-size:10px;">${formatBytes(f.bytes || 0)}</span>
+			</div>`;
+		}).join('');
+
+		// Click a file to show its contents
+		const showFile = (index) => {
+			const f = files[index];
+			if (!f) return;
+			contentsEl.textContent = f.contents || '';
+			// Highlight active row
+			fileListEl.querySelectorAll('[data-review-file-index]').forEach(row => {
+				row.style.background = parseInt(row.dataset.reviewFileIndex) === index ? '#f3f4f6' : '';
+				row.style.borderLeftColor = parseInt(row.dataset.reviewFileIndex) === index ? '#7c3aed' : 'transparent';
+			});
+		};
+		fileListEl.addEventListener('click', (e) => {
+			const row = e.target.closest('[data-review-file-index]');
+			if (row) showFile(parseInt(row.dataset.reviewFileIndex));
+		});
+
+		// Auto-select first file
+		if (files.length > 0) showFile(0);
+
+		// Push button
+		pushBtn.onclick = async () => {
+			if (!confirm(`Push "${slug}" to GitHub? A new release will be created and the plugin installed.`)) return;
+			pushBtn.disabled = true;
+			pushBtn.textContent = 'Pushing…';
+			try {
+				const commitUrl = appData.agentDraftCommitUrl.replace('__SLUG__', encodeURIComponent(slug));
+				const res = await apiFetch(commitUrl, { method: 'POST' });
+				if (res.success) {
+					closeAppModal('ep-agent-review-modal');
+					await refreshDrafts();
+					refreshAppsTable();
+				} else {
+					alert('Push failed: ' + (res.message || 'Unknown error'));
+					pushBtn.disabled = false;
+					pushBtn.textContent = 'Push to GitHub';
+				}
+			} catch (err) {
+				alert('Push failed: ' + (err.message || err));
+				pushBtn.disabled = false;
+				pushBtn.textContent = 'Push to GitHub';
+			}
+		};
+	} catch (err) {
+		fileListEl.innerHTML = `<div style="padding:8px 12px;color:#9b2c2c;">Failed to load draft: ${escapeHtml(err.message || '')}</div>`;
+	}
+}
+
+function renderDraftLog(log) {
+	if (!Array.isArray(log) || log.length === 0) return '';
+	const entries = log.slice(-8).map(e => {
+		const t = e.ts ? new Date(e.ts * 1000).toLocaleTimeString() : '';
+		return `<div style="display:flex;gap:6px;align-items:baseline;">
+			<span style="flex-shrink:0;color:#9ca3af;min-width:60px;">${escapeHtml(t)}</span>
+			<span>${escapeHtml(e.msg || '')}</span>
+		</div>`;
+	}).join('');
+	return `<details style="font-size:11px;color:#6b7280;margin-bottom:8px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:4px;padding:6px 10px;" open>
+		<summary style="cursor:pointer;font-weight:600;margin-bottom:4px;">Activity log</summary>
+		${entries}
+	</details>`;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────

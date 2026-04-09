@@ -234,12 +234,26 @@ if (!defined('ABSPATH')) exit;
 				<button class="ep-modal-close" data-modal="ep-agent-modal">&times;</button>
 			</div>
 			<div class="ep-modal-body">
+				<div style="display:flex;gap:12px;margin-bottom:0;">
+					<div class="ep-build-field" style="flex:1;">
+						<label class="ep-build-label" for="ep-agent-app-name">App Name</label>
+						<input class="ep-build-input" id="ep-agent-app-name" type="text" placeholder="e.g., Team Directory" />
+					</div>
+					<div class="ep-build-field" style="flex:1;">
+						<label class="ep-build-label" for="ep-agent-app-slug">Slug</label>
+						<input class="ep-build-input" id="ep-agent-app-slug" type="text" placeholder="e.g., team-directory" style="font-family:monospace;" />
+					</div>
+				</div>
+				<div class="ep-build-field">
+					<label class="ep-build-label" for="ep-agent-app-description">Description</label>
+					<input class="ep-build-input" id="ep-agent-app-description" type="text" placeholder="Short description of the app" />
+				</div>
 				<div class="ep-build-field">
 					<div style="display:flex;justify-content:space-between;align-items:center;">
 						<label class="ep-build-label" for="ep-agent-prompt">Prompt</label>
 						<span id="ep-agent-model-badge" class="ep-badge" style="font-size:11px;"></span>
 					</div>
-					<textarea class="ep-build-input" id="ep-agent-prompt" rows="5" placeholder="e.g., A staff directory app with a department filter and a card grid layout."></textarea>
+					<textarea class="ep-build-input" id="ep-agent-prompt" rows="4" placeholder="Describe what you want the app to do — layout, features, data sources, etc."></textarea>
 				</div>
 				<div class="ep-scaffold-steps" id="ep-agent-steps"></div>
 				<div id="ep-agent-error" class="ep-build-error" style="display:none"></div>
@@ -415,6 +429,28 @@ if (!defined('ABSPATH')) exit;
 			</div>
 			<div class="ep-apps-modal-foot">
 				<button class="ep-apps-btn ep-apps-btn-cancel" data-modal="ep-agent-jobs-modal">Close</button>
+			</div>
+		</div>
+	</div>
+
+	<!-- Review Draft Modal -->
+	<div class="ep-modal-overlay" id="ep-agent-review-modal" style="display:none">
+		<div class="ep-modal" style="max-width:900px">
+			<div class="ep-modal-header">
+				<div>
+					<span class="ep-modal-title">Review Draft</span>
+					<span class="ep-modal-id" id="ep-agent-review-slug"></span>
+				</div>
+				<button class="ep-modal-close" data-modal="ep-agent-review-modal">&times;</button>
+			</div>
+			<div class="ep-modal-body" style="padding:0;display:flex;min-height:400px;max-height:70vh;">
+				<div id="ep-agent-review-file-list" style="width:240px;flex-shrink:0;border-right:1px solid #e5e7eb;overflow-y:auto;padding:8px 0;font-size:12px;"></div>
+				<div id="ep-agent-review-file-contents" style="flex:1;overflow:auto;background:#1e1e1e;color:#e5e7eb;font-family:monospace;font-size:12px;white-space:pre;padding:12px 16px;"></div>
+			</div>
+			<div class="ep-apps-modal-foot" style="display:flex;gap:8px;">
+				<span id="ep-agent-review-summary" style="font-size:11px;color:#6b7280;margin-right:auto;"></span>
+				<button class="ep-apps-btn ep-apps-btn-cancel" data-modal="ep-agent-review-modal">Close</button>
+				<button class="ep-apps-btn ep-apps-btn-primary" id="ep-agent-review-push-btn" style="background:#16a34a;border-color:#15803d;">Push to GitHub</button>
 			</div>
 		</div>
 	</div>
