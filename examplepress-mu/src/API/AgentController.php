@@ -220,6 +220,36 @@ final class AgentController
         return current_user_can('manage_options');
     }
 
+    /**
+     * Verify the app exists and is iterable (not ejected). Allows
+     * draft-only apps that have a stashed payload but no plugin on disk.
+     */
+    private static function ensureIterable(string $slug): ?\WP_Error
+    {
+        $post = AppRegistry::getPost($slug);
+        if (!$post) {
+            return new \WP_Error('app_not_found', "App {$slug} not found.", ['status' => 404]);
+        }
+
+        // Draft-only apps (never pushed) won't have a manifest on disk.
+        // They iterate/repair against their stashed payload, so skip the
+        // disk check when a stash exists.
+        if (AppRegistry::hasDraftPayload($slug)) {
+            return null;
+        }
+
+        $manifestPath = WP_PLUGIN_DIR . '/' . $slug . '/examplepress.json';
+        if (!is_readable($manifestPath)) {
+            return new \WP_Error('manifest_missing', 'App manifest missing on disk and no draft payload stashed.', ['status' => 404]);
+        }
+        $manifest = (array) json_decode((string) file_get_contents($manifestPath), true);
+        if (empty($manifest['supports_ai_iteration'])) {
+            return new \WP_Error('not_iterable', 'This app has been ejected from AI iteration.', ['status' => 409]);
+        }
+
+        return null;
+    }
+
     private static function ensureFeature(): ?\WP_Error
     {
         if (!FeatureRegistry::enabled('agent')) {
@@ -259,18 +289,8 @@ final class AgentController
         }
 
         $slug = (string) $request->get_param('slug');
-        $record = AppRegistry::get($slug);
-        if (!$record) {
-            return new \WP_Error('app_not_found', "App {$slug} not found.", ['status' => 404]);
-        }
-
-        $manifestPath = WP_PLUGIN_DIR . '/' . $slug . '/examplepress.json';
-        if (!is_readable($manifestPath)) {
-            return new \WP_Error('manifest_missing', 'App manifest missing on disk.', ['status' => 404]);
-        }
-        $manifest = (array) json_decode((string) file_get_contents($manifestPath), true);
-        if (empty($manifest['supports_ai_iteration'])) {
-            return new \WP_Error('not_iterable', 'This app has been ejected from AI iteration.', ['status' => 409]);
+        if ($err = self::ensureIterable($slug)) {
+            return $err;
         }
 
         $jobId = GenerationJob::enqueue([
@@ -293,18 +313,8 @@ final class AgentController
         }
 
         $slug = (string) $request->get_param('slug');
-        $record = AppRegistry::get($slug);
-        if (!$record) {
-            return new \WP_Error('app_not_found', "App {$slug} not found.", ['status' => 404]);
-        }
-
-        $manifestPath = WP_PLUGIN_DIR . '/' . $slug . '/examplepress.json';
-        if (!is_readable($manifestPath)) {
-            return new \WP_Error('manifest_missing', 'App manifest missing on disk.', ['status' => 404]);
-        }
-        $manifest = (array) json_decode((string) file_get_contents($manifestPath), true);
-        if (empty($manifest['supports_ai_iteration'])) {
-            return new \WP_Error('not_iterable', 'This app has been ejected from AI iteration.', ['status' => 409]);
+        if ($err = self::ensureIterable($slug)) {
+            return $err;
         }
 
         $errorContext = [

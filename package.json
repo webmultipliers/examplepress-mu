@@ -10,6 +10,7 @@
     "vite": "^6.3.5"
   },
   "dependencies": {
+    "highlight.js": "^11.11.1",
     "marked": "^15.0.12",
     "monaco-editor": "^0.52.2",
     "nanostores": "^0.11.4"

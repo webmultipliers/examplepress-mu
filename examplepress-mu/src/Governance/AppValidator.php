@@ -806,8 +806,12 @@ final class AppValidator
                     continue;
                 }
 
-                // Safe: starts with a literal string, number, true/false/null, array
+                // Safe: starts with a literal string, number, true/false/null, array,
+                // or a boolean-context helper (empty, isset, is_*, !).
                 if (preg_match('/^(["\']|\d|true\b|false\b|null\b|\[|PHP_)/i', $expr)) {
+                    continue;
+                }
+                if (preg_match('/^!?\s*(?:empty|isset|is_array|is_string|is_numeric|is_int|is_null|in_array|array_key_exists)\s*\(/i', $expr)) {
                     continue;
                 }
 

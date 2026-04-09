@@ -221,6 +221,7 @@ final class AppRegistry
     public const META_DRAFT_ORIGIN_JOB  = '_ep_draft_origin_job_id';
     public const META_DRAFT_HISTORY     = '_ep_draft_history';
     public const META_DRAFT_UPDATED_AT  = '_ep_draft_updated_at';
+    public const META_DRAFT_PROMPT      = '_ep_draft_prompt';
 
     /**
      * Create a placeholder draft post the MOMENT the user clicks
@@ -256,6 +257,7 @@ final class AppRegistry
         update_post_meta($postId, '_ep_source', 'agent');
         update_post_meta($postId, self::META_DRAFT_STATUS, 'drafting');
         update_post_meta($postId, self::META_DRAFT_ORIGIN_JOB, $jobId);
+        update_post_meta($postId, self::META_DRAFT_PROMPT, $prompt);
         update_post_meta($postId, self::META_DRAFT_UPDATED_AT, (int) time());
         update_post_meta($postId, self::META_DRAFT_HISTORY, wp_json_encode([
             self::buildHistoryEntry(array_merge($jobMeta, ['job_id' => $jobId]), 'queued'),
@@ -346,6 +348,10 @@ final class AppRegistry
         }
         update_post_meta($post->ID, self::META_DRAFT_STATUS, $status);
         update_post_meta($post->ID, self::META_DRAFT_UPDATED_AT, (int) time());
+        $prompt = (string) ($jobMeta['prompt'] ?? '');
+        if ($prompt !== '') {
+            update_post_meta($post->ID, self::META_DRAFT_PROMPT, $prompt);
+        }
 
         $history = self::getDraftHistory($slug);
         $history[] = self::buildHistoryEntry($jobMeta, $status);
@@ -518,6 +524,7 @@ final class AppRegistry
         delete_post_meta($post->ID, self::META_DRAFT_PAYLOAD);
         delete_post_meta($post->ID, self::META_DRAFT_STATUS);
         delete_post_meta($post->ID, self::META_DRAFT_ERRORS);
+        delete_post_meta($post->ID, self::META_DRAFT_PROMPT);
         delete_post_meta($post->ID, self::META_DRAFT_UPDATED_AT);
         return true;
     }
@@ -621,12 +628,15 @@ final class AppRegistry
             $draftStatus  = (string) get_post_meta($post->ID, self::META_DRAFT_STATUS, true);
             $errorsRaw    = (string) get_post_meta($post->ID, self::META_DRAFT_ERRORS, true);
             $errors       = $errorsRaw !== '' ? (json_decode($errorsRaw, true) ?: []) : [];
+            $prompt       = (string) get_post_meta($post->ID, self::META_DRAFT_PROMPT, true);
 
             $out[] = [
                 'slug'           => $slug,
                 'name'           => $post->post_title,
                 'post_status'    => $post->post_status,
                 'draft_status'   => $draftStatus,
+                'prompt'         => $prompt,
+                'has_payload'    => !empty($files),
                 'in_flight'      => in_array($draftStatus, ['queued', 'drafting', 'iterating', 'repairing', 'pushing'], true),
                 'updated_at'     => (int) get_post_meta($post->ID, self::META_DRAFT_UPDATED_AT, true),
                 'version'        => (string) ($payload['manifest']['version'] ?? ''),

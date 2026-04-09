@@ -106,6 +106,32 @@ export function initAgent(data) {
 			openIterateModal(resume.dataset.agentResumeDraft);
 			return;
 		}
+		const retry = e.target.closest('[data-agent-retry-generate]');
+		if (retry) {
+			e.preventDefault();
+			const slug = retry.dataset.agentRetryGenerate;
+			const prompt = retry.dataset.agentRetryPrompt || '';
+			// Discard the failed placeholder, then open generate with prompt pre-filled.
+			try {
+				const url = appData.agentDraftUrl.replace('__SLUG__', encodeURIComponent(slug));
+				await apiFetch(url, { method: 'DELETE' });
+			} catch (_) { /* best-effort cleanup */ }
+			const promptEl = document.getElementById('ep-agent-prompt');
+			if (promptEl) promptEl.value = prompt;
+			openAppModal('ep-agent-modal');
+			await refreshDrafts();
+			return;
+		}
+		const copyBtn = e.target.closest('[data-copy-prompt]');
+		if (copyBtn) {
+			e.preventDefault();
+			navigator.clipboard.writeText(copyBtn.dataset.copyPrompt).then(() => {
+				const orig = copyBtn.textContent;
+				copyBtn.textContent = 'Copied';
+				setTimeout(() => { copyBtn.textContent = orig; }, 1500);
+			});
+			return;
+		}
 		const discard = e.target.closest('[data-agent-discard-draft]');
 		if (discard) {
 			e.preventDefault();
@@ -878,20 +904,35 @@ function renderDraftsFromData(drafts) {
 			? `<span style="display:inline-block;background:${statusColor};color:white;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;margin-left:4px;">⟳ ${escapeHtml(status)} · ${elapsedLabel}</span>`
 			: (status ? `<span style="display:inline-block;background:${statusColor};color:white;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;margin-left:4px;">${escapeHtml(status)}</span>` : '');
 
+		// Prompt line with copy button so the user can see what was asked.
+		const promptBlock = d.prompt
+			? `<div style="font-size:11px;color:#6b7280;margin-bottom:8px;display:flex;align-items:baseline;gap:6px;">
+				<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeAttr(d.prompt)}">${escapeHtml(d.prompt.length > 120 ? d.prompt.slice(0, 120) + '…' : d.prompt)}</span>
+				<button type="button" data-copy-prompt="${escapeAttr(d.prompt)}" style="flex-shrink:0;background:none;border:1px solid #d1d5db;border-radius:4px;padding:1px 6px;font-size:10px;color:#6b7280;cursor:pointer;" title="Copy prompt">Copy</button>
+			</div>`
+			: '';
+
 		// Errors panel for failed drafts.
 		const errorBlock = (status === 'failed' && Array.isArray(d.errors) && d.errors.length)
 			? `<div style="font-size:11px;color:#9b2c2c;margin-bottom:8px;background:#fef2f2;border-left:2px solid #fecaca;padding:6px 10px;border-radius:0 4px 4px 0;">${escapeHtml(d.errors.join(' · ').slice(0, 300))}</div>`
 			: '';
 
-		// Action gating: Resume only works once the draft has a payload
-		// (status=review). While in-flight, show "Working…" instead.
+		// Action gating: Resume/Repair only work once the draft has a
+		// payload (status=review or failed-with-payload). When a generate
+		// failed before producing files, only "Retry" makes sense.
 		const canResume = status === 'review' || status === 'failed';
-		const resumeAction = canResume
-			? `<a href="#" data-agent-resume-draft="${escapeHtml(d.slug)}" style="font-size:12px;color:#7c3aed;text-decoration:underline;">Resume / Iterate</a>`
-			: `<span style="font-size:12px;color:#9ca3af;">Working… (you can leave this page)</span>`;
-		const repairAction = canResume
-			? `<a href="#" data-agent-repair="${escapeHtml(d.slug)}" data-agent-repair-error="${escapeAttr((d.errors || []).join(' '))}" style="font-size:12px;color:#ca8a04;text-decoration:underline;">🛠 Repair</a>`
-			: '';
+		const hasPayload = !!d.has_payload;
+		let resumeAction, repairAction;
+		if (!canResume) {
+			resumeAction = `<span style="font-size:12px;color:#9ca3af;">Working… (you can leave this page)</span>`;
+			repairAction = '';
+		} else if (hasPayload) {
+			resumeAction = `<a href="#" data-agent-resume-draft="${escapeHtml(d.slug)}" style="font-size:12px;color:#7c3aed;text-decoration:underline;">Resume / Iterate</a>`;
+			repairAction = `<a href="#" data-agent-repair="${escapeHtml(d.slug)}" data-agent-repair-error="${escapeAttr((d.errors || []).join(' '))}" style="font-size:12px;color:#ca8a04;text-decoration:underline;">🛠 Repair</a>`;
+		} else {
+			resumeAction = `<a href="#" data-agent-retry-generate="${escapeHtml(d.slug)}" data-agent-retry-prompt="${escapeAttr(d.prompt || '')}" style="font-size:12px;color:#7c3aed;text-decoration:underline;">Retry Generate</a>`;
+			repairAction = '';
+		}
 
 		return `
 			<div style="border:1px solid #e5e7eb;border-radius:6px;padding:12px 16px;margin-bottom:8px;background:${inFlight ? '#fafaff' : '#fafafa'};">
@@ -909,6 +950,7 @@ function renderDraftsFromData(drafts) {
 				<div style="font-size:11px;color:#9ca3af;margin-bottom:8px;">
 					${d.files_count || 0} files · last update ${escapeHtml(ts)}${csLine}
 				</div>
+				${promptBlock}
 				${errorBlock}
 				<div style="display:flex;gap:12px;align-items:center;">
 					${resumeAction}
