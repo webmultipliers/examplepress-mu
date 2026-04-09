@@ -241,51 +241,21 @@ final class LLMClient
     }
 
     /**
-     * Build the system prompt. Embeds the manifest schema, available
-     * Blockstudio primitives (when available), and a short style guide.
+     * Build the system prompt by compiling the agent skill curriculum.
+     * SkillRegistry loads markdown files from agent/skills/, MergeTags
+     * resolves {{tag}} placeholders against the live install, and the
+     * compiled body becomes the LLM system prompt.
      *
      * @param array<string,mixed> $context
      */
     private static function systemPrompt(array $context): string
     {
+        $base = SkillRegistry::compile($context);
+
         $isIterate = ($context['mode'] ?? '') === 'iterate';
-
-        $base = <<<PROMPT
-You are the ExamplePress Generative UI Agent. You produce production-ready
-WordPress companion apps that target the ExamplePress MU kernel and
-Blockstudio (PHP + HTML + Tailwind utility classes — NO React, NO Webpack,
-NO Node build step).
-
-OUTPUT CONTRACT
-- Return STRICT JSON matching the provided schema. No prose.
-- The "manifest" must be a valid examplepress.json with name, slug,
-  description, version (semver), and supports_ai_iteration: true.
-- The "files" array contains every file in the app, paths relative to
-  the plugin root. Always include the plugin bootstrap PHP file and
-  examplepress.json itself.
-- Each PHP file must start with <?php and a strict_types declare.
-- File paths MUST stay under the plugin root. No absolute paths,
-  no `..`, no leading slashes.
-
-SECURITY (HARD REJECT — your output will be discarded if violated)
-- NEVER use eval, exec, system, shell_exec, passthru, proc_open, popen,
-  backtick operators, or base64_decode on a variable.
-- NEVER touch wp_options or wp_posts to store block markup or config.
-  All logic and markup is file-based.
-- NEVER request banned permissions in the manifest.
-
-STYLE
-- Use Blockstudio block conventions: each block lives under blocks/{slug}/
-  with an index.php that registers the block via Blockstudio's API.
-- Use Tailwind utility classes for styling. No inline <script> tags,
-  no inline <style> blocks.
-- Escape all output via esc_html / esc_attr / wp_kses_post.
-- Prefer small, composable blocks over monolithic templates.
-PROMPT;
-
         if ($isIterate && !empty($context['manifest']['slug'])) {
             $slug = (string) $context['manifest']['slug'];
-            $base .= "\n\nITERATION MODE\n- You are editing the existing app \"{$slug}\".";
+            $base .= "\n\n## ITERATION MODE\n\n- You are editing the existing app \"{$slug}\".";
             $base .= "\n- Preserve the slug. Bump the version (patch level by default).";
             $base .= "\n- Return the COMPLETE new file tree, not a diff.";
         }

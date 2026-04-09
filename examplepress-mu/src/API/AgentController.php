@@ -6,6 +6,8 @@ namespace ExamplePress\MU\API;
 
 use ExamplePress\MU\Agent\GenerationJob;
 use ExamplePress\MU\Agent\LLMClient;
+use ExamplePress\MU\Agent\MergeTags;
+use ExamplePress\MU\Agent\SkillRegistry;
 use ExamplePress\MU\Config\FeatureRegistry;
 use ExamplePress\MU\Infrastructure\PrismContainer;
 use ExamplePress\MU\Infrastructure\AppRegistry;
@@ -28,6 +30,7 @@ use ExamplePress\MU\Infrastructure\GitHub;
  *   GET    /agent/jobs/by-slug/{slug}                             → all jobs for an app (chat thread)
  *   GET    /agent/providers                                       → provider catalog
  *   POST   /agent/test                                            → { ok, message }
+ *   GET    /agent/skills                                          → compiled curriculum + resolved merge tags
  */
 final class AgentController
 {
@@ -126,6 +129,12 @@ final class AgentController
         register_rest_route('examplepress-mu/v1', '/agent/test', [
             'methods'             => 'POST',
             'callback'            => [self::class, 'test'],
+            'permission_callback' => [self::class, 'permissionCheck'],
+        ]);
+
+        register_rest_route('examplepress-mu/v1', '/agent/skills', [
+            'methods'             => 'GET',
+            'callback'            => [self::class, 'skills'],
             'permission_callback' => [self::class, 'permissionCheck'],
         ]);
     }
@@ -367,6 +376,30 @@ final class AgentController
             }
         }
         return new \WP_Error('file_not_found', "File {$path} not in draft.", ['status' => 404]);
+    }
+
+    /**
+     * Preview the compiled skill curriculum + resolved merge tags.
+     * Used by the Settings → AI Agent skills inspector so operators
+     * can see exactly what the LLM is seeing.
+     */
+    public static function skills(): \WP_REST_Response
+    {
+        $files = SkillRegistry::collectFiles();
+        $fileSummaries = [];
+        foreach ($files as $relPath => $absPath) {
+            $bytes = @filesize($absPath);
+            $fileSummaries[] = [
+                'name'  => $relPath,
+                'bytes' => is_int($bytes) ? $bytes : 0,
+            ];
+        }
+
+        return rest_ensure_response([
+            'files'      => $fileSummaries,
+            'tags'       => MergeTags::all(),
+            'compiled'   => SkillRegistry::compile([]),
+        ]);
     }
 
     public static function test(): \WP_REST_Response|\WP_Error

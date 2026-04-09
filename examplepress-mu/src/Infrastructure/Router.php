@@ -75,6 +75,23 @@ final class Router
             10,
             2
         );
+
+        // Public global helper companion apps use to claim a routing
+        // namespace + URL conditions. Thin wrapper around RouteRegistry
+        // so the template repo's documented call site works as-is.
+        if (!function_exists('examplepress_register_route_origin')) {
+            /**
+             * Register a route origin for an ExamplePress companion app.
+             *
+             * @param string                       $namespace  Block namespace this app claims (matches the plugin slug).
+             * @param array<string, callable>      $routes     Map of slug => is-this-current-page condition.
+             * @param int                          $priority   Lower wins; default 10.
+             */
+            function examplepress_register_route_origin(string $namespace, array $routes, int $priority = 10): void
+            {
+                RouteRegistry::register($namespace, $routes, $priority);
+            }
+        }
     }
 
     /**

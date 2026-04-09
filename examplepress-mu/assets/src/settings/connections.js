@@ -109,6 +109,58 @@ async function loadAgentModels(providerId, preferredModel) {
 	).join('');
 }
 
+async function inspectSkills(btn) {
+	const inspectorEl = document.getElementById('ep-skills-inspector');
+	const bodyEl = document.getElementById('ep-skills-inspector-body');
+	if (!inspectorEl || !bodyEl) return;
+
+	const url = (conn().agent && conn().agent.skillsUrl) || '';
+	if (!url) {
+		bodyEl.textContent = 'No skills URL — save settings first.';
+		inspectorEl.open = true;
+		inspectorEl.style.display = '';
+		return;
+	}
+
+	btn.disabled = true;
+	btn.textContent = 'Loading…';
+	bodyEl.innerHTML = '<div style="color:#9ca3af;font-size:12px;">Loading…</div>';
+	inspectorEl.open = true;
+	inspectorEl.style.display = '';
+
+	try {
+		const res = await fetch(url, { headers: { 'X-WP-Nonce': data().nonce } });
+		const payload = await res.json();
+		const escape = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+
+		const filesHtml = (payload.files || []).map(f =>
+			`<li><code>${escape(f.name)}</code> <span style="color:#9ca3af;">(${f.bytes} B)</span></li>`
+		).join('');
+
+		const tagsHtml = Object.entries(payload.tags || {}).map(([tag, value]) => {
+			const trimmed = String(value || '').slice(0, 200);
+			const ellipsis = String(value || '').length > 200 ? '…' : '';
+			return `<tr><td style="padding:4px 8px;font-family:monospace;font-size:11px;color:#7c3aed;vertical-align:top;">{{${escape(tag)}}}</td><td style="padding:4px 8px;font-family:monospace;font-size:11px;white-space:pre-wrap;">${escape(trimmed)}${ellipsis}</td></tr>`;
+		}).join('');
+
+		bodyEl.innerHTML = `
+			<div style="font-size:12px;color:#374151;">
+				<p style="margin:6px 0;"><strong>Loaded files (${(payload.files || []).length})</strong></p>
+				<ul style="margin:0 0 12px 18px;padding:0;">${filesHtml}</ul>
+				<p style="margin:6px 0;"><strong>Resolved merge tags</strong> — these are the live values your generations see right now</p>
+				<table style="width:100%;border-collapse:collapse;border:1px solid #e5e7eb;background:#fafafa;">${tagsHtml}</table>
+				<p style="margin:12px 0 6px;"><strong>Compiled curriculum (${(payload.compiled || '').length} chars)</strong></p>
+				<pre style="max-height:300px;overflow:auto;background:#1e1e1e;color:#e5e7eb;padding:10px;border-radius:4px;font-size:11px;white-space:pre-wrap;">${escape(payload.compiled || '')}</pre>
+			</div>
+		`;
+	} catch (err) {
+		bodyEl.innerHTML = `<div style="color:#9b2c2c;font-size:12px;">Failed to load skills: ${err.message}</div>`;
+	} finally {
+		btn.disabled = false;
+		btn.textContent = 'Inspect Skills';
+	}
+}
+
 function testAgent(btn) {
 	const statusEl = document.getElementById('ep-test-agent-status');
 	btn.disabled = true;
@@ -373,4 +425,7 @@ export function initConnectionsUI() {
 
 	const testAgentBtn = document.getElementById('ep-test-agent-btn');
 	if (testAgentBtn) testAgentBtn.addEventListener('click', () => testAgent(testAgentBtn));
+
+	const inspectBtn = document.getElementById('ep-inspect-skills-btn');
+	if (inspectBtn) inspectBtn.addEventListener('click', () => inspectSkills(inspectBtn));
 }

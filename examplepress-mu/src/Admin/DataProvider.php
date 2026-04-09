@@ -979,6 +979,7 @@ final class DataProvider
                 'error'    => \ExamplePress\MU\Infrastructure\PrismContainer::lastError(),
                 'testUrl'      => esc_url_raw(rest_url('examplepress-mu/v1/agent/test')),
                 'providersUrl' => esc_url_raw(rest_url('examplepress-mu/v1/agent/providers')),
+                'skillsUrl'    => esc_url_raw(rest_url('examplepress-mu/v1/agent/skills')),
             ],
         ];
     }

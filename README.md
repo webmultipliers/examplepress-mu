@@ -17,6 +17,14 @@ mu-plugins/
     ├── composer.json                # PSR-4: ExamplePress\MU\ → src/
     ├── config/
     │   └── prism.php                # Minimal Prism config (providers, request_timeout) — read by PrismContainer
+    ├── agent/
+    │   └── skills/                  # Markdown curriculum the LLM reads as system prompt (16 files, 00–95)
+    │       ├── 00-overview.md
+    │       ├── 10-plugin-bootstrap.md
+    │       ├── 20-blockstudio-blocks.md
+    │       ├── 30-design-tokens.md
+    │       ├── 40-manifest.md
+    │       └── 50-security-and-style.md
     ├── src/
     │   ├── Kernel.php               # Single boot entry point
     │   ├── Config/
@@ -46,7 +54,9 @@ mu-plugins/
     │   ├── Agent/
     │   │   ├── LLMClient.php        # Thin wrapper over Prism (Anthropic + OpenAI), structured JSON enforcement
     │   │   ├── GeneratedApp.php     # Value object — manifest + files + commit_message + version
-    │   │   └── GenerationJob.php    # Action Scheduler job: drafting → writing_code → pushing → done
+    │   │   ├── GenerationJob.php    # Action Scheduler job: drafting → writing_code → pushing → done
+    │   │   ├── SkillRegistry.php    # Loads + compiles agent/skills/*.md curriculum into the system prompt
+    │   │   └── MergeTags.php        # Resolves {{color_palette}}, {{theme_slug}}, etc. against the live install
     │   ├── API/
     │   │   ├── CompanionPluginController.php # Shared base for demo controller (and any future companion plugin controllers)
     │   │   ├── ThemeUpdateController.php     # REST surface for ThemeUpdateProvider (/theme-update/*)
@@ -108,9 +118,11 @@ mu-plugins/
 
 **Generative UI Agent** (optional, off by default):
 - **PrismContainer** — boots a hand-rolled Laravel container with the absolute minimum services Prism needs (`container`, `config`, `events`, `http`, `support`). Skips `illuminate/foundation` entirely — `MinimalApplication` is a 32-method shim implementing `Illuminate\Contracts\Foundation\Application`. Total agent-stack vendor footprint: ~23 MB. Boot is gated by the `agent` feature flag and fail-soft: a runtime error logs and auto-disables the feature for the request rather than fataling the kernel.
-- **LLMClient** — wraps Prism's structured-output API. Provider (`anthropic`/`openai`), model, and API key are read at call-time from `ep_agent_provider`/`ep_agent_model`/`ep_agent_api_key` options. The system prompt embeds a strict JSON schema (manifest + files + commit_message + version), the Blockstudio style guide, and the zero-trust security contract.
+- **LLMClient** — wraps Prism's structured-output API. Provider (`anthropic`/`openai`), model, and API key are read at call-time from `ep_agent_provider`/`ep_agent_model`/`ep_agent_api_key` options. The system prompt is built from the **skill curriculum** (`SkillRegistry::compile()`), not hardcoded — so operators can extend the LLM's instructions without touching PHP.
+- **SkillRegistry** — loads markdown files from `examplepress-mu/agent/skills/` in lexicographic order, runs each through `MergeTags::apply()` to substitute live-install values, and concatenates them with section dividers. Filterable via `examplepress_mu_agent_skill_paths`, `examplepress_mu_agent_skill_files`, and `examplepress_mu_agent_skill_body`.
+- **MergeTags** — resolves `{{tag}}` placeholders in skill files against the live install. Built-in tags: `{{site_name}}`, `{{site_url}}`, `{{admin_url}}`, `{{kernel_version}}`, `{{theme_slug}}`, `{{theme_name}}`, `{{theme_version}}`, `{{color_palette}}`, `{{color_slugs}}`, `{{wp_color_vars}}`, `{{font_families}}`, `{{font_sizes}}`, `{{wp_font_size_vars}}`, `{{wide_size}}`, `{{content_size}}`, `{{spacing_sizes}}`, `{{available_blocks}}`. Operators add more via the `examplepress_mu_agent_merge_tags` filter.
 - **GenerationJob** — Action Scheduler job runner. Job state lives in a single capped `ep_agent_jobs` option (50 entries, FIFO eviction — no `wp_posts`/serialized-markup bloat). Pipeline: validate → `GitHub::createRepo` → `GitHub::pushFiles` → `GitHub::createRelease` → `AppRegistry::set` → `AppUpdateProvider::flush`. Iteration mode loads the current repo tree via `GitHub::fetchRepoTree` and chains a new commit on top.
-- **AppValidator::validateGenerated** — zero-trust check on every LLM payload. Hard rejects on `eval`/`exec`/`system`/`shell_exec`/`passthru`/`proc_open`/`popen`/backtick operators/`base64_decode($var)`, plus path traversal, absolute paths, and non-boolean `supports_ai_iteration`. Filterable via `examplepress_mu_validate_generated_app`.
+- **AppValidator::validateGenerated** — zero-trust check on every LLM payload. 20 static rules: banned PHP tokens, escaping allowlist (every `<?php echo $var` must be wrapped), slug consistency (manifest = bootstrap filename = `Text Domain:` header), block-name derivation (`{slug}/template-X` for `app/templates/X/`), route-origin → template correspondence, file count caps (50 per app, 8 per block folder), `usesContext`/`parent` resolution, `useBlockProps` on every template root, no superglobals/write APIs/outbound HTTP in templates, no React/JSX/Gutenberg JS imports, no hardcoded hex colors or pixel font sizes, no forbidden Tailwind design-token classes, attribute type allowlist, `db.php` requires explicit `userScoped`. Filterable via `examplepress_mu_validate_generated_app`.
 - **Eject button** — flips `supports_ai_iteration` to `false` in the manifest, commits, releases a new patch version. The chat panel locks; the repo is now developer-mode only.
 
 **Infrastructure**:
@@ -129,7 +141,7 @@ mu-plugins/
 - Demo/Updater: plugin lifecycle management
 - Filesystem: directory tree, file read/write (sandboxed, 1MB limit)
 - Notifications: archive/restore
-- Agent: `POST /agent/generate`, `POST /agent/iterate/{slug}`, `POST /agent/eject/{slug}`, `GET /agent/jobs/{id}`, `GET /agent/jobs`, `GET /agent/providers` — gated by the `agent` feature flag, returns `503 agent_unavailable` if PrismContainer failed to boot
+- Agent: `POST /agent/generate`, `POST /agent/iterate/{slug}`, `POST /agent/eject/{slug}`, `POST /agent/jobs/{id}/commit|discard|retry`, `GET /agent/jobs/{id}`, `GET /agent/jobs/{id}/file`, `GET /agent/jobs`, `GET /agent/jobs/by-slug/{slug}`, `GET /agent/providers`, `POST /agent/test`, `GET /agent/skills` — gated by the `agent` feature flag, returns `503 agent_unavailable` if PrismContainer failed to boot
 
 **Admin UI** — 10 pages built with Vite + vanilla JS:
 - Apps, Theme, Navigation, Dependencies, Library, Settings, Notifications, System, Docs, Editor
@@ -166,9 +178,36 @@ The agent is an optional feature that lets site owners describe a companion app 
 
 - **Minimal Prism container.** A `PrismContainer` + `MinimalApplication` shim wires only the six `illuminate/*` sub-packages Prism touches at runtime. Agent stack vendor footprint: ~23 MB.
 - **No `wp_posts` bloat.** All generated code lives only in Git. The kernel only persists an `ep_app` CPT row (slug + version + GitHub coordinates) — identical to manually scaffolded apps.
-- **Zero-trust validation.** Every LLM payload runs through `AppValidator::validateGenerated()` before any disk or GitHub call. Banned tokens (`eval`, `exec`, `system`, `shell_exec`, `passthru`, `proc_open`, `popen`, backticks, `base64_decode($var)`) are hard-rejected. Filterable via `examplepress_mu_validate_generated_app`.
+- **Zero-trust validation.** Every LLM payload runs through `AppValidator::validateGenerated()` before any disk or GitHub call — 20 static rules covering banned tokens, escaping, slug consistency, block-name derivation, route correspondence, file caps, write/HTTP/superglobal bans, design-token enforcement, and attribute type allowlist. Filterable via `examplepress_mu_validate_generated_app`.
 - **Action Scheduler, not WP-Cron.** Async jobs are enqueued via `as_enqueue_async_action()` so generations survive PHP request timeouts. Requires real server-side cron in production (not WP pseudo-cron).
 - **Fail-soft boot.** If `PrismContainer::boot()` throws (missing vendor, bad config), it logs and auto-disables the `agent` feature filter for the request. Manual scaffold mode (`+ New App`) keeps working.
+
+### Skill curriculum
+
+The agent's system prompt is **not hardcoded**. It is compiled at every generation from a directory of plain markdown files under [examplepress-mu/agent/skills/](examplepress-mu/agent/skills/), loaded in lexicographic order. Each file may contain `{{merge_tag}}` placeholders that resolve at compile time against the live install — color palette, font sizes, theme slug, registered Blockstudio blocks, CSS custom properties, etc. — so the LLM generates code that matches the actual environment instead of guessing.
+
+The default curriculum is 16 files numbered `00`–`95`, covering the output contract, app skeleton, iteration mode, routing, Blockstudio blocks and attributes, state-source decision tree, block context, design tokens, i18n/a11y, file-based pages, full-stack databases and the Interactivity API, security, and a self-check. **Adding a skill** is just dropping a `.md` file into the directory. Operators on a custom theme can ship their own curriculum extension via:
+
+```php
+add_filter('examplepress_mu_agent_skill_paths', function (array $paths): array {
+    $paths[] = get_template_directory() . '/agent-skills';
+    return $paths;
+});
+```
+
+**Adding a merge tag**:
+
+```php
+add_filter('examplepress_mu_agent_merge_tags', function (array $tags): array {
+    $tags['client_name']     = fn () => get_option('client_name', '');
+    $tags['preferred_icons'] = fn () => ['heroicons', 'lucide'];
+    return $tags;
+});
+```
+
+Tag values that are scalars are inserted as-is; arrays/objects are pretty-printed JSON. Resolver exceptions are caught and logged so a misbehaving tag never crashes a generation job.
+
+**Inspecting the compiled output** — the Settings → AI Agent panel includes an **Inspect Skills** button that shows the loaded files, every resolved merge tag with its current value, and the full compiled curriculum. Backed by `GET /agent/skills`.
 
 ### Configuration
 
@@ -269,6 +308,10 @@ All MU-owned hooks use the `examplepress_mu_` prefix. Theme-owned hooks (`exampl
 | `examplepress_mu_validate_app` | filter | Final accept/reject decision for an app manifest |
 | `examplepress_mu_validate_generated_app` | filter | Final accept/reject decision for an AI-generated app payload (manifest + files), with banned-token + path-traversal checks already applied |
 | `examplepress_mu_agent_iterate_max_files` | filter | Cap on the number of repo files fed back to the LLM during iteration (default: 80) |
+| `examplepress_mu_agent_skill_paths` | filter | Directories scanned for `*.md` skill files (default: kernel `agent/skills/` only) |
+| `examplepress_mu_agent_skill_files` | filter | Final loaded skill file map (`relPath => absPath`) — add or remove specific files |
+| `examplepress_mu_agent_skill_body` | filter | Final compiled curriculum body before it becomes the LLM system prompt |
+| `examplepress_mu_agent_merge_tags` | filter | Merge-tag resolver map (`tag => callable`) — add or override built-in tags |
 | `examplepress_mu_feature_agent` | filter | Toggle the Generative UI Agent on/off (also bridged to the `ep_agent_enabled` option) |
 | `examplepress_mu_banned_permissions` | filter | List of permissions that disqualify a manifest |
 | `examplepress_mu_app_scan_excludes` | filter | Plugin-directory entries to skip during app discovery |

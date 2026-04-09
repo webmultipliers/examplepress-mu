@@ -140,8 +140,13 @@ $ep_github_app_available = \ExamplePress\MU\Infrastructure\GitHub::appIsConfigur
 						<div class="ep-conn-field">
 							<div class="ep-troy-auth-row">
 								<button class="ep-demo-btn" id="ep-test-agent-btn" type="button">Test Agent</button>
+								<button class="ep-demo-btn" id="ep-inspect-skills-btn" type="button">Inspect Skills</button>
 								<span class="ep-troy-auth-status" id="ep-test-agent-status"></span>
 							</div>
+							<details id="ep-skills-inspector" style="margin-top:10px;display:none;">
+								<summary style="cursor:pointer;font-weight:600;font-size:13px;">Compiled curriculum &amp; merge tags</summary>
+								<div id="ep-skills-inspector-body" style="margin-top:8px;"></div>
+							</details>
 						</div>
 						<div class="ep-conn-field">
 							<div class="ep-troy-auth-row">
