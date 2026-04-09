@@ -29,5 +29,16 @@
         "allow-plugins": {
             "php-http/discovery": true
         }
+    },
+    "scripts": {
+        "build:php": "@composer install --no-dev --optimize-autoloader --classmap-authoritative --no-interaction --prefer-dist",
+        "build:js": [
+            "npm ci",
+            "npm run build"
+        ],
+        "build": [
+            "@build:php",
+            "@build:js"
+        ]
     }
 }

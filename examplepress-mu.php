@@ -2,7 +2,7 @@
 /**
  * Plugin Name: ExamplePress MU Bootstrapper
  * Description: Thin loader that fetches and executes the ExamplePress platform kernel from GitHub.
- * Version:     2.2.3
+ * Version:     2.2.4
  * Author:      Web Multipliers
  * Author URI:  https://github.com/webmultipliers
  */
@@ -288,10 +288,15 @@ final class ExamplePress_MU_Bootstrapper {
                 if ( function_exists( 'add_action' ) ) {
                     add_action( 'admin_init', [ self::class, 'maybeHandleManualClear' ] );
                 }
-                $resetUrl = self::buildClearQuarantineUrl();
+                // Build URL lazily inside the notice callback — at boot-action
+                // dispatch time we're still inside wp-settings.php, so pluggable
+                // functions (wp_create_nonce) and the current user aren't loaded
+                // yet. A nonce minted now would either be empty or seeded with
+                // user ID 0 and would fail verification when the admin clicks
+                // it later as a logged-in user. Defer until admin_notices.
                 self::registerAdminNotice(
                     'ExamplePress MU: the kernel appears to be fataling on boot and no previous version is available to roll back to. The kernel has been quarantined. Restore from backup or reinstall — '
-                    . '<a href="' . esc_url( $resetUrl ) . '">Reset boot counter and try again</a>.'
+                    . '<a href="{{EP_MU_RESET_URL}}">Reset boot counter and try again</a>.'
                 );
                 return;
 
@@ -471,6 +476,11 @@ final class ExamplePress_MU_Bootstrapper {
         add_action( 'admin_notices', static function () use ( $message ): void {
             if ( ! current_user_can( 'manage_options' ) ) {
                 return;
+            }
+            // Late-bind the quarantine reset URL — nonce must be minted with
+            // a real logged-in user, which is only true at admin_notices time.
+            if ( strpos( $message, '{{EP_MU_RESET_URL}}' ) !== false ) {
+                $message = str_replace( '{{EP_MU_RESET_URL}}', esc_url( self::buildClearQuarantineUrl() ), $message );
             }
             // Allow a single anchor (used by the quarantine recovery link).
             // Everything else is stripped — these messages are loader-internal,

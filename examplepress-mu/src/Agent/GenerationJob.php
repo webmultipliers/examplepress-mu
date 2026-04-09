@@ -79,6 +79,28 @@ final class GenerationJob
 
         self::saveJob($job);
 
+        // Pre-create the draft post BEFORE the LLM call so the user
+        // can see "draft in progress" in the panel and navigate away
+        // without losing the work. For generate-mode jobs we create a
+        // placeholder (real slug isn't known until the LLM returns).
+        // For iterate/repair jobs we just bump the existing post's
+        // status meta — the post already exists.
+        $jobMeta = [
+            'job_id' => $jobId,
+            'mode'   => $job['mode'],
+            'prompt' => $job['prompt'],
+        ];
+        if ($job['mode'] === 'generate') {
+            AppRegistry::createPlaceholderDraft($jobId, $jobMeta);
+        } elseif ($job['target_slug'] !== '') {
+            $statusMap = [
+                'iterate' => 'iterating',
+                'repair'  => 'repairing',
+            ];
+            $running = $statusMap[$job['mode']] ?? 'drafting';
+            AppRegistry::markDraftRunning($job['target_slug'], $running, $jobMeta);
+        }
+
         if (function_exists('as_enqueue_async_action')) {
             as_enqueue_async_action(self::HOOK, [$jobId], 'examplepress-agent');
         } else {
@@ -130,6 +152,60 @@ final class GenerationJob
      * Phase 2 entry point: push the drafted files to GitHub. Called by
      * AgentController::commit() after the user clicks "Push".
      */
+    /**
+     * Commit a stashed draft directly from the post (no job state
+     * required). Used when the user resumes a draft from the panel
+     * after the originating job has been GC'd from ep_agent_jobs.
+     * Synthesizes a one-shot job record from the post-meta payload
+     * and routes through the existing commit handlers.
+     */
+    public static function commitFromStash(string $slug): bool
+    {
+        $payload = AppRegistry::getDraftPayload($slug);
+        if (!$payload) {
+            return false;
+        }
+
+        $post = AppRegistry::getPost($slug);
+        if (!$post) {
+            return false;
+        }
+
+        $jobId = wp_generate_uuid4();
+        $mode  = $post->post_status === 'draft' ? 'generate' : 'iterate';
+
+        $job = [
+            'id'          => $jobId,
+            'mode'        => $mode,
+            'prompt'      => '',
+            'target_slug' => $slug,
+            'user_id'     => get_current_user_id(),
+            'auto_commit' => false,
+            'status'      => 'running',
+            'step'        => self::STEP_PUSHING,
+            'errors'      => [],
+            'draft'       => $payload,
+            'result'      => null,
+            'provider'    => '',
+            'model'       => '',
+            'created_at'  => time(),
+            'updated_at'  => time(),
+        ];
+        self::saveJob($job);
+
+        try {
+            if ($mode === 'generate') {
+                self::commitGenerate($job);
+            } else {
+                self::commitIterate($job);
+            }
+            return true;
+        } catch (\Throwable $e) {
+            self::fail($jobId, $e->getMessage());
+            return false;
+        }
+    }
+
     public static function commit(string $jobId): bool
     {
         $job = self::getJob($jobId);
@@ -164,6 +240,23 @@ final class GenerationJob
         if (!$job) {
             return false;
         }
+
+        // Drop the matching draft post / pending stash so the audit
+        // trail matches the user's intent. Prefer the job's target_slug
+        // (set after finalization) but fall back to a job-ID lookup
+        // for placeholders that never got finalized — those still have
+        // their generated agent-draft-* slug.
+        $slug = (string) ($job['target_slug'] ?? '');
+        if ($slug === '') {
+            $placeholder = AppRegistry::getPostByJobId($jobId);
+            if ($placeholder) {
+                $slug = (string) get_post_meta($placeholder->ID, '_ep_plugin_slug', true);
+            }
+        }
+        if ($slug !== '') {
+            AppRegistry::discardDraft($slug);
+        }
+
         $jobs = (array) get_option(self::OPTION_JOBS, []);
         unset($jobs[$jobId]);
         update_option(self::OPTION_JOBS, $jobs, false);
@@ -183,26 +276,55 @@ final class GenerationJob
 
         self::updateJob($jobId, ['step' => self::STEP_WRITING]);
 
-        $validation = AppValidator::validateGenerated($generated->manifest, $generated->files);
-        if (!$validation['ok']) {
-            self::fail($jobId, 'Validation failed: ' . implode(' ', $validation['errors']));
+        $slug = (string) ($generated->manifest['slug'] ?? '');
+        if ($slug === '') {
+            self::fail($jobId, 'Generated manifest is missing slug.');
             return;
         }
 
-        $slug = (string) $generated->manifest['slug'];
+        $payload = self::draftPayload($generated);
+        $jobMeta = [
+            'job_id' => $jobId,
+            'mode'   => 'generate',
+            'prompt' => (string) ($job['prompt'] ?? ''),
+        ];
 
-        // Conflict guard: refuse to draft a generate-mode job whose slug
-        // collides with an existing app. The user should iterate instead.
-        if (AppRegistry::get($slug)) {
-            self::fail($jobId, "An app with slug \"{$slug}\" already exists. Use iterate mode to modify it.");
+        // Finalize the placeholder draft post created in enqueue().
+        // Renames it to the real slug from the manifest, populates the
+        // payload meta. Returns false if the slug collides with a
+        // different existing app — in which case we mark the
+        // placeholder failed and the user can rename or discard it
+        // from the panel.
+        $finalized = AppRegistry::finalizePlaceholderDraft($jobId, $slug, $payload, $jobMeta);
+        if (!$finalized) {
+            // Find the placeholder by job ID so we can record the failure
+            // against it (the slug lookup won't work — we never finalized).
+            $placeholder = AppRegistry::getPostByJobId($jobId);
+            if ($placeholder) {
+                $placeholderSlug = (string) get_post_meta($placeholder->ID, '_ep_plugin_slug', true);
+                AppRegistry::recordDraftFailure($placeholderSlug, [
+                    "Slug \"{$slug}\" collides with an existing app. Discard this draft or use iterate mode.",
+                ], $jobMeta);
+            }
+            self::fail($jobId, "Slug \"{$slug}\" collides with an existing app.");
             return;
         }
 
         self::updateJob($jobId, [
-            'status'      => 'drafted',
-            'step'        => self::STEP_REVIEW,
             'target_slug' => $slug,
-            'draft'       => self::draftPayload($generated),
+            'draft'       => $payload,
+        ]);
+
+        $validation = AppValidator::validateGenerated($generated->manifest, $generated->files);
+        if (!$validation['ok']) {
+            AppRegistry::recordDraftFailure($slug, $validation['errors'], $jobMeta);
+            self::fail($jobId, 'Validation failed: ' . implode(' ', $validation['errors']));
+            return;
+        }
+
+        self::updateJob($jobId, [
+            'status' => 'drafted',
+            'step'   => self::STEP_REVIEW,
         ]);
     }
 
@@ -219,10 +341,99 @@ final class GenerationJob
             return;
         }
 
+        $post = AppRegistry::getPost($slug);
+        if (!$post) {
+            self::fail($jobId, "App {$slug} is not registered.");
+            return;
+        }
+
+        $jobMeta = [
+            'job_id' => $jobId,
+            'mode'   => 'iterate',
+            'prompt' => (string) ($job['prompt'] ?? ''),
+        ];
+
+        $context = self::loadIterationContext($slug, $jobId);
+        if ($context === null) {
+            return; // failed already inside loadIterationContext
+        }
+        ['files' => $files, 'manifest' => $manifest, 'parent_sha' => $parentSha, 'owner_repo' => $ownerRepo, 'source' => $source] = $context;
+
+        if (empty($manifest['supports_ai_iteration'])) {
+            self::fail($jobId, "App {$slug} does not support AI iteration (ejected to developer mode).");
+            return;
+        }
+
+        $generated = LLMClient::iterateApp((string) ($job['prompt'] ?? ''), $files, $manifest);
+
+        self::updateJob($jobId, ['step' => self::STEP_WRITING]);
+
+        $newVersion = $generated->version ?: self::bumpPatch((string) ($manifest['version'] ?? '1.0.0'));
+
+        $payload = self::draftPayload($generated);
+        $payload['version']    = $newVersion;
+        $payload['parent_sha'] = $parentSha;
+        $payload['owner_repo'] = $ownerRepo;
+        $payload['source']     = $source; // 'stash' or 'github' — UI hint
+
+        // Stash on the post BEFORE validating so the user can repair
+        // a bad iteration without losing it.
+        AppRegistry::stashDraftPayload($slug, $payload, $jobMeta);
+
+        self::updateJob($jobId, ['draft' => $payload]);
+
+        $validation = AppValidator::validateGenerated($generated->manifest, $generated->files);
+        if (!$validation['ok']) {
+            AppRegistry::recordDraftFailure($slug, $validation['errors'], $jobMeta);
+            self::fail($jobId, 'Validation failed: ' . implode(' ', $validation['errors']));
+            return;
+        }
+
+        self::updateJob($jobId, [
+            'status' => 'drafted',
+            'step'   => self::STEP_REVIEW,
+        ]);
+    }
+
+    /**
+     * Resolve the iteration source for a slug. Prefers any pending
+     * stashed draft payload (so iterating against an unpushed draft
+     * works); falls back to the live GitHub tree for published apps.
+     *
+     * Returns null after calling self::fail() if no source is available.
+     *
+     * @return array{
+     *   files:array<int,array{path:string,contents:string}>,
+     *   manifest:array<string,mixed>,
+     *   parent_sha:string,
+     *   owner_repo:string,
+     *   source:string
+     * }|null
+     */
+    private static function loadIterationContext(string $slug, string $jobId): ?array
+    {
+        $stashed = AppRegistry::getDraftPayload($slug);
+        if (is_array($stashed) && !empty($stashed['files'])) {
+            // Iterate against the in-memory stash. parent_sha + owner_repo
+            // come from the previous stash if present (so iterations chain
+            // correctly when committed); otherwise blank means "first push".
+            return [
+                'files'      => array_map(static fn($f) => [
+                    'path'     => (string) ($f['path'] ?? ''),
+                    'contents' => (string) ($f['contents'] ?? ''),
+                ], $stashed['files']),
+                'manifest'   => is_array($stashed['manifest'] ?? null) ? $stashed['manifest'] : [],
+                'parent_sha' => (string) ($stashed['parent_sha'] ?? ''),
+                'owner_repo' => (string) ($stashed['owner_repo'] ?? ''),
+                'source'     => 'stash',
+            ];
+        }
+
+        // No stash — fall back to GitHub. Requires the app to be published.
         $record = AppRegistry::get($slug);
         if (!$record || empty($record['github']['owner_repo'])) {
-            self::fail($jobId, "App {$slug} is not registered or has no GitHub repo.");
-            return;
+            self::fail($jobId, "App {$slug} has no stashed draft and no GitHub repo to iterate against.");
+            return null;
         }
         $ownerRepo = (string) $record['github']['owner_repo'];
 
@@ -231,49 +442,33 @@ final class GenerationJob
             ? (array) json_decode((string) file_get_contents($manifestPath), true)
             : [];
 
-        if (empty($manifest['supports_ai_iteration'])) {
-            self::fail($jobId, "App {$slug} does not support AI iteration (ejected to developer mode).");
-            return;
-        }
-
         $tree = GitHub::fetchRepoTree($ownerRepo);
         if (is_wp_error($tree)) {
             self::fail($jobId, 'Fetch repo tree: ' . $tree->get_error_message());
-            return;
+            return null;
         }
 
-        $generated = LLMClient::iterateApp($job['prompt'], $tree['files'], $manifest);
-
-        self::updateJob($jobId, ['step' => self::STEP_WRITING]);
-
-        $validation = AppValidator::validateGenerated($generated->manifest, $generated->files);
-        if (!$validation['ok']) {
-            self::fail($jobId, 'Validation failed: ' . implode(' ', $validation['errors']));
-            return;
-        }
-
-        $newVersion = $generated->version ?: self::bumpPatch((string) ($manifest['version'] ?? '1.0.0'));
-
-        $draft = self::draftPayload($generated);
-        $draft['version']    = $newVersion;
-        $draft['parent_sha'] = $tree['sha'];
-        $draft['owner_repo'] = $ownerRepo;
-
-        self::updateJob($jobId, [
-            'status' => 'drafted',
-            'step'   => self::STEP_REVIEW,
-            'draft'  => $draft,
-        ]);
+        return [
+            'files'      => $tree['files'],
+            'manifest'   => $manifest,
+            'parent_sha' => (string) $tree['sha'],
+            'owner_repo' => $ownerRepo,
+            'source'     => 'github',
+        ];
     }
 
     /**
      * Repair mode: targeted fix for a reported error.
      *
-     * Same shape as draftIterate (loads repo tree, drafts via LLM,
-     * stores draft for review) but uses LLMClient::repairApp() with
-     * a strict minimum-change system prompt and computes a per-file
-     * change summary so the preview UI can highlight which files
-     * were touched.
+     * Same shape as draftIterate (loads source, drafts via LLM, stashes
+     * for review) but uses LLMClient::repairApp() with a strict
+     * minimum-change system prompt and computes a per-file change
+     * summary so the preview UI can highlight which files were touched.
+     *
+     * Repair can run against EITHER a stashed draft (the user is
+     * fixing a never-pushed draft that the validator rejected) OR a
+     * live GitHub tree (the user is fixing an installed app that
+     * crashed at runtime). Both flow through loadIterationContext().
      *
      * @param array<string,mixed> $job
      */
@@ -293,63 +488,49 @@ final class GenerationJob
             return;
         }
 
-        $record = AppRegistry::get($slug);
-        if (!$record || empty($record['github']['owner_repo'])) {
-            self::fail($jobId, "App {$slug} is not registered or has no GitHub repo.");
+        $jobMeta = [
+            'job_id' => $jobId,
+            'mode'   => 'repair',
+            'prompt' => (string) ($job['prompt'] ?? ''),
+        ];
+
+        $context = self::loadIterationContext($slug, $jobId);
+        if ($context === null) {
             return;
         }
-        $ownerRepo = (string) $record['github']['owner_repo'];
-
-        $manifestPath = WP_PLUGIN_DIR . '/' . $slug . '/examplepress.json';
-        $manifest = is_readable($manifestPath)
-            ? (array) json_decode((string) file_get_contents($manifestPath), true)
-            : [];
+        ['files' => $files, 'manifest' => $manifest, 'parent_sha' => $parentSha, 'owner_repo' => $ownerRepo, 'source' => $source] = $context;
 
         if (empty($manifest['supports_ai_iteration'])) {
             self::fail($jobId, "App {$slug} does not support AI iteration (ejected to developer mode).");
             return;
         }
 
-        $tree = GitHub::fetchRepoTree($ownerRepo);
-        if (is_wp_error($tree)) {
-            self::fail($jobId, 'Fetch repo tree: ' . $tree->get_error_message());
-            return;
-        }
-
         $generated = LLMClient::repairApp(
             (string) ($job['prompt'] ?? ''),
-            $tree['files'],
+            $files,
             $manifest,
             $errorContext
         );
 
         self::updateJob($jobId, ['step' => self::STEP_WRITING]);
 
-        $validation = AppValidator::validateGenerated($generated->manifest, $generated->files);
-        if (!$validation['ok']) {
-            self::fail($jobId, 'Validation failed: ' . implode(' ', $validation['errors']));
-            return;
-        }
-
         $newVersion = $generated->version ?: self::bumpPatch((string) ($manifest['version'] ?? '1.0.0'));
 
-        $draft = self::draftPayload($generated);
-        $draft['version']    = $newVersion;
-        $draft['parent_sha'] = $tree['sha'];
-        $draft['owner_repo'] = $ownerRepo;
+        $payload = self::draftPayload($generated);
+        $payload['version']    = $newVersion;
+        $payload['parent_sha'] = $parentSha;
+        $payload['owner_repo'] = $ownerRepo;
+        $payload['source']     = $source;
 
-        // Compute per-file change summary so the preview UI can show
-        // "X files modified, Y unchanged" — the surgical contract for
-        // repair mode is "touch as little as possible". This is the
-        // single most important UX signal for the user reviewing.
+        // Per-file change summary — repair's surgical contract is "touch
+        // as little as possible". The user reviews the badges in the UI
+        // and rejects any repair that touched too many files.
         $previousByPath = [];
-        foreach ($tree['files'] as $f) {
+        foreach ($files as $f) {
             $previousByPath[(string) $f['path']] = (string) $f['contents'];
         }
-        $modified = 0;
-        $added    = 0;
-        $unchanged = 0;
-        foreach ($draft['files'] as &$file) {
+        $modified = 0; $added = 0; $unchanged = 0;
+        foreach ($payload['files'] as &$file) {
             $path = (string) ($file['path'] ?? '');
             if (!isset($previousByPath[$path])) {
                 $file['change'] = 'added';
@@ -364,17 +545,28 @@ final class GenerationJob
         }
         unset($file);
         $removed = count($previousByPath) - $unchanged - $modified;
-        $draft['change_summary'] = [
+        $payload['change_summary'] = [
             'modified'  => $modified,
             'added'     => $added,
             'unchanged' => $unchanged,
             'removed'   => max(0, $removed),
         ];
 
+        // Stash on the post BEFORE validating.
+        AppRegistry::stashDraftPayload($slug, $payload, $jobMeta);
+
+        self::updateJob($jobId, ['draft' => $payload]);
+
+        $validation = AppValidator::validateGenerated($generated->manifest, $generated->files);
+        if (!$validation['ok']) {
+            AppRegistry::recordDraftFailure($slug, $validation['errors'], $jobMeta);
+            self::fail($jobId, 'Validation failed: ' . implode(' ', $validation['errors']));
+            return;
+        }
+
         self::updateJob($jobId, [
             'status' => 'drafted',
             'step'   => self::STEP_REVIEW,
-            'draft'  => $draft,
         ]);
     }
 
@@ -446,16 +638,18 @@ final class GenerationJob
             return;
         }
 
-        AppRegistry::set($slug, [
-            'name'        => $name,
-            'description' => $description,
-            'version'     => $draft['version'],
-            'source'      => 'agent',
-            'github'      => [
-                'owner_repo' => $repo['owner_repo'],
-                'repo_id'    => (string) ($repo['repo_id'] ?? ''),
-                'html_url'   => $repo['html_url'] ?? '',
-            ],
+        // Promote the draft post to publish + stamp GitHub coordinates.
+        // The draft post was created during draftGenerate() and contains
+        // the canonical payload + history. promoteToPublished() also
+        // clears the pending payload meta as the live state IS the
+        // canonical version now.
+        AppRegistry::promoteToPublished($slug, [
+            'owner_repo' => $repo['owner_repo'],
+            'repo_id'    => (string) ($repo['repo_id'] ?? ''),
+            'html_url'   => $repo['html_url'] ?? '',
+        ], [
+            'job_id' => $jobId,
+            'mode'   => 'generate',
         ]);
         AppUpdateProvider::flush();
 
@@ -485,6 +679,67 @@ final class GenerationJob
         $newVersion = (string) $draft['version'];
         $files      = self::draftFilesForPush($draft['files']);
 
+        // Iteration/repair against a never-pushed draft: no parent SHA,
+        // no GitHub repo yet. Create the repo + initial commit, same as
+        // commitGenerate. The pending stash is what we're pushing.
+        if ($ownerRepo === '') {
+            $manifest    = is_array($draft['manifest'] ?? null) ? $draft['manifest'] : [];
+            $description = (string) ($manifest['description'] ?? '');
+
+            $repo = GitHub::createRepo($slug, $description);
+            if (is_wp_error($repo)) {
+                self::fail($jobId, 'GitHub repo: ' . $repo->get_error_message());
+                return;
+            }
+            $ownerRepo = (string) $repo['owner_repo'];
+
+            $push = GitHub::pushFiles(
+                ownerRepo: $ownerRepo,
+                files: $files,
+                message: (string) $draft['commit_message'],
+            );
+            if (is_wp_error($push)) {
+                self::fail($jobId, 'GitHub push: ' . $push->get_error_message());
+                return;
+            }
+
+            $release = GitHub::createRelease(
+                ownerRepo: $ownerRepo,
+                tag: 'v' . $newVersion,
+                name: 'v' . $newVersion,
+                body: (string) $draft['commit_message'],
+            );
+            if (is_wp_error($release)) {
+                self::fail($jobId, 'GitHub release: ' . $release->get_error_message());
+                return;
+            }
+
+            AppRegistry::promoteToPublished($slug, [
+                'owner_repo' => $ownerRepo,
+                'repo_id'    => (string) ($repo['repo_id'] ?? ''),
+                'html_url'   => $repo['html_url'] ?? '',
+            ], [
+                'job_id' => $jobId,
+                'mode'   => (string) ($job['mode'] ?? 'iterate'),
+            ]);
+            AppUpdateProvider::flush();
+
+            self::updateJob($jobId, [
+                'status' => 'success',
+                'step'   => self::STEP_DONE,
+                'result' => [
+                    'slug'       => $slug,
+                    'version'    => $newVersion,
+                    'owner_repo' => $ownerRepo,
+                    'commit_sha' => (string) $push['commit_sha'],
+                ],
+            ]);
+            return;
+        }
+
+        // Standard iteration/repair against an already-published app:
+        // chain a new commit on top of the parent SHA, tag a release,
+        // bump the version on the post, and clear the pending stash.
         $push = GitHub::pushFiles(
             ownerRepo: $ownerRepo,
             files: $files,
@@ -507,7 +762,23 @@ final class GenerationJob
             return;
         }
 
-        AppRegistry::set($slug, ['version' => $newVersion]);
+        // Bump the version on the post + record a 'pushed' history entry,
+        // then clear the pending stash. The live app IS the canonical
+        // version now; the next iteration starts from a clean slate.
+        $post = AppRegistry::getPost($slug);
+        if ($post) {
+            update_post_meta($post->ID, '_ep_version', $newVersion);
+            $history = AppRegistry::getDraftHistory($slug);
+            $history[] = [
+                'event'      => 'pushed',
+                'job_id'     => $jobId,
+                'mode'       => (string) ($job['mode'] ?? 'iterate'),
+                'created_at' => time(),
+                'version'    => $newVersion,
+            ];
+            update_post_meta($post->ID, AppRegistry::META_DRAFT_HISTORY, wp_json_encode($history));
+        }
+        AppRegistry::clearDraftPayload($slug);
         AppUpdateProvider::flush();
 
         self::updateJob($jobId, [

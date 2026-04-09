@@ -178,7 +178,11 @@ final class AppRegistry
             'post_type'   => 'ep_app',
             'post_title'  => $data['name'] ?? $slug,
             'post_name'   => $slug,
-            'post_status' => 'draft',
+            // Apps created via the legacy scaffold/connect path are
+            // immediately considered "live" — they have a plugin
+            // directory on disk and (usually) a GitHub repo. The agent
+            // path uses createDraft() / promoteToPublished() instead.
+            'post_status' => 'publish',
         ]);
 
         if (is_wp_error($postId)) {
@@ -189,6 +193,468 @@ final class AppRegistry
         self::writeMeta($postId, $data);
 
         return self::toRecord(get_post($postId));
+    }
+
+    // ── Draft-stash API ─────────────────────────────────────────────
+    //
+    // The agent flow uses these methods to persist generated payloads
+    // as ep_app posts BEFORE they're pushed to GitHub. Lifecycle:
+    //
+    //   createDraft         → wp_insert_post(status=draft) + payload meta
+    //   stashDraftPayload   → updateDraftPayload + history append
+    //   promoteToPublished  → status=publish + clear payload + write github
+    //   clearDraftPayload   → drop the payload meta after a successful push
+    //                          (used on iteration/repair pushes where the
+    //                          post is already publish)
+    //
+    // The post is the canonical audit trail. The Action Scheduler job
+    // record (ep_agent_jobs) is just transient worker state — if you
+    // lose it, the draft is still recoverable from the post meta.
+
+    /**
+     * Meta keys used by the draft-stash layer. Centralised so the JS
+     * data provider can read the same keys without magic strings.
+     */
+    public const META_DRAFT_PAYLOAD     = '_ep_draft_payload';
+    public const META_DRAFT_STATUS      = '_ep_draft_status';
+    public const META_DRAFT_ERRORS      = '_ep_draft_errors';
+    public const META_DRAFT_ORIGIN_JOB  = '_ep_draft_origin_job_id';
+    public const META_DRAFT_HISTORY     = '_ep_draft_history';
+    public const META_DRAFT_UPDATED_AT  = '_ep_draft_updated_at';
+
+    /**
+     * Create a placeholder draft post the MOMENT the user clicks
+     * Generate, BEFORE the LLM call runs. The post exists immediately
+     * so the user can navigate away, see it in the drafts panel, and
+     * come back later — no more "trapped in the modal" experience.
+     *
+     * The real slug isn't known until the LLM returns the manifest, so
+     * we use a placeholder slug derived from the job ID and overwrite
+     * it via finalizePlaceholderDraft() once the LLM completes.
+     *
+     * @param array<string,mixed> $jobMeta { mode, prompt }
+     */
+    public static function createPlaceholderDraft(string $jobId, array $jobMeta = []): int
+    {
+        $shortId = substr(preg_replace('/[^a-z0-9]/i', '', $jobId) ?? '', 0, 8);
+        $placeholderSlug = 'agent-draft-' . $shortId;
+        $prompt = (string) ($jobMeta['prompt'] ?? '');
+        $title = $prompt !== '' ? mb_substr($prompt, 0, 80) : 'Agent draft (in progress)';
+
+        $postId = wp_insert_post([
+            'post_type'   => 'ep_app',
+            'post_title'  => $title,
+            'post_name'   => $placeholderSlug,
+            'post_status' => 'draft',
+        ]);
+
+        if (is_wp_error($postId) || !$postId) {
+            return 0;
+        }
+
+        update_post_meta($postId, '_ep_plugin_slug', $placeholderSlug);
+        update_post_meta($postId, '_ep_source', 'agent');
+        update_post_meta($postId, self::META_DRAFT_STATUS, 'drafting');
+        update_post_meta($postId, self::META_DRAFT_ORIGIN_JOB, $jobId);
+        update_post_meta($postId, self::META_DRAFT_UPDATED_AT, (int) time());
+        update_post_meta($postId, self::META_DRAFT_HISTORY, wp_json_encode([
+            self::buildHistoryEntry(array_merge($jobMeta, ['job_id' => $jobId]), 'queued'),
+        ]));
+
+        return (int) $postId;
+    }
+
+    /**
+     * Look up a draft post by its originating job ID. Used during the
+     * placeholder → finalized handoff: the job runner calls this to
+     * find the draft it should populate.
+     */
+    public static function getPostByJobId(string $jobId): ?\WP_Post
+    {
+        if ($jobId === '') {
+            return null;
+        }
+        $posts = get_posts([
+            'post_type'      => 'ep_app',
+            'posts_per_page' => 1,
+            'post_status'    => 'any',
+            'meta_key'       => self::META_DRAFT_ORIGIN_JOB,
+            'meta_value'     => $jobId,
+            'no_found_rows'  => true,
+        ]);
+        return $posts[0] ?? null;
+    }
+
+    /**
+     * Finalize a placeholder draft once the LLM returns the real
+     * payload. Renames the post (post_name + meta) to the manifest
+     * slug, populates the payload, and updates the title to the
+     * manifest name.
+     *
+     * Returns false if no placeholder exists for this job ID, OR if
+     * the target slug collides with a different existing app.
+     *
+     * @param array<string,mixed> $payload
+     * @param array<string,mixed> $jobMeta
+     */
+    public static function finalizePlaceholderDraft(string $jobId, string $realSlug, array $payload, array $jobMeta = []): bool
+    {
+        $post = self::getPostByJobId($jobId);
+        if (!$post) {
+            return false;
+        }
+
+        // Reject if a DIFFERENT post already owns the real slug.
+        $conflict = self::getPost($realSlug);
+        if ($conflict && (int) $conflict->ID !== (int) $post->ID) {
+            return false;
+        }
+
+        $manifest = is_array($payload['manifest'] ?? null) ? $payload['manifest'] : [];
+        $name = (string) ($manifest['name'] ?? $realSlug);
+
+        wp_update_post([
+            'ID'         => $post->ID,
+            'post_title' => $name,
+            'post_name'  => $realSlug,
+        ]);
+
+        update_post_meta($post->ID, '_ep_plugin_slug', $realSlug);
+        update_post_meta($post->ID, '_ep_description', (string) ($manifest['description'] ?? ''));
+        update_post_meta($post->ID, '_ep_version', (string) ($manifest['version'] ?? '1.0.0'));
+        update_post_meta($post->ID, self::META_DRAFT_PAYLOAD, wp_json_encode($payload));
+        update_post_meta($post->ID, self::META_DRAFT_STATUS, 'review');
+        update_post_meta($post->ID, self::META_DRAFT_UPDATED_AT, (int) time());
+
+        $history = self::getDraftHistory($realSlug);
+        $history[] = self::buildHistoryEntry(array_merge($jobMeta, ['job_id' => $jobId]), 'drafted');
+        update_post_meta($post->ID, self::META_DRAFT_HISTORY, wp_json_encode($history));
+
+        return true;
+    }
+
+    /**
+     * Set the in-flight status on an existing draft post. Used by
+     * iterate/repair to mark "LLM call started" without yet having
+     * a payload to stash.
+     */
+    public static function markDraftRunning(string $slug, string $status, array $jobMeta = []): bool
+    {
+        $post = self::getPost($slug);
+        if (!$post) {
+            return false;
+        }
+        update_post_meta($post->ID, self::META_DRAFT_STATUS, $status);
+        update_post_meta($post->ID, self::META_DRAFT_UPDATED_AT, (int) time());
+
+        $history = self::getDraftHistory($slug);
+        $history[] = self::buildHistoryEntry($jobMeta, $status);
+        update_post_meta($post->ID, self::META_DRAFT_HISTORY, wp_json_encode($history));
+        return true;
+    }
+
+    /**
+     * Create a new draft app post with a stashed payload. Used by the
+     * agent on initial generation, BEFORE the LLM payload has been
+     * pushed to GitHub. Returns the post ID, or 0 on failure.
+     *
+     * @param array<string,mixed> $payload The {manifest,files,...} payload from GenerationJob::draftPayload().
+     * @param array<string,mixed> $jobMeta Optional context: { job_id, mode, prompt }.
+     */
+    public static function createDraft(string $slug, array $payload, array $jobMeta = []): int
+    {
+        // If a post already exists for this slug, refuse — the caller
+        // should detect the conflict and either iterate (against an
+        // existing draft) or fail (against a published app).
+        if (self::getPost($slug)) {
+            return 0;
+        }
+
+        $manifest = is_array($payload['manifest'] ?? null) ? $payload['manifest'] : [];
+        $name = (string) ($manifest['name'] ?? $slug);
+
+        $postId = wp_insert_post([
+            'post_type'   => 'ep_app',
+            'post_title'  => $name,
+            'post_name'   => $slug,
+            'post_status' => 'draft',
+        ]);
+
+        if (is_wp_error($postId) || !$postId) {
+            return 0;
+        }
+
+        update_post_meta($postId, '_ep_plugin_slug', $slug);
+        update_post_meta($postId, '_ep_description', (string) ($manifest['description'] ?? ''));
+        update_post_meta($postId, '_ep_version', (string) ($manifest['version'] ?? '1.0.0'));
+        update_post_meta($postId, '_ep_source', 'agent');
+
+        // Payload + origin job + history seed.
+        update_post_meta($postId, self::META_DRAFT_PAYLOAD, wp_json_encode($payload));
+        update_post_meta($postId, self::META_DRAFT_STATUS, 'review');
+        update_post_meta($postId, self::META_DRAFT_ORIGIN_JOB, (string) ($jobMeta['job_id'] ?? ''));
+        update_post_meta($postId, self::META_DRAFT_UPDATED_AT, (int) time());
+        update_post_meta($postId, self::META_DRAFT_HISTORY, wp_json_encode([
+            self::buildHistoryEntry($jobMeta, 'drafted'),
+        ]));
+
+        return (int) $postId;
+    }
+
+    /**
+     * Stash a new payload on an existing app post. Used by iteration
+     * and repair flows. Works on both draft (never-pushed) AND publish
+     * (already-pushed) posts — the payload meta is independent of
+     * post status.
+     *
+     * @param array<string,mixed> $payload
+     * @param array<string,mixed> $jobMeta
+     */
+    public static function stashDraftPayload(string $slug, array $payload, array $jobMeta = []): bool
+    {
+        $post = self::getPost($slug);
+        if (!$post) {
+            return false;
+        }
+
+        update_post_meta($post->ID, self::META_DRAFT_PAYLOAD, wp_json_encode($payload));
+        update_post_meta($post->ID, self::META_DRAFT_STATUS, 'review');
+        update_post_meta($post->ID, self::META_DRAFT_UPDATED_AT, (int) time());
+
+        $history = self::getDraftHistory($slug);
+        $history[] = self::buildHistoryEntry($jobMeta, 'drafted');
+        update_post_meta($post->ID, self::META_DRAFT_HISTORY, wp_json_encode($history));
+
+        return true;
+    }
+
+    /**
+     * Read the stashed draft payload off a post.
+     *
+     * @return array<string,mixed>|null
+     */
+    public static function getDraftPayload(string $slug): ?array
+    {
+        $post = self::getPost($slug);
+        if (!$post) {
+            return null;
+        }
+        $raw = (string) get_post_meta($post->ID, self::META_DRAFT_PAYLOAD, true);
+        if ($raw === '') {
+            return null;
+        }
+        $decoded = json_decode($raw, true);
+        return is_array($decoded) ? $decoded : null;
+    }
+
+    /**
+     * Has this app got a pending stashed revision waiting for review?
+     */
+    public static function hasDraftPayload(string $slug): bool
+    {
+        return self::getDraftPayload($slug) !== null;
+    }
+
+    /**
+     * Promote a never-pushed draft to publish status after a successful
+     * GitHub push. Sets the github coordinates, bumps version, and
+     * clears the draft payload meta.
+     *
+     * @param array<string,mixed> $githubData { owner_repo, repo_id, html_url }
+     * @param array<string,mixed> $jobMeta
+     */
+    public static function promoteToPublished(string $slug, array $githubData, array $jobMeta = []): bool
+    {
+        $post = self::getPost($slug);
+        if (!$post) {
+            return false;
+        }
+
+        $updateArgs = ['ID' => $post->ID];
+        if ($post->post_status !== 'publish') {
+            $updateArgs['post_status'] = 'publish';
+        }
+        if (count($updateArgs) > 1) {
+            wp_update_post($updateArgs);
+        }
+
+        // Pull the version from the stashed payload before clearing it.
+        $payload = self::getDraftPayload($slug) ?? [];
+        if (!empty($payload['manifest']['version'])) {
+            update_post_meta($post->ID, '_ep_version', (string) $payload['manifest']['version']);
+        }
+
+        // Stamp GitHub coords.
+        if (!empty($githubData['owner_repo'])) {
+            update_post_meta($post->ID, '_ep_github_owner_repo', (string) $githubData['owner_repo']);
+        }
+        if (isset($githubData['repo_id'])) {
+            update_post_meta($post->ID, '_ep_github_repo_id', (string) $githubData['repo_id']);
+        }
+        if (!empty($githubData['html_url'])) {
+            update_post_meta($post->ID, '_ep_github_html_url', (string) $githubData['html_url']);
+        }
+
+        // Append a history entry recording the push BEFORE we clear the payload.
+        $history = self::getDraftHistory($slug);
+        $history[] = self::buildHistoryEntry($jobMeta, 'pushed');
+        update_post_meta($post->ID, self::META_DRAFT_HISTORY, wp_json_encode($history));
+
+        self::clearDraftPayload($slug);
+        return true;
+    }
+
+    /**
+     * Drop the stashed payload + status meta. Called after a successful
+     * push (the live state IS the canonical version now) or when the
+     * user explicitly discards a pending revision.
+     */
+    public static function clearDraftPayload(string $slug): bool
+    {
+        $post = self::getPost($slug);
+        if (!$post) {
+            return false;
+        }
+        delete_post_meta($post->ID, self::META_DRAFT_PAYLOAD);
+        delete_post_meta($post->ID, self::META_DRAFT_STATUS);
+        delete_post_meta($post->ID, self::META_DRAFT_ERRORS);
+        delete_post_meta($post->ID, self::META_DRAFT_UPDATED_AT);
+        return true;
+    }
+
+    /**
+     * Record a draft failure on the post (validator errors, push errors,
+     * etc.) so the UI can show what went wrong without consulting the
+     * Action Scheduler job state.
+     *
+     * @param array<int,string>   $errors
+     * @param array<string,mixed> $jobMeta
+     */
+    public static function recordDraftFailure(string $slug, array $errors, array $jobMeta = []): bool
+    {
+        $post = self::getPost($slug);
+        if (!$post) {
+            return false;
+        }
+        update_post_meta($post->ID, self::META_DRAFT_STATUS, 'failed');
+        update_post_meta($post->ID, self::META_DRAFT_ERRORS, wp_json_encode(array_values($errors)));
+        update_post_meta($post->ID, self::META_DRAFT_UPDATED_AT, (int) time());
+
+        $history = self::getDraftHistory($slug);
+        $entry = self::buildHistoryEntry($jobMeta, 'failed');
+        $entry['errors'] = array_values($errors);
+        $history[] = $entry;
+        update_post_meta($post->ID, self::META_DRAFT_HISTORY, wp_json_encode($history));
+
+        return true;
+    }
+
+    /**
+     * Discard a draft entirely. If the post has never been pushed
+     * (status = draft), the post is deleted. If it's already been
+     * pushed once (status = publish), only the pending payload is
+     * dropped — the live app stays.
+     */
+    public static function discardDraft(string $slug): bool
+    {
+        $post = self::getPost($slug);
+        if (!$post) {
+            return false;
+        }
+        if ($post->post_status === 'draft') {
+            wp_delete_post($post->ID, true);
+            return true;
+        }
+        return self::clearDraftPayload($slug);
+    }
+
+    /**
+     * Read the audit trail of every draft action against this app.
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    public static function getDraftHistory(string $slug): array
+    {
+        $post = self::getPost($slug);
+        if (!$post) {
+            return [];
+        }
+        $raw = (string) get_post_meta($post->ID, self::META_DRAFT_HISTORY, true);
+        if ($raw === '') {
+            return [];
+        }
+        $decoded = json_decode($raw, true);
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    /**
+     * List every app that has a stashed pending payload (regardless of
+     * post status). Used by the Drafts surface in the admin.
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    public static function listDraftsPending(): array
+    {
+        // Find every post with EITHER a stashed payload OR a non-empty
+        // draft_status (which covers in-flight placeholders that haven't
+        // produced a payload yet). meta_query gives us OR semantics.
+        $posts = get_posts([
+            'post_type'      => 'ep_app',
+            'post_status'    => ['draft', 'publish'],
+            'posts_per_page' => 100,
+            'no_found_rows'  => true,
+            'meta_query'     => [
+                'relation' => 'OR',
+                [ 'key' => self::META_DRAFT_PAYLOAD, 'compare' => 'EXISTS' ],
+                [ 'key' => self::META_DRAFT_STATUS,  'compare' => 'EXISTS' ],
+            ],
+        ]);
+
+        $out = [];
+        foreach ($posts as $post) {
+            $slug = (string) get_post_meta($post->ID, '_ep_plugin_slug', true);
+            if ($slug === '') {
+                continue;
+            }
+            $payload      = self::getDraftPayload($slug) ?? [];
+            $files        = is_array($payload['files'] ?? null) ? $payload['files'] : [];
+            $draftStatus  = (string) get_post_meta($post->ID, self::META_DRAFT_STATUS, true);
+            $errorsRaw    = (string) get_post_meta($post->ID, self::META_DRAFT_ERRORS, true);
+            $errors       = $errorsRaw !== '' ? (json_decode($errorsRaw, true) ?: []) : [];
+
+            $out[] = [
+                'slug'           => $slug,
+                'name'           => $post->post_title,
+                'post_status'    => $post->post_status,
+                'draft_status'   => $draftStatus,
+                'in_flight'      => in_array($draftStatus, ['queued', 'drafting', 'iterating', 'repairing', 'pushing'], true),
+                'updated_at'     => (int) get_post_meta($post->ID, self::META_DRAFT_UPDATED_AT, true),
+                'version'        => (string) ($payload['manifest']['version'] ?? ''),
+                'files_count'    => count($files),
+                'change_summary' => is_array($payload['change_summary'] ?? null) ? $payload['change_summary'] : null,
+                'origin_job_id'  => (string) get_post_meta($post->ID, self::META_DRAFT_ORIGIN_JOB, true),
+                'errors'         => is_array($errors) ? $errors : [],
+            ];
+        }
+
+        // Newest first so the in-flight job is at the top.
+        usort($out, static fn($a, $b) => ($b['updated_at'] ?? 0) <=> ($a['updated_at'] ?? 0));
+        return $out;
+    }
+
+    /**
+     * @param array<string,mixed> $jobMeta
+     * @return array<string,mixed>
+     */
+    private static function buildHistoryEntry(array $jobMeta, string $event): array
+    {
+        return [
+            'event'      => $event,
+            'job_id'     => (string) ($jobMeta['job_id'] ?? ''),
+            'mode'       => (string) ($jobMeta['mode'] ?? ''),
+            'prompt'     => (string) ($jobMeta['prompt'] ?? ''),
+            'created_at' => (int) time(),
+        ];
     }
 
     public static function forget(string $slug): bool

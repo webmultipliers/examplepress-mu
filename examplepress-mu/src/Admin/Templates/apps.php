@@ -70,6 +70,13 @@ if (!defined('ABSPATH')) exit;
 				<div id="ep-agent-runtime-warning" class="ep-build-error" style="display:none;margin-top:8px;"></div>
 			</section>
 
+			<!-- Pending Drafts (AI generations awaiting review or push) -->
+			<section class="ep-section" id="ep-agent-drafts-section" style="display:none;">
+				<div class="ep-section-header"><span class="ep-section-title">Pending Drafts</span><div class="ep-section-line"></div></div>
+				<p class="ep-section-desc">AI-generated apps stashed as drafts. Resume to review or repair, push to commit to GitHub, or discard to throw away.</p>
+				<div id="ep-agent-drafts-list"></div>
+			</section>
+
 			<!-- Apps Table -->
 			<section class="ep-section">
 				<div class="ep-section-header"><span class="ep-section-title">Apps</span><div class="ep-section-line"></div></div>

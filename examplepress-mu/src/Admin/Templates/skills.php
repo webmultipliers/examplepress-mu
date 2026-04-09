@@ -24,6 +24,14 @@ if (!defined('ABSPATH')) exit;
 		</section>
 
 		<section class="ep-section">
+			<div class="ep-section-header">
+				<span class="ep-section-title">Skill Files</span>
+				<div class="ep-section-line"></div>
+			</div>
+			<p class="ep-section-desc">
+				Select a skill on the left to view its rendered markdown. Edit the
+				underlying files on disk to change what the agent sees.
+			</p>
 			<div class="ep-skills-layout" id="ep-skills-layout">
 				<aside class="ep-skills-sidebar" id="ep-skills-sidebar" role="tablist" aria-label="Skill files">
 					<!-- Tab list rendered by JS from ExamplePressData.skills -->

@@ -75,6 +75,11 @@ export function initAgent(data) {
 	bindJobs();
 	bindRepair();
 
+	// Initial drafts render from the localized payload, then refresh
+	// from the REST endpoint to pick up anything newer than the page load.
+	renderDraftsFromData(data.agentDrafts || []);
+	refreshDrafts();
+
 	// Per-row "✨ Iterate" links rendered by apps.js
 	document.addEventListener('click', (e) => {
 		const target = e.target.closest('[data-agent-iterate]');
@@ -91,6 +96,30 @@ export function initAgent(data) {
 		openRepairModal(target.dataset.agentRepair, {
 			error: target.dataset.agentRepairError || '',
 		});
+	});
+
+	// "Resume" / "Discard" / "Push" links inside the drafts panel.
+	document.addEventListener('click', async (e) => {
+		const resume = e.target.closest('[data-agent-resume-draft]');
+		if (resume) {
+			e.preventDefault();
+			openIterateModal(resume.dataset.agentResumeDraft);
+			return;
+		}
+		const discard = e.target.closest('[data-agent-discard-draft]');
+		if (discard) {
+			e.preventDefault();
+			const slug = discard.dataset.agentDiscardDraft;
+			if (!confirm(`Discard pending draft for "${slug}"? This cannot be undone.`)) return;
+			try {
+				const url = appData.agentDraftUrl.replace('__SLUG__', encodeURIComponent(slug));
+				await apiFetch(url, { method: 'DELETE' });
+				await refreshDrafts();
+			} catch (err) {
+				alert('Discard failed: ' + (err.message || err));
+			}
+			return;
+		}
 	});
 }
 
@@ -133,7 +162,6 @@ function resetGenerateModal() {
 async function onGenerateSubmit() {
 	const promptEl = document.getElementById('ep-agent-prompt');
 	const errorEl  = document.getElementById('ep-agent-error');
-	const stepsEl  = document.getElementById('ep-agent-steps');
 	const submitEl = document.getElementById('ep-agent-submit');
 
 	const prompt = (promptEl?.value || '').trim();
@@ -145,32 +173,29 @@ async function onGenerateSubmit() {
 	}
 
 	submitEl.disabled = true;
-	submitEl.textContent = 'Drafting…';
-	renderStep(stepsEl, 'queued');
-	hide(document.getElementById('ep-agent-retry-btn'));
+	submitEl.textContent = 'Starting…';
 
 	try {
-		const res = await apiFetch(appData.agentGenerateUrl, { method: 'POST', body: { prompt } });
-		currentGenerateJobId = res.job_id;
+		// Fire-and-track: enqueue the job, then IMMEDIATELY close the
+		// modal and surface the in-flight draft in the panel below.
+		// The user can navigate away, come back later, and the drafts
+		// panel will show the result whenever it's ready. The modal
+		// is no longer a trap.
+		await apiFetch(appData.agentGenerateUrl, { method: 'POST', body: { prompt } });
 
-		const job = await pollJob(res.job_id, (state) => renderStep(stepsEl, state.step));
+		closeAppModal('ep-agent-modal');
+		await refreshDrafts();
+		startDraftsPolling();
 
-		if (job.status === 'drafted') {
-			renderDraftPreview(job, 'ep-agent');
-		} else if (job.status === 'success') {
-			renderStep(stepsEl, 'done');
-			closeAppModal('ep-agent-modal');
-			refreshAppsTable();
-		} else {
-			showError(errorEl, (job.errors || []).join(' ') || 'Generation failed.');
-			renderStep(stepsEl, 'failed');
-			showRetry('ep-agent', prompt);
+		// Brief flash on the drafts section so the user notices the
+		// new placeholder card appearing.
+		const sectionEl = document.getElementById('ep-agent-drafts-section');
+		if (sectionEl) {
+			sectionEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
 		}
 	} catch (err) {
 		log.error('[agent] generate failed', err);
-		showError(errorEl, err.message || 'Generation failed.');
-		renderStep(stepsEl, 'failed');
-		showRetry('ep-agent', prompt);
+		showError(errorEl, err.message || 'Generation failed to start.');
 	} finally {
 		submitEl.disabled = false;
 		submitEl.textContent = 'Generate Draft';
@@ -178,20 +203,33 @@ async function onGenerateSubmit() {
 }
 
 async function onGenerateCommit() {
-	if (!currentGenerateJobId) return;
+	// In the new flow, the Generate modal closes immediately after
+	// submit so this button is rarely reached — but keep it for the
+	// case where the user happens to still have the modal open when
+	// the LLM returns. Push routes through the draft-commit endpoint
+	// (post-meta payload, slug-keyed) instead of the job ID.
 	const errorEl = document.getElementById('ep-agent-error');
 	const stepsEl = document.getElementById('ep-agent-steps');
 	const commitBtn = document.getElementById('ep-agent-commit-btn');
+	const slug = document.querySelector('[data-current-generate-slug]')?.dataset.currentGenerateSlug;
+	if (!slug) {
+		showError(errorEl, 'No draft slug — refresh the panel below and use the Resume button.');
+		return;
+	}
 	commitBtn.disabled = true;
 	commitBtn.textContent = 'Pushing…';
 	hide(errorEl);
 	renderStep(stepsEl, 'pushing');
 	try {
-		const url = appData.agentJobCommitUrl.replace('__ID__', encodeURIComponent(currentGenerateJobId));
+		const url = appData.agentDraftCommitUrl.replace('__SLUG__', encodeURIComponent(slug));
 		const res = await apiFetch(url, { method: 'POST' });
 		if (res.success) {
 			renderStep(stepsEl, 'done');
-			setTimeout(() => { closeAppModal('ep-agent-modal'); refreshAppsTable(); }, 800);
+			setTimeout(async () => {
+				closeAppModal('ep-agent-modal');
+				await refreshDrafts();
+				refreshAppsTable();
+			}, 600);
 		} else {
 			showError(errorEl, res.message || 'Push failed.');
 			commitBtn.disabled = false;
@@ -263,12 +301,30 @@ async function openIterateModal(slug) {
 		threadEl.innerHTML = '<div style="text-align:center;color:#9ca3af;font-size:12px;padding:20px;">No history yet — your first message will start the thread.</div>';
 	}
 
-	// Estimate the context size hint by looking at how many files the
-	// app currently has.
-	const app = (appData.apps || []).find(a => a.slug === slug);
+	// If the user is resuming a draft that already has a stashed
+	// payload (status=review), render the preview pane + Push button
+	// so they can review what's there before either pushing or
+	// iterating further. This is the canonical "I left and came back"
+	// experience.
+	try {
+		const draftUrl = appData.agentDraftUrl.replace('__SLUG__', encodeURIComponent(slug));
+		const draft = await apiFetch(draftUrl);
+		if (draft && draft.payload) {
+			const fakeJob = {
+				id:    'resume-' + slug,
+				draft: draft.payload,
+			};
+			currentIterateJobId = fakeJob.id;
+			renderDraftPreview(fakeJob, 'ep-agent-iterate');
+		}
+	} catch (_err) {
+		// No stashed draft — first iteration on a published app.
+		// That's fine; the chat thread is the only context the user needs.
+	}
+
 	const hint = document.getElementById('ep-agent-iterate-context-hint');
-	if (hint && app) {
-		hint.textContent = 'Iteration sends the current repo tree as context.';
+	if (hint) {
+		hint.textContent = 'Iteration sends the current repo tree (or stashed draft) as context.';
 	}
 }
 
@@ -308,13 +364,9 @@ async function onIterateSubmit() {
 	const promptEl = document.getElementById('ep-agent-iterate-prompt');
 	const prompt = (promptEl?.value || '').trim();
 	const errorEl = document.getElementById('ep-agent-iterate-error');
-	const stepsEl = document.getElementById('ep-agent-iterate-steps');
 	const submitEl = document.getElementById('ep-agent-iterate-submit');
 
 	hide(errorEl);
-	hide(document.getElementById('ep-agent-iterate-draft-preview'));
-	hide(document.getElementById('ep-agent-iterate-commit-btn'));
-	hide(document.getElementById('ep-agent-iterate-discard-btn'));
 
 	if (prompt.length < 5) {
 		showError(errorEl, 'Change request must be at least 5 characters.');
@@ -322,10 +374,9 @@ async function onIterateSubmit() {
 	}
 
 	submitEl.disabled = true;
-	submitEl.textContent = 'Drafting…';
-	renderStep(stepsEl, 'queued');
+	submitEl.textContent = 'Starting…';
 
-	// Optimistically append the user bubble to the thread immediately.
+	// Optimistically append the user bubble to the chat thread.
 	const threadEl = document.getElementById('ep-agent-chat-thread');
 	const optimistic = document.createElement('div');
 	optimistic.innerHTML = `<div style="display:flex;justify-content:flex-end;margin-bottom:8px;"><div style="max-width:75%;background:#7c3aed;color:white;padding:8px 12px;border-radius:12px 12px 2px 12px;font-size:13px;">${escapeHtml(prompt)}</div></div>`;
@@ -334,31 +385,18 @@ async function onIterateSubmit() {
 
 	try {
 		const url = appData.agentIterateUrl.replace('__SLUG__', encodeURIComponent(slug));
-		const res = await apiFetch(url, { method: 'POST', body: { prompt } });
-		currentIterateJobId = res.job_id;
-		document.getElementById('ep-agent-iterate-current-job-id').value = res.job_id;
+		await apiFetch(url, { method: 'POST', body: { prompt } });
 
-		const job = await pollJob(res.job_id, (state) => renderStep(stepsEl, state.step));
-
-		if (job.status === 'drafted') {
-			renderDraftPreview(job, 'ep-agent-iterate');
-			promptEl.value = '';
-		} else if (job.status === 'success') {
-			renderStep(stepsEl, 'done');
-			promptEl.value = '';
-			// Refresh the thread to show the success bubble.
-			const refreshUrl = appData.agentJobsForSlugUrl.replace('__SLUG__', encodeURIComponent(slug));
-			const refreshed = await apiFetch(refreshUrl);
-			renderChatThread(refreshed.jobs || []);
-			refreshAppsTable();
-		} else {
-			showError(errorEl, (job.errors || []).join(' ') || 'Iteration failed.');
-			renderStep(stepsEl, 'failed');
-		}
+		// Fire-and-track: close modal, refresh panel, start polling.
+		// The user can leave and come back; the iteration result lives
+		// on the post and shows up in the drafts panel when ready.
+		promptEl.value = '';
+		closeAppModal('ep-agent-iterate-modal');
+		await refreshDrafts();
+		startDraftsPolling();
 	} catch (err) {
 		log.error('[agent] iterate failed', err);
-		showError(errorEl, err.message || 'Iteration failed.');
-		renderStep(stepsEl, 'failed');
+		showError(errorEl, err.message || 'Iteration failed to start.');
 	} finally {
 		submitEl.disabled = false;
 		submitEl.textContent = 'Send';
@@ -366,8 +404,8 @@ async function onIterateSubmit() {
 }
 
 async function onIterateCommit() {
-	if (!currentIterateJobId) return;
 	const slug = document.getElementById('ep-agent-iterate-target-slug').value;
+	if (!slug) return;
 	const errorEl = document.getElementById('ep-agent-iterate-error');
 	const stepsEl = document.getElementById('ep-agent-iterate-steps');
 	const commitBtn = document.getElementById('ep-agent-iterate-commit-btn');
@@ -376,7 +414,12 @@ async function onIterateCommit() {
 	hide(errorEl);
 	renderStep(stepsEl, 'pushing');
 	try {
-		const url = appData.agentJobCommitUrl.replace('__ID__', encodeURIComponent(currentIterateJobId));
+		// The iterate modal's Push button always commits whatever is
+		// stashed on the draft post for this slug — that includes both
+		// freshly-iterated drafts (job still in flight) and resumed
+		// drafts (original job long gone). The draft-commit endpoint
+		// reads the post-meta payload, no job state required.
+		const url = appData.agentDraftCommitUrl.replace('__SLUG__', encodeURIComponent(slug));
 		const res = await apiFetch(url, { method: 'POST' });
 		if (res.success) {
 			renderStep(stepsEl, 'done');
@@ -384,10 +427,8 @@ async function onIterateCommit() {
 			hide(commitBtn);
 			hide(document.getElementById('ep-agent-iterate-discard-btn'));
 			currentIterateJobId = null;
-			// Refresh chat
-			const refreshUrl = appData.agentJobsForSlugUrl.replace('__SLUG__', encodeURIComponent(slug));
-			const refreshed = await apiFetch(refreshUrl);
-			renderChatThread(refreshed.jobs || []);
+			closeAppModal('ep-agent-iterate-modal');
+			await refreshDrafts();
 			refreshAppsTable();
 		} else {
 			showError(errorEl, res.message || 'Push failed.');
@@ -504,7 +545,6 @@ async function onRepairSubmit() {
 	const errorLine = parseInt(document.getElementById('ep-agent-repair-line').value, 10) || 0;
 	const prompt    = document.getElementById('ep-agent-repair-prompt').value.trim();
 	const errorEl   = document.getElementById('ep-agent-repair-error-msg');
-	const stepsEl   = document.getElementById('ep-agent-repair-steps');
 	const submitEl  = document.getElementById('ep-agent-repair-submit');
 
 	hide(errorEl);
@@ -515,12 +555,11 @@ async function onRepairSubmit() {
 	}
 
 	submitEl.disabled = true;
-	submitEl.textContent = 'Diagnosing…';
-	renderStep(stepsEl, 'queued');
+	submitEl.textContent = 'Starting…';
 
 	try {
 		const url = appData.agentRepairUrl.replace('__SLUG__', encodeURIComponent(slug));
-		const res = await apiFetch(url, {
+		await apiFetch(url, {
 			method: 'POST',
 			body: {
 				error_message: errorMsg,
@@ -529,25 +568,14 @@ async function onRepairSubmit() {
 				prompt:        prompt,
 			},
 		});
-		currentRepairJobId = res.job_id;
-		document.getElementById('ep-agent-repair-current-job-id').value = res.job_id;
 
-		const job = await pollJob(res.job_id, (state) => renderStep(stepsEl, state.step));
-
-		if (job.status === 'drafted') {
-			renderRepairDraft(job);
-		} else if (job.status === 'success') {
-			renderStep(stepsEl, 'done');
-			closeAppModal('ep-agent-repair-modal');
-			refreshAppsTable();
-		} else {
-			showError(errorEl, (job.errors || []).join(' ') || 'Repair failed.');
-			renderStep(stepsEl, 'failed');
-		}
+		// Fire-and-track. Close immediately, panel takes over.
+		closeAppModal('ep-agent-repair-modal');
+		await refreshDrafts();
+		startDraftsPolling();
 	} catch (err) {
 		log.error('[agent] repair failed', err);
-		showError(errorEl, err.message || 'Repair failed.');
-		renderStep(stepsEl, 'failed');
+		showError(errorEl, err.message || 'Repair failed to start.');
 	} finally {
 		submitEl.disabled = false;
 		submitEl.textContent = 'Diagnose & Draft Fix';
@@ -755,6 +783,141 @@ function renderDraftPreview(job, prefix) {
 		// iterate flow keeps the submit button visible so the user can
 		// abandon the draft and send a new prompt instead.
 	}
+}
+
+// ── Drafts panel ────────────────────────────────────────────────
+//
+// The panel is the canonical view of draft state. It polls /agent/drafts
+// every 3s while ANY draft is in flight (queued/drafting/iterating/
+// repairing/pushing) and stops when everything is in a terminal state.
+// This is what makes "click Generate, close the modal, walk away" work:
+// the panel keeps tracking state independently of any open modal.
+
+const POLL_INTERVAL_DRAFTS_MS = 3000;
+let draftsPollHandle = null;
+
+async function refreshDrafts() {
+	if (!appData?.agentDraftsUrl) return;
+	try {
+		const res = await apiFetch(appData.agentDraftsUrl);
+		const drafts = res.drafts || [];
+		renderDraftsFromData(drafts);
+
+		// Start or stop the poll loop based on whether anything's in flight.
+		const anyInFlight = drafts.some(d => d.in_flight);
+		if (anyInFlight && !draftsPollHandle) {
+			draftsPollHandle = setTimeout(refreshDrafts, POLL_INTERVAL_DRAFTS_MS);
+		} else if (anyInFlight) {
+			clearTimeout(draftsPollHandle);
+			draftsPollHandle = setTimeout(refreshDrafts, POLL_INTERVAL_DRAFTS_MS);
+		} else if (draftsPollHandle) {
+			clearTimeout(draftsPollHandle);
+			draftsPollHandle = null;
+		}
+	} catch (err) {
+		log.error('[agent] refresh drafts failed', err);
+		// Retry once after a longer delay so a transient REST error
+		// doesn't kill the polling loop entirely.
+		if (draftsPollHandle) {
+			clearTimeout(draftsPollHandle);
+			draftsPollHandle = setTimeout(refreshDrafts, POLL_INTERVAL_DRAFTS_MS * 3);
+		}
+	}
+}
+
+function startDraftsPolling() {
+	if (draftsPollHandle) return;
+	draftsPollHandle = setTimeout(refreshDrafts, POLL_INTERVAL_DRAFTS_MS);
+}
+
+function renderDraftsFromData(drafts) {
+	const sectionEl = document.getElementById('ep-agent-drafts-section');
+	const listEl = document.getElementById('ep-agent-drafts-list');
+	if (!sectionEl || !listEl) return;
+
+	if (!Array.isArray(drafts) || drafts.length === 0) {
+		sectionEl.style.display = 'none';
+		listEl.innerHTML = '';
+		return;
+	}
+
+	sectionEl.style.display = '';
+
+	const now = Date.now() / 1000;
+
+	listEl.innerHTML = drafts.map(d => {
+		const ts = d.updated_at ? new Date(d.updated_at * 1000).toLocaleString() : '';
+		const stage = d.post_status === 'draft' ? 'never pushed' : 'pending iteration';
+		const stageColor = d.post_status === 'draft' ? '#7c3aed' : '#ca8a04';
+
+		const status = d.draft_status || '';
+		const statusColor = {
+			review:    '#16a34a',
+			failed:    '#9b2c2c',
+			drafting:  '#2563eb',
+			iterating: '#2563eb',
+			repairing: '#2563eb',
+			pushing:   '#2563eb',
+			queued:    '#6b7280',
+		}[status] || '#6b7280';
+
+		const cs = d.change_summary || {};
+		const csLine = (cs.modified || cs.added || cs.removed)
+			? `<span style="margin-left:8px;font-size:11px;color:#6b7280;">${cs.modified || 0} mod · ${cs.added || 0} add · ${cs.removed || 0} del · ${cs.unchanged || 0} unchanged</span>`
+			: '';
+
+		// In-flight visual: spinner glyph + elapsed time. The panel
+		// polls every 3s so this updates without user action.
+		const inFlight = !!d.in_flight;
+		const elapsedSec = d.updated_at ? Math.max(0, Math.floor(now - d.updated_at)) : 0;
+		const elapsedLabel = elapsedSec < 60
+			? `${elapsedSec}s`
+			: `${Math.floor(elapsedSec / 60)}m ${elapsedSec % 60}s`;
+
+		const statusBadge = inFlight
+			? `<span style="display:inline-block;background:${statusColor};color:white;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;margin-left:4px;">⟳ ${escapeHtml(status)} · ${elapsedLabel}</span>`
+			: (status ? `<span style="display:inline-block;background:${statusColor};color:white;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;margin-left:4px;">${escapeHtml(status)}</span>` : '');
+
+		// Errors panel for failed drafts.
+		const errorBlock = (status === 'failed' && Array.isArray(d.errors) && d.errors.length)
+			? `<div style="font-size:11px;color:#9b2c2c;margin-bottom:8px;background:#fef2f2;border-left:2px solid #fecaca;padding:6px 10px;border-radius:0 4px 4px 0;">${escapeHtml(d.errors.join(' · ').slice(0, 300))}</div>`
+			: '';
+
+		// Action gating: Resume only works once the draft has a payload
+		// (status=review). While in-flight, show "Working…" instead.
+		const canResume = status === 'review' || status === 'failed';
+		const resumeAction = canResume
+			? `<a href="#" data-agent-resume-draft="${escapeHtml(d.slug)}" style="font-size:12px;color:#7c3aed;text-decoration:underline;">Resume / Iterate</a>`
+			: `<span style="font-size:12px;color:#9ca3af;">Working… (you can leave this page)</span>`;
+		const repairAction = canResume
+			? `<a href="#" data-agent-repair="${escapeHtml(d.slug)}" data-agent-repair-error="${escapeAttr((d.errors || []).join(' '))}" style="font-size:12px;color:#ca8a04;text-decoration:underline;">🛠 Repair</a>`
+			: '';
+
+		return `
+			<div style="border:1px solid #e5e7eb;border-radius:6px;padding:12px 16px;margin-bottom:8px;background:${inFlight ? '#fafaff' : '#fafafa'};">
+				<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;">
+					<div>
+						<strong>${escapeHtml(d.name || d.slug)}</strong>
+						<code style="font-size:11px;color:#6b7280;margin-left:6px;">${escapeHtml(d.slug)}</code>
+						${d.version ? `<span style="font-size:11px;color:#6b7280;margin-left:6px;">v${escapeHtml(d.version)}</span>` : ''}
+					</div>
+					<div>
+						<span style="display:inline-block;background:${stageColor};color:white;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;text-transform:uppercase;">${stage}</span>
+						${statusBadge}
+					</div>
+				</div>
+				<div style="font-size:11px;color:#9ca3af;margin-bottom:8px;">
+					${d.files_count || 0} files · last update ${escapeHtml(ts)}${csLine}
+				</div>
+				${errorBlock}
+				<div style="display:flex;gap:12px;align-items:center;">
+					${resumeAction}
+					${repairAction}
+					<a href="#" data-agent-discard-draft="${escapeHtml(d.slug)}" style="font-size:12px;color:#9b2c2c;text-decoration:underline;margin-left:auto;">Discard draft</a>
+				</div>
+			</div>
+		`;
+	}).join('');
 }
 
 // ── Helpers ─────────────────────────────────────────────────────

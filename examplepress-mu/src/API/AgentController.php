@@ -32,6 +32,9 @@ use ExamplePress\MU\Infrastructure\GitHub;
  *   GET    /agent/providers                                       → provider catalog
  *   POST   /agent/test                                            → { ok, message }
  *   GET    /agent/skills                                          → compiled curriculum + resolved merge tags
+ *   GET    /agent/drafts                                          → list pending stashed drafts
+ *   GET    /agent/drafts/{slug}                                   → fetch a single draft payload + history
+ *   DELETE /agent/drafts/{slug}                                   → discard a pending draft
  */
 final class AgentController
 {
@@ -176,6 +179,39 @@ final class AgentController
             'methods'             => 'GET',
             'callback'            => [self::class, 'skills'],
             'permission_callback' => [self::class, 'permissionCheck'],
+        ]);
+
+        register_rest_route('examplepress-mu/v1', '/agent/drafts', [
+            'methods'             => 'GET',
+            'callback'            => [self::class, 'listDrafts'],
+            'permission_callback' => [self::class, 'permissionCheck'],
+        ]);
+
+        register_rest_route('examplepress-mu/v1', '/agent/drafts/(?P<slug>[a-z0-9-]+)', [
+            'methods'             => 'GET',
+            'callback'            => [self::class, 'getDraft'],
+            'permission_callback' => [self::class, 'permissionCheck'],
+            'args'                => [
+                'slug' => ['required' => true, 'type' => 'string', 'sanitize_callback' => 'sanitize_title'],
+            ],
+        ]);
+
+        register_rest_route('examplepress-mu/v1', '/agent/drafts/(?P<slug>[a-z0-9-]+)', [
+            'methods'             => 'DELETE',
+            'callback'            => [self::class, 'deleteDraft'],
+            'permission_callback' => [self::class, 'permissionCheck'],
+            'args'                => [
+                'slug' => ['required' => true, 'type' => 'string', 'sanitize_callback' => 'sanitize_title'],
+            ],
+        ]);
+
+        register_rest_route('examplepress-mu/v1', '/agent/drafts/(?P<slug>[a-z0-9-]+)/commit', [
+            'methods'             => 'POST',
+            'callback'            => [self::class, 'commitDraft'],
+            'permission_callback' => [self::class, 'permissionCheck'],
+            'args'                => [
+                'slug' => ['required' => true, 'type' => 'string', 'sanitize_callback' => 'sanitize_title'],
+            ],
         ]);
     }
 
@@ -459,6 +495,81 @@ final class AgentController
             }
         }
         return new \WP_Error('file_not_found', "File {$path} not in draft.", ['status' => 404]);
+    }
+
+    /**
+     * List every app with a pending stashed draft payload. Used by the
+     * apps page to render the "Drafts pending review" surface.
+     */
+    public static function listDrafts(): \WP_REST_Response
+    {
+        return rest_ensure_response([
+            'drafts' => AppRegistry::listDraftsPending(),
+        ]);
+    }
+
+    /**
+     * Fetch a single draft's payload + audit history. The payload is
+     * returned with file CONTENTS included so the review pane can show
+     * the full diff client-side. The history is the chronological
+     * audit trail of every draft/iterate/repair/push action against
+     * this app.
+     */
+    public static function getDraft(\WP_REST_Request $request): \WP_REST_Response|\WP_Error
+    {
+        $slug = (string) $request->get_param('slug');
+        $payload = AppRegistry::getDraftPayload($slug);
+        if (!$payload) {
+            return new \WP_Error('no_draft', "No pending draft for {$slug}.", ['status' => 404]);
+        }
+
+        $post = AppRegistry::getPost($slug);
+        return rest_ensure_response([
+            'slug'        => $slug,
+            'payload'     => $payload,
+            'history'     => AppRegistry::getDraftHistory($slug),
+            'post_status' => $post ? $post->post_status : '',
+            'draft_status' => $post ? (string) get_post_meta($post->ID, AppRegistry::META_DRAFT_STATUS, true) : '',
+            'errors'      => $post ? json_decode((string) get_post_meta($post->ID, AppRegistry::META_DRAFT_ERRORS, true), true) ?: [] : [],
+            'updated_at'  => $post ? (int) get_post_meta($post->ID, AppRegistry::META_DRAFT_UPDATED_AT, true) : 0,
+        ]);
+    }
+
+    /**
+     * Push a stashed draft directly to GitHub. Used when the user
+     * resumes a draft from the panel after the originating job has
+     * been GC'd from the ep_agent_jobs option. The post-meta payload
+     * is the source of truth.
+     */
+    public static function commitDraft(\WP_REST_Request $request): \WP_REST_Response|\WP_Error
+    {
+        if ($err = self::ensureFeature()) {
+            return $err;
+        }
+        $slug = (string) $request->get_param('slug');
+        if (!AppRegistry::hasDraftPayload($slug)) {
+            return new \WP_Error('no_draft', "No pending draft for {$slug}.", ['status' => 404]);
+        }
+        $ok = GenerationJob::commitFromStash($slug);
+        if (!$ok) {
+            return new \WP_Error('commit_failed', 'Push failed. Check the agent logs.', ['status' => 500]);
+        }
+        return rest_ensure_response(['success' => true, 'slug' => $slug]);
+    }
+
+    /**
+     * Discard a pending draft. Never-pushed draft posts are deleted
+     * entirely; published apps just lose their pending payload (the
+     * live version stays).
+     */
+    public static function deleteDraft(\WP_REST_Request $request): \WP_REST_Response|\WP_Error
+    {
+        $slug = (string) $request->get_param('slug');
+        if (!AppRegistry::getPost($slug)) {
+            return new \WP_Error('app_not_found', "App {$slug} not found.", ['status' => 404]);
+        }
+        AppRegistry::discardDraft($slug);
+        return rest_ensure_response(['success' => true, 'slug' => $slug]);
     }
 
     /**
