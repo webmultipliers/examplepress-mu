@@ -2,7 +2,6 @@
  * Library page entry point.
  * Single panel — coming soon placeholder.
  */
-import '../css/base.css';
 
 import { initLogger, log } from '../lib/logger.js';
 

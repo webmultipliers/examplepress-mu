@@ -11,18 +11,18 @@ export function renderBlocks(blocks) {
 
 	renderDatatable('tbl-blocks', {
 		columns: [
-			{ key: 'title', label: 'Block', render: b => `<div class="ep-td-label"><span class="ep-name">${esc(b.title)}</span><span class="ep-id">${esc(b.name)}</span></div>` },
-			{ key: 'cat', label: 'Category', render: b => `<span class="ep-id">${esc(b.cat)}</span>` },
+			{ key: 'title', label: 'Block', render: b => `<div class="ep-table__label"><span class="ep-table__name">${esc(b.title)}</span><span class="ep-table__id">${esc(b.name)}</span></div>` },
+			{ key: 'cat', label: 'Category', render: b => `<span class="ep-table__id">${esc(b.cat)}</span>` },
 			{ key: 'source', label: 'Source', render: b => `<span class="ep-src">${esc(b.source)}</span>` },
-			{ key: 'type', label: 'Type', render: b => { const cls = b.type === 'template' ? 'badge-on' : b.type === 'system' ? 'badge-info' : 'badge-off'; return `<span class="ep-badge ${cls}"><span class="ep-dot"></span>${esc(b.type)}</span>`; } },
+			{ key: 'type', label: 'Type', render: b => { const cls = b.type === 'template' ? 'ep-badge--success' : b.type === 'system' ? 'ep-badge--info' : 'ep-badge--pending'; return `<span class="ep-badge ${cls}"><span class="ep-dot"></span>${esc(b.type)}</span>`; } },
 		],
 		data: blocks,
 		searchKeys: ['title', 'name', 'cat', 'source', 'type'],
 		searchPlaceholder: 'Search blocks...',
-		gridClass: 'ep-cols-blocks',
+		gridClass: 'ep-table--cols-blocks',
 		groupBy: b => b.name.split('/')[0],
 		onRowClick: b => {
-			const typeCls = b.type === 'template' ? 'badge-on' : b.type === 'system' ? 'badge-info' : 'badge-off';
+			const typeCls = b.type === 'template' ? 'ep-badge--success' : b.type === 'system' ? 'ep-badge--info' : 'ep-badge--pending';
 			let body = '<div class="ep-modal-status">';
 			body += `<span class="ep-badge ${typeCls}"><span class="ep-dot"></span>${esc(b.type)}</span>`;
 			body += `<span class="ep-src">${esc(b.source)}</span>`;

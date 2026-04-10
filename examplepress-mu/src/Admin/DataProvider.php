@@ -56,7 +56,7 @@ final class DataProvider
             'notifications'  => array_merge($base, self::notificationsData()),
             'system'         => array_merge($base, self::systemData()),
             'docs'           => array_merge($base, self::docsData()),
-            'editor'         => array_merge($base, self::editorData()),
+            'proposer'       => array_merge($base, self::proposerData()),
             'skills'         => array_merge($base, self::skillsData()),
             default          => $base,
         };
@@ -117,7 +117,7 @@ final class DataProvider
             'destroyNonces'       => $destroyNonces,
             'appsBaseUrl'         => esc_url_raw(rest_url('examplepress-mu/v1/apps')),
             'appsScaffoldUrl'     => esc_url_raw(rest_url('examplepress-mu/v1/apps/scaffold')),
-            'editorUrl'           => MenuManager::pageUrl('editor', ['app' => '__SLUG__']),
+            'proposerUrl'         => MenuManager::pageUrl('proposer', ['app' => '__SLUG__']),
             'troyCloudUrl'        => get_option('ep_troy_server_url', ''),
             'adminUrl'            => esc_url(admin_url()),
             'demo'                => [
@@ -345,7 +345,7 @@ final class DataProvider
         ];
     }
 
-    private static function editorData(): array
+    private static function proposerData(): array
     {
         // phpcs:ignore WordPress.Security.NonceVerification.Recommended
         $slug = sanitize_title(wp_unslash($_GET['app'] ?? ''));
@@ -371,19 +371,11 @@ final class DataProvider
             $appName = $appJson['name'] ?? $slug;
         }
 
-        $record = AppRegistry::getPost($slug);
-        $github = [];
-        if ($record !== null) {
-            $github = (array) get_post_meta($record->ID, '_ep_github', true);
-        }
-
         return array_merge($base, [
-            'valid'     => true,
-            'slug'      => $slug,
-            'appName'   => $appName,
-            'fsTreeUrl' => esc_url_raw(rest_url("examplepress-mu/v1/fs/{$slug}/tree")),
-            'fsFileUrl' => esc_url_raw(rest_url("examplepress-mu/v1/fs/{$slug}/file")),
-            'github'    => $github,
+            'valid'         => true,
+            'slug'          => $slug,
+            'appName'       => $appName,
+            'editorBaseUrl' => esc_url_raw(rest_url("examplepress-mu/v1/editor/{$slug}")),
         ]);
     }
 

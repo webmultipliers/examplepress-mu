@@ -21,14 +21,14 @@ export function renderFeatures(features, featureDetails) {
 
 	renderDatatable('tbl-features', {
 		columns: [
-			{ key: 'name', label: 'Feature', render: f => `<div class="ep-td-label"><span class="ep-name">${esc(f.name)}</span><span class="ep-id">${esc(f.id)}</span>${f.opts ? `<span class="ep-opt"><em>${esc(f.opts)}</em></span>` : ''}</div>` },
+			{ key: 'name', label: 'Feature', render: f => `<div class="ep-table__label"><span class="ep-table__name">${esc(f.name)}</span><span class="ep-table__id">${esc(f.id)}</span>${f.opts ? `<span class="ep-table__meta"><em>${esc(f.opts)}</em></span>` : ''}</div>` },
 			{ key: 'status', label: 'Status', render: f => badge(f.on) },
 			{ key: 'source', label: 'Source', render: f => srcTag(f.src, f.srcDetail) },
 		],
 		data: allFeatures,
 		searchKeys: ['name', 'id', 'categoryLabel'],
 		searchPlaceholder: 'Search features...',
-		gridClass: 'ep-cols-3',
+		gridClass: 'ep-table--cols-3',
 		groupBy: f => categoryLabels[f.category] || f.category,
 		onRowClick: f => {
 			if (featureDetails && featureDetails[f.id]) openFeatureModal(f.id, features, featureDetails);

@@ -2,7 +2,6 @@
  * Theme page entry point.
  * Tabs: Color Palette (default), Layout, Typography, Size Scale
  */
-import '../css/base.css';
 
 import { initLogger, log } from '../lib/logger.js';
 import { initApi } from '../lib/api.js';

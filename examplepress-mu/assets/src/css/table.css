@@ -1,0 +1,127 @@
+/*
+ * ExamplePress Design System — Table
+ * ep-table (grid-based), ep-datatable (JS-rendered searchable)
+ * Unified from: ep-table, ep-apps-list-table
+ */
+
+/* Grid-based table */
+.ep-table {
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  width: 100%;
+  overflow: hidden;
+}
+
+.ep-table__row {
+  display: grid;
+  align-items: center;
+  transition: background 0.15s;
+  border-bottom: 1px solid var(--border);
+  padding: 0.85rem 1.25rem;
+}
+
+.ep-table__row:last-child {
+  border-bottom: none;
+}
+
+.ep-table__row:hover {
+  background: var(--surface-alt);
+}
+
+.ep-table__row--head {
+  border-bottom: 2px solid var(--border);
+  background: var(--surface-alt);
+  padding: 0.6rem 1.25rem;
+}
+
+.ep-table__row--clickable {
+  cursor: pointer;
+}
+
+.ep-table__th {
+  color: var(--text-light);
+  font-weight: 600;
+  font-size: 0.75rem;
+  font-family: var(--sans);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+/* Column count modifiers */
+.ep-table--cols-2 { grid-template-columns: 1fr 1fr; }
+.ep-table--cols-3 { grid-template-columns: 1fr 130px 100px; }
+.ep-table--cols-4 { grid-template-columns: 1fr 100px 110px 100px; }
+
+/* Common cell patterns */
+.ep-table__label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.ep-table__name {
+  color: var(--text);
+  font-weight: 500;
+  font-size: 0.95rem;
+}
+
+.ep-table__id {
+  color: var(--text-faint);
+  font-size: 0.75rem;
+  font-family: var(--mono);
+}
+
+.ep-table__meta {
+  margin-top: 0.2rem;
+  color: var(--text-faint);
+  font-size: 0.75rem;
+  font-family: var(--mono);
+}
+
+.ep-table__meta em {
+  color: var(--accent-text);
+  font-style: normal;
+  font-weight: 600;
+}
+
+.ep-table__desc {
+  margin-top: 0.25rem;
+  color: var(--text-faint);
+  font-size: 0.82rem;
+}
+
+/* Datatable: JS-rendered with search */
+.ep-datatable__search {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.ep-datatable__search input {
+  transition: border-color 0.15s var(--ease);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  padding: 0.45rem 0.75rem;
+  width: 100%;
+  max-width: 320px;
+  color: var(--text);
+  font-size: 0.85rem;
+  font-family: var(--sans);
+}
+
+.ep-datatable__search input:focus {
+  outline: none;
+  box-shadow: 0 0 0 1px var(--accent-ui);
+  border-color: var(--accent-ui);
+}
+
+.ep-datatable__empty {
+  padding: 1.5rem;
+  color: var(--text-faint);
+  font-size: 0.85rem;
+  text-align: center;
+}

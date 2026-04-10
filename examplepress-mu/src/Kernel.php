@@ -31,7 +31,7 @@ use ExamplePress\MU\API\ConnectionsController;
 use ExamplePress\MU\API\DemoController;
 use ExamplePress\MU\API\ThemeUpdateController;
 use ExamplePress\MU\API\UpdatesController;
-use ExamplePress\MU\API\FilesystemController;
+use ExamplePress\MU\Editor\RepoController;
 use ExamplePress\MU\Admin\MenuManager;
 use ExamplePress\MU\Admin\AssetManager;
 use ExamplePress\MU\Admin\PageController;
@@ -70,7 +70,7 @@ final class Kernel
         add_action('rest_api_init', [DemoController::class, 'register']);
         add_action('rest_api_init', [ThemeUpdateController::class, 'register']);
         add_action('rest_api_init', [UpdatesController::class, 'register']);
-        add_action('rest_api_init', [FilesystemController::class, 'register']);
+        add_action('rest_api_init', [RepoController::class, 'register']);
         add_action('rest_api_init', [Notifications::class, 'registerRoutes']);
         add_action('rest_api_init', [AgentController::class, 'register']);
 

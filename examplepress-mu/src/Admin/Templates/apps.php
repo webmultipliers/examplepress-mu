@@ -55,31 +55,31 @@ if (!defined('ABSPATH')) exit;
 
 			<!-- Toolbar -->
 			<section class="ep-section">
-				<button class="ep-build-submit" id="ep-apps-generate-btn" style="background:#7c3aed;border-color:#6d28d9;display:none;" title="Generate a new app with AI">
-					<span class="ep-build-submit-label">✨ Generate with AI</span>
+				<button class="ep-btn ep-btn--primary ep-btn--purple" id="ep-apps-generate-btn" hidden title="Generate a new app with AI">
+					<span>✨ Generate with AI</span>
 				</button>
-				<button class="ep-build-submit" id="ep-apps-generate-btn-disabled" style="background:#9ca3af;border-color:#6b7280;display:none;cursor:help;" title="Configure provider + API key in Settings → AI Agent">
-					<span class="ep-build-submit-label">✨ Generate with AI (configure first)</span>
+				<button class="ep-btn ep-btn--primary ep-btn--disabled" id="ep-apps-generate-btn-disabled" hidden title="Configure provider + API key in Settings → AI Agent">
+					<span>✨ Generate with AI (configure first)</span>
 				</button>
-				<button class="ep-apps-btn ep-apps-btn-cancel" id="ep-apps-new-btn" style="margin-left:8px;">
+				<button class="ep-btn ep-btn--secondary" id="ep-apps-new-btn">
 					<span>+ New App (manual scaffold)</span>
 				</button>
-				<button class="ep-apps-btn ep-apps-btn-cancel" id="ep-apps-jobs-btn" style="margin-left:8px;display:none;" title="View AI generation history">
+				<button class="ep-btn ep-btn--secondary" id="ep-apps-jobs-btn" hidden title="View AI generation history">
 					Jobs &amp; History
 				</button>
-				<div id="ep-agent-runtime-warning" class="ep-build-error" style="display:none;margin-top:8px;"></div>
+				<div id="ep-agent-runtime-warning" class="ep-form__error" hidden></div>
 			</section>
 
 			<!-- Pending Drafts (AI generations awaiting review or push) -->
-			<section class="ep-section" id="ep-agent-drafts-section" style="display:none;">
-				<div class="ep-section-header"><span class="ep-section-title">Pending Drafts</span><div class="ep-section-line"></div></div>
-				<p class="ep-section-desc">AI-generated apps stashed as drafts. Resume to review or repair, push to commit to GitHub, or discard to throw away.</p>
+			<section class="ep-section" id="ep-agent-drafts-section" hidden>
+				<div class="ep-section__header"><span class="ep-section__title">Pending Drafts</span><div class="ep-section__line"></div></div>
+				<p class="ep-section__desc">AI-generated apps stashed as drafts. Resume to review or repair, push to commit to GitHub, or discard to throw away.</p>
 				<div id="ep-agent-drafts-list"></div>
 			</section>
 
 			<!-- Apps Table -->
 			<section class="ep-section">
-				<div class="ep-section-header"><span class="ep-section-title">Apps</span><div class="ep-section-line"></div></div>
+				<div class="ep-section__header"><span class="ep-section__title">Apps</span><div class="ep-section__line"></div></div>
 				<div id="ep-apps-table"></div>
 			</section>
 
@@ -88,8 +88,8 @@ if (!defined('ABSPATH')) exit;
 		<!-- Demo -->
 		<div class="ep-panel" id="p-demo" role="tabpanel" aria-hidden="true">
 			<section class="ep-section">
-				<div class="ep-section-header"><span class="ep-section-title">Demo Companion Plugin</span><div class="ep-section-line"></div></div>
-				<p class="ep-section-desc">Install the demo companion plugin to see the routing contract in action. The demo claims its own namespace, defines a routing cascade, and renders distinct template blocks. Inspect the source, then remove it when you're ready to scaffold your own.</p>
+				<div class="ep-section__header"><span class="ep-section__title">Demo Companion Plugin</span><div class="ep-section__line"></div></div>
+				<p class="ep-section__desc">Install the demo companion plugin to see the routing contract in action. The demo claims its own namespace, defines a routing cascade, and renders distinct template blocks. Inspect the source, then remove it when you're ready to scaffold your own.</p>
 
 				<div class="ep-demo-panel" id="ep-demo-panel">
 					<div class="ep-demo-status">
@@ -103,54 +103,56 @@ if (!defined('ABSPATH')) exit;
 
 			<!-- Check for Plugin Updates -->
 			<section class="ep-section" id="ep-demo-check-section">
-				<div class="ep-section-header"><span class="ep-section-title">Check for Plugin Updates</span><div class="ep-section-line"></div></div>
-				<p class="ep-section-desc">Check GitHub for a newer version of the demo plugin.</p>
+				<div class="ep-section__header"><span class="ep-section__title">Check for Plugin Updates</span><div class="ep-section__line"></div></div>
+				<p class="ep-section__desc">Check GitHub for a newer version of the demo plugin.</p>
 
 				<div class="ep-demo-panel">
 					<div class="ep-demo-status">
 						<div class="ep-demo-status-label">Installed</div>
-						<span class="ep-badge badge-on" id="ep-demo-current-ver">&mdash;</span>
+						<span class="ep-badge ep-badge--success" id="ep-demo-current-ver">&mdash;</span>
 					</div>
-					<div class="ep-demo-status" id="ep-demo-target-row" style="display:none;margin-top:8px;">
+					<div class="ep-demo-status" id="ep-demo-target-row" hidden>
 						<div class="ep-demo-status-label">Target</div>
-						<span class="ep-badge badge-on" id="ep-demo-target-ver"></span>
+						<span class="ep-badge ep-badge--success" id="ep-demo-target-ver"></span>
 					</div>
-					<div class="ep-demo-status" id="ep-demo-available-row" style="display:none;margin-top:8px;">
+					<div class="ep-demo-status" id="ep-demo-available-row" hidden>
 						<div class="ep-demo-status-label">Action Needed</div>
-						<span class="ep-badge badge-warn" id="ep-demo-available-ver"></span>
+						<span class="ep-badge ep-badge--warning" id="ep-demo-available-ver"></span>
 					</div>
 					<p class="ep-demo-message" id="ep-demo-check-message">Click below to check GitHub releases against your channel and pin settings.</p>
 					<div class="ep-demo-actions">
-						<button class="ep-demo-btn ep-demo-btn-primary" id="ep-demo-check-btn">Check Now</button>
-						<button class="ep-demo-btn ep-demo-btn-primary" id="ep-demo-update-btn" style="display:none;">Update Now</button>
+						<button class="ep-btn ep-btn--primary" id="ep-demo-check-btn">Check Now</button>
+						<button class="ep-btn ep-btn--primary" id="ep-demo-update-btn" hidden>Update Now</button>
 					</div>
 				</div>
 			</section>
 
 			<!-- Plugin Channel & Pinning -->
 			<section class="ep-section" id="ep-demo-settings-section">
-				<div class="ep-section-header"><span class="ep-section-title">Plugin Channel &amp; Pinning</span><div class="ep-section-line"></div></div>
-				<p class="ep-section-desc">Choose which release channel to follow for the demo plugin. Optionally pin to a specific version.</p>
+				<div class="ep-section__header"><span class="ep-section__title">Plugin Channel &amp; Pinning</span><div class="ep-section__line"></div></div>
+				<p class="ep-section__desc">Choose which release channel to follow for the demo plugin. Optionally pin to a specific version.</p>
 
 				<div class="ep-demo-panel">
-					<div class="ep-build-field">
-						<label class="ep-build-label" for="ep-demo-channel">Channel</label>
-						<select class="ep-build-input" id="ep-demo-channel" style="max-width:260px;">
-							<option value="stable">Stable (main branch releases only)</option>
-							<option value="prerelease">Pre-release (includes development builds)</option>
-						</select>
+					<div class="ep-form">
+						<div class="ep-form__row">
+							<label class="ep-form__label" for="ep-demo-channel">Channel</label>
+							<select id="ep-demo-channel">
+								<option value="stable">Stable (main branch releases only)</option>
+								<option value="prerelease">Pre-release (includes development builds)</option>
+							</select>
+						</div>
+						<div class="ep-form__row">
+							<label class="ep-form__label" for="ep-demo-pin">Pin to Version</label>
+							<select id="ep-demo-pin">
+								<option value="">Latest (no pin)</option>
+							</select>
+							<p class="ep-form__hint">When pinned, the updater will not offer versions newer than the pinned release.</p>
+						</div>
 					</div>
-					<div class="ep-build-field" style="margin-top:12px;">
-						<label class="ep-build-label" for="ep-demo-pin">Pin to Version</label>
-						<select class="ep-build-input" id="ep-demo-pin" style="max-width:260px;">
-							<option value="">Latest (no pin)</option>
-						</select>
-						<p class="ep-section-desc" style="margin-top:4px;font-size:12px;">When pinned, the updater will not offer versions newer than the pinned release.</p>
+					<div class="ep-demo-actions">
+						<button class="ep-btn ep-btn--primary" id="ep-demo-save-settings">Save Settings</button>
 					</div>
-					<div class="ep-demo-actions" style="margin-top:12px;">
-						<button class="ep-demo-btn ep-demo-btn-primary" id="ep-demo-save-settings">Save Settings</button>
-					</div>
-					<p class="ep-demo-message" id="ep-demo-settings-message" style="display:none;"></p>
+					<p class="ep-demo-message" id="ep-demo-settings-message" hidden></p>
 				</div>
 			</section>
 		</div>
@@ -158,312 +160,324 @@ if (!defined('ABSPATH')) exit;
 		</div><!-- /.ep-panels -->
 
 	<!-- App Scaffold Modal -->
-	<div class="ep-modal-overlay" id="ep-apps-scaffold-modal" style="display:none">
-		<div class="ep-modal" style="max-width:480px">
-			<div class="ep-modal-header">
+	<div class="ep-modal__overlay" id="ep-apps-scaffold-modal" hidden>
+		<div class="ep-modal ep-modal--sm">
+			<div class="ep-modal__header">
 				<div>
-					<span class="ep-modal-title">New App</span>
-					<span class="ep-modal-id">Scaffolds a plugin in <code>wp-content/plugins/</code></span>
+					<span class="ep-modal__title">New App</span>
+					<span class="ep-modal__subtitle">Scaffolds a plugin in <code>wp-content/plugins/</code></span>
 				</div>
-				<button class="ep-modal-close" data-modal="ep-apps-scaffold-modal">&times;</button>
+				<button class="ep-modal__close" data-modal="ep-apps-scaffold-modal">&times;</button>
 			</div>
-			<div class="ep-modal-body">
-				<div class="ep-build-field">
-					<label class="ep-build-label" for="ep-apps-scaffold-name">App Name</label>
-					<input type="text" class="ep-build-input" id="ep-apps-scaffold-name" placeholder="e.g., ExamplePress Analytics" />
-				</div>
-				<div class="ep-build-field">
-					<label class="ep-build-label" for="ep-apps-scaffold-desc">Description</label>
-					<input type="text" class="ep-build-input" id="ep-apps-scaffold-desc" placeholder="What does this app do?" />
+			<div class="ep-modal__body">
+				<div class="ep-form">
+					<div class="ep-form__row">
+						<label class="ep-form__label" for="ep-apps-scaffold-name">App Name</label>
+						<input type="text" id="ep-apps-scaffold-name" placeholder="e.g., ExamplePress Analytics" />
+					</div>
+					<div class="ep-form__row">
+						<label class="ep-form__label" for="ep-apps-scaffold-desc">Description</label>
+						<input type="text" id="ep-apps-scaffold-desc" placeholder="What does this app do?" />
+					</div>
 				</div>
 				<div class="ep-scaffold-steps" id="ep-scaffold-steps"></div>
-				<div id="ep-apps-scaffold-error" class="ep-build-error" style="display:none"></div>
-				<div id="ep-apps-scaffold-warnings" class="ep-scaffold-warnings" style="display:none"></div>
+				<div id="ep-apps-scaffold-error" class="ep-form__error" hidden></div>
+				<div id="ep-apps-scaffold-warnings" class="ep-scaffold-warnings" hidden></div>
 			</div>
-			<div class="ep-apps-modal-foot">
-				<button class="ep-apps-btn ep-apps-btn-cancel" data-modal="ep-apps-scaffold-modal">Cancel</button>
-				<button class="ep-apps-btn ep-apps-btn-primary" id="ep-apps-scaffold-submit">Create App</button>
+			<div class="ep-modal__footer">
+				<button class="ep-btn ep-btn--secondary" data-modal="ep-apps-scaffold-modal">Cancel</button>
+				<button class="ep-btn ep-btn--primary" id="ep-apps-scaffold-submit">Create App</button>
 			</div>
 		</div>
 	</div>
 
 	<!-- Troy Connect Modal -->
-	<div class="ep-modal-overlay" id="ep-apps-troy-modal" style="display:none">
-		<div class="ep-modal" style="max-width:440px">
-			<div class="ep-modal-header">
+	<div class="ep-modal__overlay" id="ep-apps-troy-modal" hidden>
+		<div class="ep-modal ep-modal--sm">
+			<div class="ep-modal__header">
 				<div>
-					<span class="ep-modal-title">Manage App</span>
-					<span class="ep-modal-id">Connect to Troy for repo provisioning and automatic updates</span>
+					<span class="ep-modal__title">Manage App</span>
+					<span class="ep-modal__subtitle">Connect to Troy for repo provisioning and automatic updates</span>
 				</div>
-				<button class="ep-modal-close" data-modal="ep-apps-troy-modal">&times;</button>
+				<button class="ep-modal__close" data-modal="ep-apps-troy-modal">&times;</button>
 			</div>
-			<div class="ep-modal-body">
+			<div class="ep-modal__body">
 				<div class="ep-apps-troy-info">
 					<div class="ep-apps-troy-info-label">Troy &mdash; Decentralized Directory</div>
 					<div class="ep-apps-troy-info-sub">Tagged GitHub releases will serve updates automatically after initialization.</div>
 				</div>
-				<div class="ep-apps-radio-group">
-					<label class="ep-apps-radio-label">
+				<div class="ep-radio-group">
+					<label class="ep-radio-group__label">
 						<input type="radio" name="ep-apps-troy-target" value="cloud" checked />
 						Troy Cloud (hosted)
 					</label>
-					<label class="ep-apps-radio-label">
+					<label class="ep-radio-group__label">
 						<input type="radio" name="ep-apps-troy-target" value="custom" />
 						Self-hosted Troy instance
 					</label>
-					<input type="url" class="ep-build-input" id="ep-apps-troy-custom-url" placeholder="https://troy.yourdomain.com" style="display:none; margin-top:4px;" />
+					<input type="url" id="ep-apps-troy-custom-url" placeholder="https://troy.yourdomain.com" hidden />
 				</div>
-				<div id="ep-apps-troy-error" class="ep-build-error" style="display:none"></div>
+				<div id="ep-apps-troy-error" class="ep-form__error" hidden></div>
 				<input type="hidden" id="ep-apps-troy-target-slug" />
 			</div>
-			<div class="ep-apps-modal-foot">
-				<button class="ep-apps-btn ep-apps-btn-cancel" data-modal="ep-apps-troy-modal">Cancel</button>
-				<button class="ep-apps-btn ep-apps-btn-troy" id="ep-apps-troy-submit">Connect to Troy &rarr;</button>
+			<div class="ep-modal__footer">
+				<button class="ep-btn ep-btn--secondary" data-modal="ep-apps-troy-modal">Cancel</button>
+				<button class="ep-btn ep-btn--purple" id="ep-apps-troy-submit">Connect to Troy &rarr;</button>
 			</div>
 		</div>
 	</div>
 
 	<!-- Generate-with-AI Modal (new app) -->
-	<div class="ep-modal-overlay" id="ep-agent-modal" style="display:none">
-		<div class="ep-modal" style="max-width:760px">
-			<div class="ep-modal-header">
+	<div class="ep-modal__overlay" id="ep-agent-modal" hidden>
+		<div class="ep-modal ep-modal--lg">
+			<div class="ep-modal__header">
 				<div>
-					<span class="ep-modal-title">Generate App with AI</span>
-					<span class="ep-modal-id">Describe what you want — the agent drafts, validates, then waits for your review before pushing.</span>
+					<span class="ep-modal__title">Generate App with AI</span>
+					<span class="ep-modal__subtitle">Describe what you want — the agent drafts, validates, then waits for your review before pushing.</span>
 				</div>
-				<button class="ep-modal-close" data-modal="ep-agent-modal">&times;</button>
+				<button class="ep-modal__close" data-modal="ep-agent-modal">&times;</button>
 			</div>
-			<div class="ep-modal-body">
-				<div style="display:flex;gap:12px;margin-bottom:0;">
-					<div class="ep-build-field" style="flex:1;">
-						<label class="ep-build-label" for="ep-agent-app-name">App Name</label>
-						<input class="ep-build-input" id="ep-agent-app-name" type="text" placeholder="e.g., Team Directory" />
+			<div class="ep-modal__body">
+				<div class="ep-form">
+					<div class="ep-form__row ep-form__row--inline">
+						<div class="ep-form__row">
+							<label class="ep-form__label" for="ep-agent-app-name">App Name</label>
+							<input id="ep-agent-app-name" type="text" placeholder="e.g., Team Directory" />
+						</div>
+						<div class="ep-form__row">
+							<label class="ep-form__label" for="ep-agent-app-slug">Slug</label>
+							<input id="ep-agent-app-slug" type="text" placeholder="e.g., team-directory" />
+						</div>
 					</div>
-					<div class="ep-build-field" style="flex:1;">
-						<label class="ep-build-label" for="ep-agent-app-slug">Slug</label>
-						<input class="ep-build-input" id="ep-agent-app-slug" type="text" placeholder="e.g., team-directory" style="font-family:monospace;" />
+					<div class="ep-form__row">
+						<label class="ep-form__label" for="ep-agent-app-description">Description</label>
+						<input id="ep-agent-app-description" type="text" placeholder="Short description of the app" />
 					</div>
-				</div>
-				<div class="ep-build-field">
-					<label class="ep-build-label" for="ep-agent-app-description">Description</label>
-					<input class="ep-build-input" id="ep-agent-app-description" type="text" placeholder="Short description of the app" />
-				</div>
-				<div class="ep-build-field">
-					<div style="display:flex;justify-content:space-between;align-items:center;">
-						<label class="ep-build-label" for="ep-agent-prompt">Prompt</label>
-						<span id="ep-agent-model-badge" class="ep-badge" style="font-size:11px;"></span>
+					<div class="ep-form__row">
+						<div class="ep-form__label-row">
+							<label class="ep-form__label" for="ep-agent-prompt">Prompt</label>
+							<span id="ep-agent-model-badge" class="ep-badge"></span>
+						</div>
+						<textarea id="ep-agent-prompt" rows="4" placeholder="Describe what you want the app to do — layout, features, data sources, etc."></textarea>
 					</div>
-					<textarea class="ep-build-input" id="ep-agent-prompt" rows="4" placeholder="Describe what you want the app to do — layout, features, data sources, etc."></textarea>
 				</div>
 				<div class="ep-scaffold-steps" id="ep-agent-steps"></div>
-				<div id="ep-agent-error" class="ep-build-error" style="display:none"></div>
+				<div id="ep-agent-error" class="ep-form__error" hidden></div>
 
 				<!-- Draft preview (revealed when status === 'drafted') -->
-				<div id="ep-agent-draft-preview" style="display:none;margin-top:14px;border-top:1px solid #e5e7eb;padding-top:12px;">
-					<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;">
-						<strong style="font-size:13px;">Draft ready for review</strong>
-						<span class="ep-modal-id" id="ep-agent-draft-summary"></span>
+				<div id="ep-agent-draft-preview" class="ep-agent-draft-preview" hidden>
+					<div class="ep-agent-draft-preview__header">
+						<strong class="ep-agent-draft-preview__title">Draft ready for review</strong>
+						<span class="ep-modal__subtitle" id="ep-agent-draft-summary"></span>
 					</div>
-					<div id="ep-agent-draft-files" style="max-height:240px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:4px;padding:8px;background:#fafafa;font-family:monospace;font-size:12px;"></div>
-					<div id="ep-agent-draft-file-viewer" style="display:none;max-height:300px;overflow:auto;margin-top:8px;border:1px solid #e5e7eb;border-radius:4px;padding:10px;background:#1e1e1e;color:#e5e7eb;font-family:monospace;font-size:11px;white-space:pre;"></div>
+					<div id="ep-agent-draft-files" class="ep-agent-draft-files"></div>
+					<div id="ep-agent-draft-file-viewer" class="ep-agent-file-viewer" hidden></div>
 				</div>
 			</div>
-			<div class="ep-apps-modal-foot">
-				<button class="ep-apps-btn ep-apps-btn-cancel" data-modal="ep-agent-modal" id="ep-agent-cancel-btn">Cancel</button>
-				<button class="ep-apps-btn" id="ep-agent-discard-btn" style="display:none;color:#9b2c2c;">Discard draft</button>
-				<button class="ep-apps-btn" id="ep-agent-retry-btn" style="display:none;">Retry</button>
-				<button class="ep-apps-btn ep-apps-btn-primary" id="ep-agent-submit">Generate Draft</button>
-				<button class="ep-apps-btn ep-apps-btn-primary" id="ep-agent-commit-btn" style="display:none;background:#16a34a;border-color:#15803d;">Push to GitHub</button>
+			<div class="ep-modal__footer">
+				<button class="ep-btn ep-btn--secondary" data-modal="ep-agent-modal" id="ep-agent-cancel-btn">Cancel</button>
+				<button class="ep-btn ep-btn--danger" id="ep-agent-discard-btn" hidden>Discard draft</button>
+				<button class="ep-btn" id="ep-agent-retry-btn" hidden>Retry</button>
+				<button class="ep-btn ep-btn--primary" id="ep-agent-submit">Generate Draft</button>
+				<button class="ep-btn ep-btn--primary ep-btn--success" id="ep-agent-commit-btn" hidden>Push to GitHub</button>
 			</div>
 		</div>
 	</div>
 
 	<!-- Iterate-with-AI Modal (chat thread) -->
-	<div class="ep-modal-overlay" id="ep-agent-iterate-modal" style="display:none">
-		<div class="ep-modal" style="max-width:760px">
-			<div class="ep-modal-header">
+	<div class="ep-modal__overlay" id="ep-agent-iterate-modal" hidden>
+		<div class="ep-modal ep-modal--lg">
+			<div class="ep-modal__header">
 				<div>
-					<span class="ep-modal-title">✨ Iterate with AI</span>
-					<span class="ep-modal-id" id="ep-agent-iterate-slug"></span>
+					<span class="ep-modal__title">✨ Iterate with AI</span>
+					<span class="ep-modal__subtitle" id="ep-agent-iterate-slug"></span>
 				</div>
-				<button class="ep-modal-close" data-modal="ep-agent-iterate-modal">&times;</button>
+				<button class="ep-modal__close" data-modal="ep-agent-iterate-modal">&times;</button>
 			</div>
-			<div class="ep-modal-body" style="padding:0;">
+			<div class="ep-modal__body ep-modal__body--flush">
 				<!-- Chat thread (newest at bottom) -->
-				<div id="ep-agent-chat-thread" style="max-height:340px;overflow-y:auto;padding:14px 18px;background:#f9fafb;border-bottom:1px solid #e5e7eb;"></div>
+				<div id="ep-agent-chat-thread" class="ep-agent-chat-thread"></div>
 
 				<!-- Composer -->
-				<div style="padding:14px 18px;">
-					<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-						<label class="ep-build-label" for="ep-agent-iterate-prompt" style="margin:0;">Change request</label>
-						<span id="ep-agent-iterate-model-badge" class="ep-badge" style="font-size:11px;"></span>
+				<div class="ep-agent-composer">
+					<div class="ep-form">
+						<div class="ep-form__row">
+							<div class="ep-form__label-row">
+								<label class="ep-form__label" for="ep-agent-iterate-prompt">Change request</label>
+								<span id="ep-agent-iterate-model-badge" class="ep-badge"></span>
+							</div>
+							<textarea id="ep-agent-iterate-prompt" rows="3" placeholder="e.g., Make the header text red and add a search bar above the grid."></textarea>
+							<div id="ep-agent-iterate-context-hint" class="ep-form__hint"></div>
+						</div>
 					</div>
-					<textarea class="ep-build-input" id="ep-agent-iterate-prompt" rows="3" placeholder="e.g., Make the header text red and add a search bar above the grid."></textarea>
-					<div id="ep-agent-iterate-context-hint" style="font-size:11px;color:#6b7280;margin-top:4px;"></div>
-					<div class="ep-scaffold-steps" id="ep-agent-iterate-steps" style="margin-top:8px;"></div>
-					<div id="ep-agent-iterate-error" class="ep-build-error" style="display:none"></div>
+					<div class="ep-scaffold-steps" id="ep-agent-iterate-steps"></div>
+					<div id="ep-agent-iterate-error" class="ep-form__error" hidden></div>
 
 					<!-- Draft preview for iterations -->
-					<div id="ep-agent-iterate-draft-preview" style="display:none;margin-top:12px;border-top:1px solid #e5e7eb;padding-top:10px;">
-						<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;">
-							<strong style="font-size:13px;">Draft ready for review</strong>
-							<span class="ep-modal-id" id="ep-agent-iterate-draft-summary"></span>
+					<div id="ep-agent-iterate-draft-preview" class="ep-agent-draft-preview" hidden>
+						<div class="ep-agent-draft-preview__header">
+							<strong class="ep-agent-draft-preview__title">Draft ready for review</strong>
+							<span class="ep-modal__subtitle" id="ep-agent-iterate-draft-summary"></span>
 						</div>
-						<div id="ep-agent-iterate-draft-files" style="max-height:200px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:4px;padding:8px;background:#fafafa;font-family:monospace;font-size:12px;"></div>
+						<div id="ep-agent-iterate-draft-files" class="ep-agent-draft-files"></div>
 					</div>
 				</div>
 				<input type="hidden" id="ep-agent-iterate-target-slug" />
 				<input type="hidden" id="ep-agent-iterate-current-job-id" />
 			</div>
-			<div class="ep-apps-modal-foot">
-				<button class="ep-apps-btn" id="ep-agent-iterate-eject-btn" style="margin-right:auto;color:#9b2c2c;">Eject…</button>
-				<button class="ep-apps-btn ep-apps-btn-cancel" data-modal="ep-agent-iterate-modal">Close</button>
-				<button class="ep-apps-btn" id="ep-agent-iterate-discard-btn" style="display:none;color:#9b2c2c;">Discard draft</button>
-				<button class="ep-apps-btn ep-apps-btn-primary" id="ep-agent-iterate-submit">Send</button>
-				<button class="ep-apps-btn ep-apps-btn-primary" id="ep-agent-iterate-commit-btn" style="display:none;background:#16a34a;border-color:#15803d;">Push to GitHub</button>
+			<div class="ep-modal__footer">
+				<button class="ep-btn ep-btn--danger" id="ep-agent-iterate-eject-btn">Eject…</button>
+				<button class="ep-btn ep-btn--secondary" data-modal="ep-agent-iterate-modal">Close</button>
+				<button class="ep-btn ep-btn--danger" id="ep-agent-iterate-discard-btn" hidden>Discard draft</button>
+				<button class="ep-btn ep-btn--primary" id="ep-agent-iterate-submit">Send</button>
+				<button class="ep-btn ep-btn--primary ep-btn--success" id="ep-agent-iterate-commit-btn" hidden>Push to GitHub</button>
 			</div>
 		</div>
 	</div>
 
 	<!-- Repair Modal (surgical fix for a reported error) -->
-	<div class="ep-modal-overlay" id="ep-agent-repair-modal" style="display:none">
-		<div class="ep-modal" style="max-width:680px">
-			<div class="ep-modal-header">
+	<div class="ep-modal__overlay" id="ep-agent-repair-modal" hidden>
+		<div class="ep-modal ep-modal--lg">
+			<div class="ep-modal__header">
 				<div>
-					<span class="ep-modal-title">🛠 Repair with AI</span>
-					<span class="ep-modal-id" id="ep-agent-repair-slug"></span>
+					<span class="ep-modal__title">🛠 Repair with AI</span>
+					<span class="ep-modal__subtitle" id="ep-agent-repair-slug"></span>
 				</div>
-				<button class="ep-modal-close" data-modal="ep-agent-repair-modal">&times;</button>
+				<button class="ep-modal__close" data-modal="ep-agent-repair-modal">&times;</button>
 			</div>
-			<div class="ep-modal-body">
-				<p style="margin:0 0 12px;font-size:13px;color:#374151;">
+			<div class="ep-modal__body">
+				<p class="ep-section__desc">
 					Paste the exact error message from PHP error log, browser, or WordPress activation screen. The agent will produce a <strong>surgical fix</strong> — modifying only the files necessary to resolve this error, preserving everything else byte-identical.
 				</p>
-				<div class="ep-build-field">
-					<label class="ep-build-label" for="ep-agent-repair-error">Error message <span style="color:#9b2c2c;">*</span></label>
-					<textarea class="ep-build-input" id="ep-agent-repair-error" rows="4" placeholder="Fatal error: Uncaught Error: Call to undefined function..."></textarea>
-				</div>
-				<div class="ep-build-field" style="display:flex;gap:10px;">
-					<div style="flex:2;">
-						<label class="ep-build-label" for="ep-agent-repair-file">File (optional)</label>
-						<input type="text" class="ep-build-input" id="ep-agent-repair-file" placeholder="app/templates/front/index.php" />
+				<div class="ep-form">
+					<div class="ep-form__row">
+						<label class="ep-form__label" for="ep-agent-repair-error">Error message <span class="ep-form__required">*</span></label>
+						<textarea id="ep-agent-repair-error" rows="4" placeholder="Fatal error: Uncaught Error: Call to undefined function..."></textarea>
 					</div>
-					<div style="flex:1;">
-						<label class="ep-build-label" for="ep-agent-repair-line">Line (optional)</label>
-						<input type="number" class="ep-build-input" id="ep-agent-repair-line" placeholder="42" />
+					<div class="ep-form__row ep-form__row--inline">
+						<div class="ep-form__row">
+							<label class="ep-form__label" for="ep-agent-repair-file">File (optional)</label>
+							<input type="text" id="ep-agent-repair-file" placeholder="app/templates/front/index.php" />
+						</div>
+						<div class="ep-form__row">
+							<label class="ep-form__label" for="ep-agent-repair-line">Line (optional)</label>
+							<input type="number" id="ep-agent-repair-line" placeholder="42" />
+						</div>
 					</div>
-				</div>
-				<div class="ep-build-field">
-					<label class="ep-build-label" for="ep-agent-repair-prompt">Additional notes (optional)</label>
-					<textarea class="ep-build-input" id="ep-agent-repair-prompt" rows="2" placeholder="The variable should default to an empty array when no posts are found."></textarea>
+					<div class="ep-form__row">
+						<label class="ep-form__label" for="ep-agent-repair-prompt">Additional notes (optional)</label>
+						<textarea id="ep-agent-repair-prompt" rows="2" placeholder="The variable should default to an empty array when no posts are found."></textarea>
+					</div>
 				</div>
 
 				<div class="ep-scaffold-steps" id="ep-agent-repair-steps"></div>
-				<div id="ep-agent-repair-error-msg" class="ep-build-error" style="display:none"></div>
+				<div id="ep-agent-repair-error-msg" class="ep-form__error" hidden></div>
 
 				<!-- Draft preview with change summary -->
-				<div id="ep-agent-repair-draft-preview" style="display:none;margin-top:12px;border-top:1px solid #e5e7eb;padding-top:10px;">
-					<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;">
-						<strong style="font-size:13px;">Surgical fix ready for review</strong>
-						<span class="ep-modal-id" id="ep-agent-repair-draft-summary"></span>
+				<div id="ep-agent-repair-draft-preview" class="ep-agent-draft-preview" hidden>
+					<div class="ep-agent-draft-preview__header">
+						<strong class="ep-agent-draft-preview__title">Surgical fix ready for review</strong>
+						<span class="ep-modal__subtitle" id="ep-agent-repair-draft-summary"></span>
 					</div>
-					<div id="ep-agent-repair-change-badges" style="margin-bottom:8px;font-size:11px;"></div>
-					<div id="ep-agent-repair-draft-files" style="max-height:240px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:4px;padding:8px;background:#fafafa;font-family:monospace;font-size:12px;"></div>
+					<div id="ep-agent-repair-change-badges" class="ep-agent-change-badges"></div>
+					<div id="ep-agent-repair-draft-files" class="ep-agent-draft-files"></div>
 				</div>
 				<input type="hidden" id="ep-agent-repair-target-slug" />
 				<input type="hidden" id="ep-agent-repair-current-job-id" />
 			</div>
-			<div class="ep-apps-modal-foot">
-				<button class="ep-apps-btn ep-apps-btn-cancel" data-modal="ep-agent-repair-modal">Cancel</button>
-				<button class="ep-apps-btn" id="ep-agent-repair-discard-btn" style="display:none;color:#9b2c2c;">Discard draft</button>
-				<button class="ep-apps-btn ep-apps-btn-primary" id="ep-agent-repair-submit">Diagnose &amp; Draft Fix</button>
-				<button class="ep-apps-btn ep-apps-btn-primary" id="ep-agent-repair-commit-btn" style="display:none;background:#16a34a;border-color:#15803d;">Push fix to GitHub</button>
+			<div class="ep-modal__footer">
+				<button class="ep-btn ep-btn--secondary" data-modal="ep-agent-repair-modal">Cancel</button>
+				<button class="ep-btn ep-btn--danger" id="ep-agent-repair-discard-btn" hidden>Discard draft</button>
+				<button class="ep-btn ep-btn--primary" id="ep-agent-repair-submit">Diagnose &amp; Draft Fix</button>
+				<button class="ep-btn ep-btn--primary ep-btn--success" id="ep-agent-repair-commit-btn" hidden>Push fix to GitHub</button>
 			</div>
 		</div>
 	</div>
 
 	<!-- Eject Confirmation Modal (separate, hardened) -->
-	<div class="ep-modal-overlay" id="ep-agent-eject-modal" style="display:none">
-		<div class="ep-modal" style="max-width:480px">
-			<div class="ep-modal-header">
+	<div class="ep-modal__overlay" id="ep-agent-eject-modal" hidden>
+		<div class="ep-modal ep-modal--sm">
+			<div class="ep-modal__header">
 				<div>
-					<span class="ep-modal-title" style="color:#9b2c2c;">⚠ Eject to Developer Mode</span>
-					<span class="ep-modal-id">This is irreversible from the UI.</span>
+					<span class="ep-modal__title ep-modal__title--danger">⚠ Eject to Developer Mode</span>
+					<span class="ep-modal__subtitle">This is irreversible from the UI.</span>
 				</div>
-				<button class="ep-modal-close" data-modal="ep-agent-eject-modal">&times;</button>
+				<button class="ep-modal__close" data-modal="ep-agent-eject-modal">&times;</button>
 			</div>
-			<div class="ep-modal-body">
-				<p style="margin:0 0 12px;">Ejecting <strong id="ep-agent-eject-slug-display"></strong> will:</p>
-				<ul style="margin:0 0 16px 18px;padding:0;font-size:13px;color:#374151;">
+			<div class="ep-modal__body">
+				<p class="ep-section__desc">Ejecting <strong id="ep-agent-eject-slug-display"></strong> will:</p>
+				<ul class="ep-list">
 					<li>Set <code>supports_ai_iteration: false</code> in the manifest</li>
 					<li>Commit the change and tag a new patch release</li>
 					<li>Permanently lock the AI chat interface for this app</li>
 					<li>Hand the GitHub repo to developer-mode-only workflows</li>
 				</ul>
-				<div class="ep-build-field">
-					<label class="ep-build-label" for="ep-agent-eject-confirm">Type the app slug to confirm</label>
-					<input type="text" class="ep-build-input" id="ep-agent-eject-confirm" autocomplete="off" />
+				<div class="ep-form">
+					<div class="ep-form__row">
+						<label class="ep-form__label" for="ep-agent-eject-confirm">Type the app slug to confirm</label>
+						<input type="text" id="ep-agent-eject-confirm" autocomplete="off" />
+					</div>
 				</div>
-				<div id="ep-agent-eject-error" class="ep-build-error" style="display:none"></div>
+				<div id="ep-agent-eject-error" class="ep-form__error" hidden></div>
 				<input type="hidden" id="ep-agent-eject-target-slug" />
 			</div>
-			<div class="ep-apps-modal-foot">
-				<button class="ep-apps-btn ep-apps-btn-cancel" data-modal="ep-agent-eject-modal">Cancel</button>
-				<button class="ep-apps-btn ep-apps-btn-primary" id="ep-agent-eject-confirm-btn" disabled style="background:#9b2c2c;border-color:#7f1d1d;">Eject</button>
+			<div class="ep-modal__footer">
+				<button class="ep-btn ep-btn--secondary" data-modal="ep-agent-eject-modal">Cancel</button>
+				<button class="ep-btn ep-btn--primary ep-btn--danger" id="ep-agent-eject-confirm-btn" disabled>Eject</button>
 			</div>
 		</div>
 	</div>
 
 	<!-- Jobs & History Modal -->
-	<div class="ep-modal-overlay" id="ep-agent-jobs-modal" style="display:none">
-		<div class="ep-modal" style="max-width:760px">
-			<div class="ep-modal-header">
+	<div class="ep-modal__overlay" id="ep-agent-jobs-modal" hidden>
+		<div class="ep-modal ep-modal--lg">
+			<div class="ep-modal__header">
 				<div>
-					<span class="ep-modal-title">AI Generation Jobs</span>
-					<span class="ep-modal-id">Recent generations and iterations across all apps</span>
+					<span class="ep-modal__title">AI Generation Jobs</span>
+					<span class="ep-modal__subtitle">Recent generations and iterations across all apps</span>
 				</div>
-				<button class="ep-modal-close" data-modal="ep-agent-jobs-modal">&times;</button>
+				<button class="ep-modal__close" data-modal="ep-agent-jobs-modal">&times;</button>
 			</div>
-			<div class="ep-modal-body" style="padding:0;">
-				<div id="ep-agent-jobs-list" style="max-height:480px;overflow-y:auto;"></div>
+			<div class="ep-modal__body ep-modal__body--flush">
+				<div id="ep-agent-jobs-list" class="ep-agent-jobs-list"></div>
 			</div>
-			<div class="ep-apps-modal-foot">
-				<button class="ep-apps-btn ep-apps-btn-cancel" data-modal="ep-agent-jobs-modal">Close</button>
+			<div class="ep-modal__footer">
+				<button class="ep-btn ep-btn--secondary" data-modal="ep-agent-jobs-modal">Close</button>
 			</div>
 		</div>
 	</div>
 
 	<!-- Review Draft Modal -->
-	<div class="ep-modal-overlay" id="ep-agent-review-modal" style="display:none">
-		<div class="ep-modal" style="max-width:900px">
-			<div class="ep-modal-header">
+	<div class="ep-modal__overlay" id="ep-agent-review-modal" hidden>
+		<div class="ep-modal ep-modal--xl">
+			<div class="ep-modal__header">
 				<div>
-					<span class="ep-modal-title">Review Draft</span>
-					<span class="ep-modal-id" id="ep-agent-review-slug"></span>
+					<span class="ep-modal__title">Review Draft</span>
+					<span class="ep-modal__subtitle" id="ep-agent-review-slug"></span>
 				</div>
-				<button class="ep-modal-close" data-modal="ep-agent-review-modal">&times;</button>
+				<button class="ep-modal__close" data-modal="ep-agent-review-modal">&times;</button>
 			</div>
-			<div class="ep-modal-body" style="padding:0;display:flex;min-height:400px;max-height:70vh;">
-				<div id="ep-agent-review-file-list" style="width:240px;flex-shrink:0;border-right:1px solid #e5e7eb;overflow-y:auto;padding:8px 0;font-size:12px;"></div>
-				<div id="ep-agent-review-file-contents" style="flex:1;overflow:auto;background:#1e1e1e;color:#e5e7eb;font-family:monospace;font-size:12px;white-space:pre;padding:12px 16px;"></div>
+			<div class="ep-modal__body ep-modal__body--flush ep-modal__body--split">
+				<div id="ep-agent-review-file-list" class="ep-agent-review-sidebar"></div>
+				<div id="ep-agent-review-file-contents" class="ep-agent-file-viewer"></div>
 			</div>
-			<div class="ep-apps-modal-foot" style="display:flex;gap:8px;">
-				<span id="ep-agent-review-summary" style="font-size:11px;color:#6b7280;margin-right:auto;"></span>
-				<button class="ep-apps-btn ep-apps-btn-cancel" data-modal="ep-agent-review-modal">Close</button>
-				<button class="ep-apps-btn ep-apps-btn-primary" id="ep-agent-review-push-btn" style="background:#16a34a;border-color:#15803d;">Push to GitHub</button>
+			<div class="ep-modal__footer">
+				<span id="ep-agent-review-summary" class="ep-modal__footer-note"></span>
+				<button class="ep-btn ep-btn--secondary" data-modal="ep-agent-review-modal">Close</button>
+				<button class="ep-btn ep-btn--primary ep-btn--success" id="ep-agent-review-push-btn">Push to GitHub</button>
 			</div>
 		</div>
 	</div>
 
 	<!-- Codespace Modal -->
-	<div class="ep-modal-overlay" id="ep-apps-codespace-modal" style="display:none">
-		<div class="ep-modal" style="max-width:440px">
-			<div class="ep-modal-body" style="padding:24px 20px;text-align:center;">
-				<svg width="40" height="40" viewBox="0 0 98 96" xmlns="http://www.w3.org/2000/svg" style="margin-bottom:12px"><path fill-rule="evenodd" clip-rule="evenodd" d="M48.854 0C21.839 0 0 22 0 49.217c0 21.756 13.993 40.172 33.405 46.69 2.427.49 3.316-1.059 3.316-2.362 0-1.141-.08-5.052-.08-9.127-13.59 2.934-16.42-5.867-16.42-5.867-2.184-5.704-5.42-7.17-5.42-7.17-4.448-3.015.324-3.015.324-3.015 4.934.326 7.523 5.052 7.523 5.052 4.367 7.496 11.404 5.378 14.235 4.074.404-3.178 1.699-5.378 3.074-6.6-10.839-1.141-22.243-5.378-22.243-24.283 0-5.378 1.94-9.778 5.014-13.2-.485-1.222-2.184-6.275.486-13.038 0 0 4.125-1.304 13.426 5.052a46.97 46.97 0 0 1 12.214-1.63c4.125 0 8.33.571 12.213 1.63 9.302-6.356 13.427-5.052 13.427-5.052 2.67 6.763.97 11.816.485 13.038 3.155 3.422 5.015 7.822 5.015 13.2 0 18.905-11.404 23.06-22.324 24.283 1.78 1.548 3.316 4.481 3.316 9.126 0 6.6-.08 11.897-.08 13.526 0 1.304.89 2.853 3.316 2.364 19.412-6.52 33.405-24.935 33.405-46.691C97.707 22 75.788 0 48.854 0z" fill="#24292f"/></svg>
-				<h2 style="margin:0 0 6px;font-size:17px;font-weight:600;">Launching Codespace</h2>
-				<p style="color:#646970;font-size:13px;margin:0 0 14px;">You'll be redirected to GitHub with the repo pre-selected.</p>
+	<div class="ep-modal__overlay" id="ep-apps-codespace-modal" hidden>
+		<div class="ep-modal ep-modal--sm">
+			<div class="ep-modal__body ep-modal__body--centered">
+				<svg width="40" height="40" viewBox="0 0 98 96" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="M48.854 0C21.839 0 0 22 0 49.217c0 21.756 13.993 40.172 33.405 46.69 2.427.49 3.316-1.059 3.316-2.362 0-1.141-.08-5.052-.08-9.127-13.59 2.934-16.42-5.867-16.42-5.867-2.184-5.704-5.42-7.17-5.42-7.17-4.448-3.015.324-3.015.324-3.015 4.934.326 7.523 5.052 7.523 5.052 4.367 7.496 11.404 5.378 14.235 4.074.404-3.178 1.699-5.378 3.074-6.6-10.839-1.141-22.243-5.378-22.243-24.283 0-5.378 1.94-9.778 5.014-13.2-.485-1.222-2.184-6.275.486-13.038 0 0 4.125-1.304 13.426 5.052a46.97 46.97 0 0 1 12.214-1.63c4.125 0 8.33.571 12.213 1.63 9.302-6.356 13.427-5.052 13.427-5.052 2.67 6.763.97 11.816.485 13.038 3.155 3.422 5.015 7.822 5.015 13.2 0 18.905-11.404 23.06-22.324 24.283 1.78 1.548 3.316 4.481 3.316 9.126 0 6.6-.08 11.897-.08 13.526 0 1.304.89 2.853 3.316 2.364 19.412-6.52 33.405-24.935 33.405-46.691C97.707 22 75.788 0 48.854 0z" fill="#24292f"/></svg>
+				<h2 class="ep-modal__heading">Launching Codespace</h2>
+				<p class="ep-section__desc">You'll be redirected to GitHub with the repo pre-selected.</p>
 				<div class="ep-apps-codespace-url" id="ep-apps-codespace-url"></div>
-				<button class="ep-apps-btn ep-apps-btn-cancel" data-modal="ep-apps-codespace-modal">Close</button>
+				<button class="ep-btn ep-btn--secondary" data-modal="ep-apps-codespace-modal">Close</button>
 			</div>
 		</div>
 	</div>

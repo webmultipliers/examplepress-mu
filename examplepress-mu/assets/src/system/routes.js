@@ -110,7 +110,7 @@ function renderFlow(apps, sorted, conflicts, selectedApp) {
 			<div style="width:22px;height:22px;border-radius:50%;background:${app.color};color:#fff;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;flex-shrink:0">${app.priority}</div>
 			<span style="font-weight:500;font-size:13px;color:var(--text)">${esc(app.name)}</span>
 			<code style="font-family:var(--mono);font-size:11px;color:var(--text-faint)">${esc(app.namespace)}</code>
-			${!app.active ? '<span class="ep-badge badge-off"><span class="ep-dot"></span>Inactive</span>' : ''}
+			${!app.active ? '<span class="ep-badge ep-badge--pending"><span class="ep-dot"></span>Inactive</span>' : ''}
 		</div>`;
 
 		html += `<div style="margin-left:34px;display:flex;flex-wrap:wrap;gap:6px">`;
@@ -152,14 +152,14 @@ function renderFlow(apps, sorted, conflicts, selectedApp) {
 
 function renderTable(routes) {
 	let html = `<div class="ep-table">
-		<div class="ep-row ep-row-head" style="grid-template-columns:120px 1fr 220px">
-			<div class="ep-th">Slug</div>
-			<div class="ep-th">Matched URLs</div>
-			<div class="ep-th" style="text-align:right">Dispatch Target</div>
+		<div class="ep-table__row ep-table__row--head" style="grid-template-columns:120px 1fr 220px">
+			<div class="ep-table__th">Slug</div>
+			<div class="ep-table__th">Matched URLs</div>
+			<div class="ep-table__th" style="text-align:right">Dispatch Target</div>
 		</div>`;
 
 	if (!routes.length) {
-		html += `<div class="ep-row" style="grid-template-columns:1fr"><div style="font-size:12px;color:var(--text-faint);font-style:italic;padding:.5rem 0">No routes registered.</div></div>`;
+		html += `<div class="ep-table__row" style="grid-template-columns:1fr"><div style="font-size:12px;color:var(--text-faint);font-style:italic;padding:.5rem 0">No routes registered.</div></div>`;
 		html += `</div>`;
 		return html;
 	}
@@ -175,7 +175,7 @@ function renderTable(routes) {
 			`<code style="font-family:var(--mono);font-size:11px;padding:1px 6px;border-radius:var(--radius-sm);background:var(--surface-alt);color:var(--text-faint)">${esc(u)}</code>`
 		).join(' ');
 
-		html += `<div class="ep-row" style="grid-template-columns:120px 1fr 220px;${opacity}${bg}">
+		html += `<div class="ep-table__row" style="grid-template-columns:120px 1fr 220px;${opacity}${bg}">
 			<div style="display:flex;align-items:center;gap:4px">
 				<code style="font-family:var(--mono);font-size:12px;font-weight:600;color:${r.app.color}">${esc(r.slug)}</code>
 				${status}

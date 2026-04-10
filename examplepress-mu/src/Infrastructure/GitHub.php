@@ -502,6 +502,241 @@ final class GitHub
         return ['commit_sha' => (string) $commitBody['sha']];
     }
 
+    /**
+     * Create a new branch from a given SHA.
+     *
+     * @return array{ref:string,sha:string}|\WP_Error
+     */
+    public static function createBranch(string $ownerRepo, string $name, string $fromSha): array|\WP_Error
+    {
+        $pat = self::writeToken();
+        if (!$pat) {
+            return new \WP_Error('no_github_token', 'No GitHub write token available.');
+        }
+
+        $headers = [
+            'Authorization' => "Bearer {$pat}",
+            'Accept'        => 'application/vnd.github.v3+json',
+            'User-Agent'    => 'ExamplePress/' . EXAMPLEPRESS_MU_VERSION,
+            'Content-Type'  => 'application/json',
+        ];
+        $base = "https://api.github.com/repos/{$ownerRepo}";
+
+        $resp = wp_remote_post("{$base}/git/refs", [
+            'headers' => $headers,
+            'body'    => wp_json_encode([
+                'ref' => "refs/heads/{$name}",
+                'sha' => $fromSha,
+            ]),
+            'timeout' => 30,
+        ]);
+        if (is_wp_error($resp)) {
+            return $resp;
+        }
+
+        $code = wp_remote_retrieve_response_code($resp);
+        $body = json_decode(wp_remote_retrieve_body($resp), true);
+        if ($code !== 201) {
+            return new \WP_Error('branch_failed', $body['message'] ?? "Failed to create branch (HTTP {$code}).");
+        }
+
+        return ['ref' => $body['ref'], 'sha' => $fromSha];
+    }
+
+    /**
+     * Commit a multi-file changeset to an existing branch.
+     *
+     * Each file entry: {path, content, blob_sha (optional), op: create|update|delete|rename, from (optional, for renames)}
+     * All files land in a single commit. Blob SHAs enable conflict detection.
+     *
+     * @param array $author  {name: string, email: string}
+     * @return array{commit_sha:string}|\WP_Error
+     */
+    public static function commitChangeset(
+        string $ownerRepo,
+        string $branch,
+        array $files,
+        string $message,
+        array $author = []
+    ): array|\WP_Error {
+        $pat = self::writeToken();
+        if (!$pat) {
+            return new \WP_Error('no_github_token', 'No GitHub write token available.');
+        }
+
+        $headers = [
+            'Authorization' => "Bearer {$pat}",
+            'Accept'        => 'application/vnd.github.v3+json',
+            'User-Agent'    => 'ExamplePress/' . EXAMPLEPRESS_MU_VERSION,
+            'Content-Type'  => 'application/json',
+        ];
+        $base = "https://api.github.com/repos/{$ownerRepo}";
+
+        // Get current branch HEAD.
+        $refResp = wp_remote_get("{$base}/git/refs/heads/{$branch}", [
+            'headers' => $headers,
+            'timeout' => 30,
+        ]);
+        if (is_wp_error($refResp)) {
+            return $refResp;
+        }
+        $refBody = json_decode(wp_remote_retrieve_body($refResp), true);
+        if (empty($refBody['object']['sha'])) {
+            return new \WP_Error('ref_lookup_failed', $refBody['message'] ?? 'Failed to get branch HEAD.');
+        }
+        $parentSha = $refBody['object']['sha'];
+
+        // Build tree items from files.
+        $treeItems = [];
+        foreach ($files as $file) {
+            $op      = $file['op'] ?? 'create';
+            $path    = $file['path'] ?? '';
+            $content = $file['content'] ?? '';
+
+            if ($op === 'delete') {
+                $treeItems[] = [
+                    'path' => $path,
+                    'mode' => '100644',
+                    'type' => 'blob',
+                    'sha'  => null,
+                ];
+            } elseif ($op === 'rename') {
+                // Delete the old path.
+                $treeItems[] = [
+                    'path' => $file['from'] ?? '',
+                    'mode' => '100644',
+                    'type' => 'blob',
+                    'sha'  => null,
+                ];
+                // Create at the new path.
+                $treeItems[] = [
+                    'path'    => $path,
+                    'mode'    => '100644',
+                    'type'    => 'blob',
+                    'content' => $content,
+                ];
+            } else {
+                // create or update
+                $treeItems[] = [
+                    'path'    => $path,
+                    'mode'    => '100644',
+                    'type'    => 'blob',
+                    'content' => $content,
+                ];
+            }
+        }
+
+        // Create tree.
+        $treeResp = wp_remote_post("{$base}/git/trees", [
+            'headers' => $headers,
+            'body'    => wp_json_encode([
+                'base_tree' => $parentSha,
+                'tree'      => $treeItems,
+            ]),
+            'timeout' => 30,
+        ]);
+        if (is_wp_error($treeResp)) {
+            return $treeResp;
+        }
+        $treeBody = json_decode(wp_remote_retrieve_body($treeResp), true);
+        if (empty($treeBody['sha'])) {
+            return new \WP_Error('tree_failed', $treeBody['message'] ?? 'Failed to create git tree.');
+        }
+
+        // Create commit.
+        $commitPayload = [
+            'message' => $message,
+            'tree'    => $treeBody['sha'],
+            'parents' => [$parentSha],
+        ];
+        if (!empty($author)) {
+            $commitPayload['author'] = $author;
+        }
+
+        $commitResp = wp_remote_post("{$base}/git/commits", [
+            'headers' => $headers,
+            'body'    => wp_json_encode($commitPayload),
+            'timeout' => 30,
+        ]);
+        if (is_wp_error($commitResp)) {
+            return $commitResp;
+        }
+        $commitBody = json_decode(wp_remote_retrieve_body($commitResp), true);
+        if (empty($commitBody['sha'])) {
+            return new \WP_Error('commit_failed', $commitBody['message'] ?? 'Failed to create commit.');
+        }
+        $commitSha = (string) $commitBody['sha'];
+
+        // Update branch ref.
+        $updateResp = wp_remote_request("{$base}/git/refs/heads/{$branch}", [
+            'method'  => 'PATCH',
+            'headers' => $headers,
+            'body'    => wp_json_encode([
+                'sha'   => $commitSha,
+                'force' => false,
+            ]),
+            'timeout' => 30,
+        ]);
+        if (is_wp_error($updateResp)) {
+            return $updateResp;
+        }
+        $updateCode = wp_remote_retrieve_response_code($updateResp);
+        if ($updateCode < 200 || $updateCode >= 300) {
+            $updateBody = json_decode(wp_remote_retrieve_body($updateResp), true);
+            return new \WP_Error('ref_failed', $updateBody['message'] ?? "Failed to update branch ref (HTTP {$updateCode}).");
+        }
+
+        return ['commit_sha' => $commitSha];
+    }
+
+    /**
+     * Open a pull request.
+     *
+     * @return array{number:int,html_url:string}|\WP_Error
+     */
+    public static function createPullRequest(
+        string $ownerRepo,
+        string $head,
+        string $base,
+        string $title,
+        string $body
+    ): array|\WP_Error {
+        $pat = self::writeToken();
+        if (!$pat) {
+            return new \WP_Error('no_github_token', 'No GitHub write token available.');
+        }
+
+        $headers = [
+            'Authorization' => "Bearer {$pat}",
+            'Accept'        => 'application/vnd.github.v3+json',
+            'User-Agent'    => 'ExamplePress/' . EXAMPLEPRESS_MU_VERSION,
+            'Content-Type'  => 'application/json',
+        ];
+        $apiBase = "https://api.github.com/repos/{$ownerRepo}";
+
+        $resp = wp_remote_post("{$apiBase}/pulls", [
+            'headers' => $headers,
+            'body'    => wp_json_encode([
+                'title' => $title,
+                'body'  => $body,
+                'head'  => $head,
+                'base'  => $base,
+            ]),
+            'timeout' => 30,
+        ]);
+        if (is_wp_error($resp)) {
+            return $resp;
+        }
+
+        $code    = wp_remote_retrieve_response_code($resp);
+        $respBody = json_decode(wp_remote_retrieve_body($resp), true);
+        if ($code !== 201) {
+            return new \WP_Error('pr_failed', $respBody['message'] ?? "Failed to create pull request (HTTP {$code}).");
+        }
+
+        return ['number' => (int) $respBody['number'], 'html_url' => (string) $respBody['html_url']];
+    }
+
     // ── Releases ───────────────────────────────────────────────────
 
     /**

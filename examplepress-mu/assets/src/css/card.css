@@ -1,0 +1,54 @@
+/*
+ * ExamplePress Design System — Card
+ * ep-card, ep-card__title, ep-card__desc
+ * Unified from: ep-overview-card, ep-support-card
+ */
+
+.ep-card {
+  display: block;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  padding: 1.25rem;
+  color: var(--text);
+  text-decoration: none;
+}
+
+a.ep-card:hover {
+  box-shadow: var(--shadow-md);
+  border-color: var(--border-strong);
+  text-decoration: none;
+}
+
+.ep-card__icon {
+  margin-bottom: var(--space-3);
+  color: var(--accent-text);
+  font-size: 1.4rem;
+}
+
+.ep-card__title {
+  margin-bottom: 0.3rem;
+  color: var(--text);
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.ep-card__desc {
+  color: var(--text-faint);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+/* Card grid layout */
+.ep-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1rem;
+}
+
+/* 4-column stat grid variant */
+.ep-card-grid--stats {
+  grid-template-columns: repeat(4, 1fr);
+}

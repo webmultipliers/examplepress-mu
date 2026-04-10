@@ -2,7 +2,7 @@
 /**
  * Plugin Name: ExamplePress MU Bootstrapper
  * Description: Thin loader that fetches and executes the ExamplePress platform kernel from GitHub.
- * Version:     2.2.6
+ * Version:     2.3.0
  * Author:      Web Multipliers
  * Author URI:  https://github.com/webmultipliers
  */

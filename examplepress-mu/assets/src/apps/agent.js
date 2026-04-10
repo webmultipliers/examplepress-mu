@@ -969,13 +969,16 @@ function renderDraftsFromData(drafts) {
 		// In-flight visual: spinner glyph + elapsed time. The panel
 		// polls every 3s so this updates without user action.
 		const inFlight = !!d.in_flight;
+		const isStalled = !!d.stalled;
 		const elapsedSec = d.updated_at ? Math.max(0, Math.floor(now - d.updated_at)) : 0;
 		const elapsedLabel = elapsedSec < 60
 			? `${elapsedSec}s`
 			: `${Math.floor(elapsedSec / 60)}m ${elapsedSec % 60}s`;
 
-		const statusBadge = inFlight
-			? `<span style="display:inline-block;background:${statusColor};color:white;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;margin-left:4px;">⟳ ${escapeHtml(status)} · ${elapsedLabel}</span>`
+		const badgeColor = isStalled ? '#ca8a04' : statusColor;
+		const badgeLabel = isStalled ? `⚠ stalled · ${elapsedLabel}` : (inFlight ? `⟳ ${escapeHtml(status)} · ${elapsedLabel}` : escapeHtml(status));
+		const statusBadge = (inFlight || isStalled)
+			? `<span style="display:inline-block;background:${badgeColor};color:white;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;margin-left:4px;">${badgeLabel}</span>`
 			: (status ? `<span style="display:inline-block;background:${statusColor};color:white;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;margin-left:4px;">${escapeHtml(status)}</span>` : '');
 
 		// Prompt line with copy button so the user can see what was asked.
@@ -993,6 +996,7 @@ function renderDraftsFromData(drafts) {
 
 		// Action gating:
 		// - in-flight → "Working…"
+		// - stalled (5+ min) → warning + Discard
 		// - review → Resume + Push (always actionable on success)
 		// - failed with payload → Resume + Repair
 		// - failed without payload → Retry Generate
@@ -1000,7 +1004,14 @@ function renderDraftsFromData(drafts) {
 		const hasPayload = !!d.has_payload;
 		let resumeAction, repairAction, pushAction;
 		pushAction = '';
-		if (!canAct) {
+		const isOrphan = !status && !inFlight && d.post_status === 'draft';
+		if (isOrphan) {
+			resumeAction = `<span style="font-size:12px;color:#6b7280;">Orphaned draft — discard to free the slug.</span>`;
+			repairAction = '';
+		} else if (isStalled) {
+			resumeAction = `<span style="font-size:12px;color:#ca8a04;font-weight:600;">⚠ Appears stalled — the background job may not have run. Discard and retry.</span>`;
+			repairAction = '';
+		} else if (!canAct) {
 			resumeAction = `<span style="font-size:12px;color:#9ca3af;">Working… (you can leave this page)</span>`;
 			repairAction = '';
 		} else if (status === 'review') {

@@ -17,7 +17,8 @@
 - **Zero-Trust Plugin Governance** — Validates every companion plugin's manifest, permissions, and code before WordPress loads it
 - **Generative UI Agent** — Describe an app in plain English; the agent scaffolds, validates, pushes to GitHub, and installs it automatically (powered by Claude or GPT-4)
 - **Skill Curriculum System** — The agent's instructions are plain markdown files with live merge tags, not hardcoded prompts — fully extensible by operators
-- **10-Page Admin Dashboard** — Apps, Theme, Navigation, Dependencies, Library, Settings, Notifications, System, Docs, and a Monaco-powered Code Editor
+- **Platform Immutability** — The running site is a read-only artifact of a Git ref; all changes flow through PRs via Codespaces or the in-admin proposer
+- **10-Page Admin Dashboard** — Apps, Theme, Navigation, Dependencies, Library, Settings, Notifications, System, and Docs
 - **Minimal Footprint** — Only 23 MB of PHP vendor dependencies for the full agent stack (six `illuminate/*` sub-packages, no full Laravel)
 
 ---
@@ -203,14 +204,43 @@ add_filter( 'examplepress_mu_agent_merge_tags', function ( array $tags ): array 
 
 ---
 
+## Immutability
+
+The running site is a **read-only artifact of a Git ref**. All app code changes flow through pull requests — never through filesystem writes.
+
+### Enforcement
+
+The `platform-immutability` feature flag (default: **on**) defines `DISALLOW_FILE_EDIT` and `DISALLOW_FILE_MODS` at boot. No REST endpoint accepts filesystem writes. The `AppValidator` rejects companion plugins that register write REST routes under `/fs/`. A CI workflow (`no-direct-writes.yml`) fails the build if write surfaces reappear.
+
+### Sanctioned editing paths
+
+| Path | Audience | Mechanism |
+|---|---|---|
+| **Codespaces** | Developers | Full Git workflow inside a GitHub Codespace; devcontainer bootstraps WordPress + kernel |
+| **In-admin proposer** | Non-developers | Monaco editor reads from GitHub at a pinned ref, produces PRs via the GitHub App |
+
+### Disabling for local dev
+
+Define `EP_DEV_MODE` as `true`, or disable the `platform-immutability` feature in `examplepress.json`:
+
+```json
+{ "features": { "platform-immutability": false } }
+```
+
+Or use the bypass filter: `add_filter('examplepress_mu_bypass_platform_immutability', '__return_true');`
+
+---
+
 ## Plugin Governance
 
 Plugins declaring `Theme: examplepress-theme` in their header are treated as ExamplePress apps and must pass validation:
 
 1. An `examplepress.json` manifest at the plugin root
 2. Required fields: `name`, `slug`
-3. No banned permissions (configurable via `examplepress_mu_banned_permissions` filter)
-4. Final approval via `examplepress_mu_validate_app` filter
+3. Recommended field: `repository` (GitHub `owner/repo` — required for Codespaces and Propose Change workflows; warns if missing)
+4. No banned permissions (configurable via `examplepress_mu_banned_permissions` filter)
+5. No REST routes under `/fs/` with write methods (enforced by platform-immutability policy)
+6. Final approval via `examplepress_mu_validate_app` filter
 
 Failed plugins are silently removed from the active plugins array before WordPress loads them. Works on both single-site and multisite.
 
@@ -225,7 +255,7 @@ All endpoints live under `examplepress-mu/v1` and require `manage_options` capab
 | **Apps** | CRUD, scaffold, connect, health, destroy |
 | **Agent** | `generate`, `iterate/{slug}`, `eject/{slug}`, `jobs/*`, `providers`, `skills`, `test` |
 | **Connections** | GitHub/Troy/Agent settings, OAuth callbacks |
-| **Filesystem** | Directory tree, file read/write (sandboxed, 1 MB limit) |
+| **Editor** | Ref, tree, file (read-only from GitHub), draft (user meta), proposal (creates PR) |
 | **Theme Updates** | Theme update lifecycle |
 | **Notifications** | Archive/restore system messages |
 | **Demo** | Demo plugin install/cleanup |

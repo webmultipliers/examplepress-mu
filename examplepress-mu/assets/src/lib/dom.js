@@ -10,7 +10,7 @@ export function esc(str) {
 }
 
 export function badge(on, label) {
-	const cls = on ? 'badge-on' : 'badge-off';
+	const cls = on ? 'ep-badge--success' : 'ep-badge--pending';
 	return `<span class="ep-badge ${cls}"><span class="ep-dot"></span>${label || (on ? 'Enabled' : 'Disabled')}</span>`;
 }
 
@@ -34,13 +34,13 @@ export function highlightJson(obj) {
 export function featureTable(containerId, items, featureDetails) {
 	const el = document.getElementById(containerId);
 	if (!el || !items || !items.length) return;
-	let html = '<div class="ep-row ep-row-head ep-cols-3"><div class="ep-th">Feature</div><div class="ep-th">Status</div><div class="ep-th">Source</div></div>';
+	let html = '<div class="ep-table__row ep-table__row--head ep-table--cols-3"><div class="ep-table__th">Feature</div><div class="ep-table__th">Status</div><div class="ep-table__th">Source</div></div>';
 	items.forEach(f => {
 		const hasDetail = featureDetails && featureDetails[f.id];
-		const rowCls = hasDetail ? 'ep-row ep-cols-3 ep-row-clickable' : 'ep-row ep-cols-3';
+		const rowCls = hasDetail ? 'ep-table__row ep-table--cols-3 ep-table__row--clickable' : 'ep-table__row ep-table--cols-3';
 		const dataAttr = hasDetail ? ` data-feature-id="${esc(f.id)}"` : '';
 		html += `<div class="${rowCls}"${dataAttr}>
-			<div class="ep-td-label"><span class="ep-name">${esc(f.name)}</span><span class="ep-id">${esc(f.id)}</span>${f.opts ? `<span class="ep-opt"><em>${esc(f.opts)}</em></span>` : ''}</div>
+			<div class="ep-table__label"><span class="ep-table__name">${esc(f.name)}</span><span class="ep-table__id">${esc(f.id)}</span>${f.opts ? `<span class="ep-table__meta"><em>${esc(f.opts)}</em></span>` : ''}</div>
 			<div>${badge(f.on)}</div>
 			<div>${srcTag(f.src, f.srcDetail)}</div>
 		</div>`;
@@ -51,15 +51,15 @@ export function featureTable(containerId, items, featureDetails) {
 export function healthTable(containerId, items) {
 	const el = document.getElementById(containerId);
 	if (!el || !items || !items.length) return;
-	let html = '<div class="ep-row ep-row-head ep-cols-health"><div class="ep-th">Check</div><div class="ep-th">Status</div><div class="ep-th">Requirement</div></div>';
+	let html = '<div class="ep-table__row ep-table__row--head ep-table--cols-3"><div class="ep-table__th">Check</div><div class="ep-table__th">Status</div><div class="ep-table__th">Requirement</div></div>';
 	items.forEach(h => {
-		const cls = h.status === 'pass' ? 'badge-on' : h.status === 'warn' ? 'badge-warn' : h.status === 'fail' ? 'badge-err' : 'badge-info';
+		const cls = h.status === 'pass' ? 'ep-badge--success' : h.status === 'warn' ? 'ep-badge--warning' : h.status === 'fail' ? 'ep-badge--danger' : 'ep-badge--info';
 		const lbl = h.status === 'pass' ? 'Pass' : h.status === 'warn' ? 'Warning' : h.status === 'fail' ? 'Fail' : 'Info';
 		const noteColor = h.status === 'fail' ? 'var(--red)' : 'var(--amber)';
-		html += `<div class="ep-row ep-cols-health">
-			<div class="ep-td-label"><span class="ep-name">${esc(h.name)}</span><span class="ep-id">${esc(h.detail)}</span>${h.note ? `<span class="ep-desc-small" style="color:${noteColor}">${esc(h.note)}</span>` : ''}</div>
+		html += `<div class="ep-table__row ep-table--cols-3">
+			<div class="ep-table__label"><span class="ep-table__name">${esc(h.name)}</span><span class="ep-table__id">${esc(h.detail)}</span>${h.note ? `<span class="ep-table__desc">${esc(h.note)}</span>` : ''}</div>
 			<div><span class="ep-badge ${cls}"><span class="ep-dot"></span>${lbl}</span></div>
-			<div><span class="ep-id">${esc(h.req)}</span></div>
+			<div><span class="ep-table__id">${esc(h.req)}</span></div>
 		</div>`;
 	});
 	el.innerHTML = html;

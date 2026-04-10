@@ -51,7 +51,7 @@ export function renderAppsTable() {
 	renderAppsStats();
 
 	if (!apps.length) {
-		appsTableEl.innerHTML = '<p class="ep-section-desc">No apps discovered. Click <strong>New App</strong> to scaffold one, or install a plugin with an <code>examplepress.json</code>.</p>';
+		appsTableEl.innerHTML = '<p class="ep-section__desc">No apps discovered. Click <strong>New App</strong> to scaffold one, or install a plugin with an <code>examplepress.json</code>.</p>';
 		return;
 	}
 
@@ -98,11 +98,14 @@ export function renderAppsTable() {
 			? `<strong>v${esc(app.version)}</strong>`
 			: '<span class="ep-apps-empty">&mdash;</span>';
 
-		// Editor link (in-browser Monaco editor).
-		const editorUrl = data.editorUrl ? data.editorUrl.replace('__SLUG__', encodeURIComponent(app.slug)) : '';
-		const editorLink = editorUrl && !isOrphan
-			? `<span class="ep-apps-sep">|</span><span class="ep-apps-action"><a href="${esc(editorUrl)}">Edit</a></span>`
-			: '';
+		// Propose Change link (in-admin proposer — produces PRs via GitHub).
+		const proposerUrl = data.proposerUrl ? data.proposerUrl.replace('__SLUG__', encodeURIComponent(app.slug)) : '';
+		const hasRepo = !!ghRepo;
+		const proposeLink = proposerUrl && hasRepo && !isOrphan
+			? `<span class="ep-apps-sep">|</span><span class="ep-apps-action"><a href="${esc(proposerUrl)}">Propose Change</a></span>`
+			: (proposerUrl && !isOrphan
+				? `<span class="ep-apps-sep">|</span><span class="ep-apps-action"><span class="ep-apps-action-disabled" title="App manifest is missing the repository field">Propose Change</span></span>`
+				: '');
 
 		// Codespace link.
 		const ghRepoId = (app.github && app.github.repo_id) || (app.troy && app.troy.repo_id) || '';
@@ -135,7 +138,7 @@ export function renderAppsTable() {
 				${activateAction}
 				<span class="ep-apps-sep">|</span>
 				<span class="ep-apps-action"><a href="${esc(data.adminUrl || '')}plugins.php?s=${esc(app.slug)}" target="_blank">Locate</a></span>
-				${editorLink}
+				${proposeLink}
 				<span class="ep-apps-sep">|</span>
 				<span class="ep-apps-action"><a href="https://github.com/${esc(ghRepo)}" target="_blank" rel="noopener" class="ep-apps-action-repo">Repo</a></span>
 				${codespaceLink}
@@ -154,7 +157,7 @@ export function renderAppsTable() {
 				${activateAction}
 				<span class="ep-apps-sep">|</span>
 				<span class="ep-apps-action"><a href="${esc(data.adminUrl || '')}plugins.php?s=${esc(app.slug)}" target="_blank">Locate</a></span>
-				${editorLink}
+				${proposeLink}
 				<span class="ep-apps-sep">|</span>
 				<span class="ep-apps-action"><a href="#" data-action="manage" data-slug="${esc(app.slug)}" class="ep-apps-action-manage">Connect</a></span>
 			`;

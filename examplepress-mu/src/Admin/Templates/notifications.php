@@ -17,17 +17,17 @@ if (!defined('ABSPATH')) exit;
 
 		<div class="ep-panel" id="p-active" role="tabpanel" aria-hidden="false">
 			<section class="ep-section">
-				<div class="ep-section-header"><span class="ep-section-title">Active Notifications</span><div class="ep-section-line"></div></div>
-				<p class="ep-section-desc">Theme-generated notices &mdash; errors, warnings, and informational messages.</p>
-				<div id="notices-active" class="ep-notif-list"></div>
+				<div class="ep-section__header"><span class="ep-section__title">Active Notifications</span><div class="ep-section__line"></div></div>
+				<p class="ep-section__desc">Theme-generated notices &mdash; errors, warnings, and informational messages.</p>
+				<div id="notices-active"></div>
 			</section>
 		</div>
 
 		<div class="ep-panel" id="p-archived" role="tabpanel" aria-hidden="true">
 			<section class="ep-section">
-				<div class="ep-section-header"><span class="ep-section-title">Archived Notifications</span><div class="ep-section-line"></div></div>
-				<p class="ep-section-desc">Previously archived notifications. Restore them to make them active again.</p>
-				<div id="notices-archived" class="ep-notif-list"></div>
+				<div class="ep-section__header"><span class="ep-section__title">Archived Notifications</span><div class="ep-section__line"></div></div>
+				<p class="ep-section__desc">Previously archived notifications. Restore them to make them active again.</p>
+				<div id="notices-archived"></div>
 			</section>
 		</div>
 

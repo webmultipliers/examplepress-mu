@@ -287,11 +287,19 @@ final class MenuManager
             'icon'       => 'dashicons-welcome-learn-more',
         ]);
 
-        self::registerPage('editor', [
-            'label'      => __('ExamplePress — Editor', 'examplepress-mu'),
-            'menu_title' => __('Editor', 'examplepress-mu'),
+        self::registerPage('proposer', [
+            'label'      => __('ExamplePress — Propose Change', 'examplepress-mu'),
+            'menu_title' => __('Propose Change', 'examplepress-mu'),
             'position'   => 999,
             'icon'       => 'dashicons-editor-code',
+            'hidden'     => true,
+        ]);
+
+        self::registerPage('system-preview', [
+            'label'      => __('ExamplePress — Design System Preview', 'examplepress-mu'),
+            'menu_title' => __('System Preview', 'examplepress-mu'),
+            'position'   => 1000,
+            'icon'       => 'dashicons-art',
             'hidden'     => true,
         ]);
     }

@@ -11,15 +11,15 @@ export function renderDatatable(containerId, config) {
 
 	let searchHtml = '';
 	if (searchKeys && searchKeys.length) {
-		searchHtml = `<div class="ep-datatable-search"><input type="text" placeholder="${esc(searchPlaceholder || 'Search...')}" aria-label="${esc(searchPlaceholder || 'Search')}" role="searchbox" /></div>`;
+		searchHtml = `<div class="ep-datatable__search"><input type="text" placeholder="${esc(searchPlaceholder || 'Search...')}" aria-label="${esc(searchPlaceholder || 'Search')}" role="searchbox" /></div>`;
 	}
 
-	let headerHtml = `<div class="ep-row ep-row-head ${gridClass}">`;
-	columns.forEach(c => { headerHtml += `<div class="ep-th">${esc(c.label)}</div>`; });
+	let headerHtml = `<div class="ep-table__row ep-table__row--head ${gridClass}">`;
+	columns.forEach(c => { headerHtml += `<div class="ep-table__th">${esc(c.label)}</div>`; });
 	headerHtml += '</div>';
 
 	function buildRows(items) {
-		if (!items || !items.length) return `<div class="ep-datatable-no-results">${emptyMessage || 'No items found.'}</div>`;
+		if (!items || !items.length) return `<div class="ep-datatable__empty">${emptyMessage || 'No items found.'}</div>`;
 		let html = '';
 		if (groupBy) {
 			const groups = [];
@@ -41,8 +41,8 @@ export function renderDatatable(containerId, config) {
 	}
 
 	function buildRow(item) {
-		const clickable = onRowClick ? ' ep-row-clickable' : '';
-		let html = `<div class="ep-row ${gridClass}${clickable}">`;
+		const clickable = onRowClick ? ' ep-table__row--clickable' : '';
+		let html = `<div class="ep-table__row ${gridClass}${clickable}">`;
 		columns.forEach(c => { html += `<div>${c.render(item)}</div>`; });
 		html += '</div>';
 		return html;
@@ -50,7 +50,7 @@ export function renderDatatable(containerId, config) {
 
 	el.innerHTML = searchHtml + '<div class="ep-datatable-table">' + headerHtml + '<div class="ep-datatable-rows">' + buildRows(data) + '</div></div>';
 
-	const searchInput = el.querySelector('.ep-datatable-search input');
+	const searchInput = el.querySelector('.ep-datatable__search input');
 	const rowsContainer = el.querySelector('.ep-datatable-rows');
 	if (searchInput && rowsContainer) {
 		searchInput.addEventListener('input', () => {
@@ -65,7 +65,7 @@ export function renderDatatable(containerId, config) {
 	}
 
 	function bindRowClicks(container) {
-		container.querySelectorAll('.ep-row-clickable').forEach((row, idx) => {
+		container.querySelectorAll('.ep-table__row--clickable').forEach((row, idx) => {
 			const q = searchInput ? searchInput.value.toLowerCase().trim() : '';
 			const visibleData = q ? data.filter(item => searchKeys.some(key => {
 				const val = item[key];

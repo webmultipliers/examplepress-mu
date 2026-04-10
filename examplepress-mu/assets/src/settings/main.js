@@ -2,7 +2,6 @@
  * Settings page entry point.
  * Tabs: GitHub (default), Troy
  */
-import '../css/base.css';
 
 import { initLogger, log } from '../lib/logger.js';
 import { initApi } from '../lib/api.js';

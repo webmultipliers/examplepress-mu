@@ -738,6 +738,11 @@
 				}
 			}
 		},
+		"repository": {
+			"type": "string",
+			"pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+			"description": "GitHub owner/repo where this app's source lives. Required for Codespaces and Propose Change workflows."
+		},
 		"troy": {
 			"type": "object",
 			"description": "Troy Server integration data. Written automatically when an app is connected to a Troy instance via the Build tab.",

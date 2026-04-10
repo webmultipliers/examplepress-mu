@@ -226,6 +226,19 @@ final class AppValidator
             return false;
         }
 
+        // Advisory: warn if the manifest is missing the `repository` field.
+        // This is a non-blocking warning — the app still activates.
+        if (empty($manifest['repository'])) {
+            add_action('admin_notices', static function () use ($pluginBasename): void {
+                printf(
+                    '<div class="notice notice-warning is-dismissible"><p><strong>ExamplePress:</strong> '
+                    . 'App <code>%s</code> is missing the <code>repository</code> field in its manifest. '
+                    . 'Codespaces and Propose Change workflows require this field.</p></div>',
+                    esc_html(dirname($pluginBasename))
+                );
+            });
+        }
+
         // Rule 3: No banned permissions (filterable; empty by default).
         /** @var array<int, string> $banned */
         $banned = (array) apply_filters('examplepress_mu_banned_permissions', []);
@@ -492,6 +505,28 @@ final class AppValidator
                 $errors = array_merge($errors, self::validateBlockJsonAttributes($path, $contents));
                 // Rule 4 + 5: usesContext / parent must reference a block in the payload.
                 $errors = array_merge($errors, self::validateBlockContextRefs($path, $contents, $files, $manifest['slug'] ?? ''));
+            }
+        }
+
+        // Rule: No REST routes under /fs/ with write methods.
+        // Companion plugins must not reintroduce the filesystem write
+        // surface that the kernel removed for platform immutability.
+        foreach ($files as $f) {
+            if (!is_array($f) || !isset($f['path'], $f['contents'])) {
+                continue;
+            }
+            $fPath     = (string) $f['path'];
+            $fContents = (string) $f['contents'];
+
+            if (!str_ends_with($fPath, '.php')) {
+                continue;
+            }
+
+            if (preg_match('/register_rest_route\s*\(/i', $fContents)
+                && preg_match('#[\'"][^\'"]*/fs/[^\'"]*[\'"]#i', $fContents)
+                && preg_match('/[\'"](?:POST|PUT|PATCH|DELETE|CREATABLE|EDITABLE|DELETABLE)[\'"]|WP_REST_Server::\s*(?:CREATABLE|EDITABLE|DELETABLE)/i', $fContents)
+            ) {
+                $errors[] = "File {$fPath} registers a REST route under /fs/ with a write method. Filesystem write endpoints are banned by platform-immutability policy.";
             }
         }
 

@@ -1,0 +1,78 @@
+/*
+ * ExamplePress Design System — Tokens
+ *
+ * All values WCAG-verified. Text colors pass AAA (7:1+) on #ffffff.
+ * UI elements pass AA (3:1+) for non-text contrast.
+ */
+
+.ep-page {
+
+  /* ── Surfaces ──────────────────────────────────────────────────── */
+  --bg: #f0f0f1;                        /* WP admin body */
+  --surface: #ffffff;                    /* Cards, panels, elevated containers */
+  --surface-alt: #f6f7f7;               /* Inset areas, sidebar, table headers */
+
+  /* ── Borders ───────────────────────────────────────────────────── */
+  --border: #c3c4c7;                    /* Default dividers and edges */
+  --border-strong: #8c8f94;             /* Hover / emphasis borders */
+  --border-focus: #2271b1;              /* Focus rings, active outlines */
+
+  /* ── Text (AAA on #ffffff) ─────────────────────────────────────── */
+  --text: #1d2327;                      /* Primary — 15.9:1 */
+  --text-light: #2c3338;               /* Secondary — 12.8:1 */
+  --text-faint: #4a5056;               /* Tertiary — 7.5:1 */
+
+  /* ── Accent (Split for text vs UI) ─────────────────────────────── */
+  --accent-ui: #2271b1;                /* WP action blue (AA for UI) */
+  --accent-hover-ui: #135e96;          /* Hover state for UI */
+  --accent-text: #104b7a;              /* Dark WP blue (AAA for text) */
+  --accent-hover-text: #0a3151;        /* Hover state for text */
+  --accent-bg: #f0f6fc;                /* Tinted background */
+
+  /* ── Semantic Colors (AAA on white) ────────────────────────────── */
+  --green: #005a12;                    /* Success — 7.8:1 */
+  --green-bg: #edfaef;
+  --green-border: rgba(0, 90, 18, 0.25);
+
+  --red: #8a2424;                      /* Danger — 8.5:1 */
+  --red-bg: #fcf0f1;
+  --red-border: rgba(138, 36, 36, 0.2);
+
+  --amber: #614200;                    /* Warning — 8.8:1 */
+  --amber-bg: #fef8ee;
+  --amber-border: rgba(97, 66, 0, 0.2);
+
+  --blue: #104b7a;                     /* Info — 8.9:1 */
+  --blue-bg: #f0f6fc;
+  --blue-border: rgba(16, 75, 122, 0.25);
+
+  --purple: #553870;                   /* Extension — 9.1:1 */
+  --purple-bg: #f5f0f8;
+  --purple-border: rgba(85, 56, 112, 0.2);
+
+  /* ── Typography ────────────────────────────────────────────────── */
+  --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen-Sans, Ubuntu, Cantarell, 'Helvetica Neue', sans-serif;
+  --mono: Consolas, 'Courier New', monospace;
+
+  /* ── Spacing (4px base, aligned to WP admin grid) ──────────────── */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 28px;
+  --space-8: 32px;
+
+  /* ── Radii ─────────────────────────────────────────────────────── */
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+
+  /* ── Motion ────────────────────────────────────────────────────── */
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* ── Elevation ─────────────────────────────────────────────────── */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 2px 6px rgba(0, 0, 0, 0.08);
+}

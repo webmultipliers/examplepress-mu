@@ -1,0 +1,108 @@
+/*
+ * ExamplePress Design System — Badge & Dot
+ * ep-badge, ep-badge--success/danger/warning/info/purple/pending
+ * ep-dot, ep-dot--success/danger/warning/info
+ * Unified from: badge-on/off/warn/err/info/php, ep-meta-badge, ep-updates-badge
+ */
+
+.ep-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: var(--radius-sm);
+  padding: 0.2rem 0.5rem;
+  width: fit-content;
+  font-weight: 600;
+  font-size: 0.7rem;
+  line-height: 1.4;
+  font-family: var(--sans);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* Dot indicator */
+.ep-dot {
+  flex-shrink: 0;
+  border-radius: 50%;
+  width: 6px;
+  height: 6px;
+}
+
+/* Success (green) */
+.ep-badge--success {
+  border: 1px solid var(--green-border);
+  background: var(--green-bg);
+  color: var(--green);
+}
+
+.ep-badge--success .ep-dot,
+.ep-dot--success {
+  background: var(--green);
+}
+
+/* Danger (red) */
+.ep-badge--danger {
+  border: 1px solid var(--red-border);
+  background: var(--red-bg);
+  color: var(--red);
+}
+
+.ep-badge--danger .ep-dot,
+.ep-dot--danger {
+  background: var(--red);
+}
+
+/* Warning (amber) */
+.ep-badge--warning {
+  border: 1px solid var(--amber-border);
+  background: var(--amber-bg);
+  color: var(--amber);
+}
+
+.ep-badge--warning .ep-dot,
+.ep-dot--warning {
+  background: var(--amber);
+}
+
+/* Info (blue) */
+.ep-badge--info {
+  border: 1px solid var(--blue-border);
+  background: var(--blue-bg);
+  color: var(--accent-text);
+}
+
+.ep-badge--info .ep-dot,
+.ep-dot--info {
+  background: var(--blue);
+}
+
+/* Purple / extension */
+.ep-badge--purple {
+  border: 1px solid var(--purple-border);
+  background: var(--purple-bg);
+  color: var(--purple);
+}
+
+.ep-badge--purple .ep-dot,
+.ep-dot--purple {
+  background: var(--purple);
+}
+
+/* Pending / neutral */
+.ep-badge--pending {
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  color: var(--text-faint);
+}
+
+.ep-badge--pending .ep-dot,
+.ep-dot--pending {
+  background: var(--text-faint);
+}
+
+/* Small metadata badge variant */
+.ep-badge--sm {
+  padding: 0.1rem 0.4rem;
+  font-size: 0.65rem;
+  letter-spacing: 0.05em;
+}

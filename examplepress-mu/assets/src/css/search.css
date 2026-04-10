@@ -1,0 +1,49 @@
+/*
+ * ExamplePress Design System — Search
+ * ep-search, ep-search__input, ep-search__icon, ep-search__kbd
+ * Extracted from: ep-docs-search-wrap pattern
+ */
+
+.ep-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.ep-search__icon {
+  position: absolute;
+  left: 0.65rem;
+  color: var(--text-faint);
+  font-size: 0.85rem;
+  pointer-events: none;
+}
+
+.ep-search__input {
+  transition: border-color 0.15s var(--ease), box-shadow 0.15s var(--ease);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  padding: 0.45rem 0.75rem 0.45rem 2rem;
+  width: 100%;
+  color: var(--text);
+  font-size: 0.85rem;
+  font-family: var(--sans);
+}
+
+.ep-search__input:focus {
+  outline: none;
+  box-shadow: 0 0 0 1px var(--accent-ui);
+  border-color: var(--accent-ui);
+}
+
+.ep-search__kbd {
+  position: absolute;
+  right: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-alt);
+  padding: 0.1rem 0.35rem;
+  color: var(--text-faint);
+  font-size: 0.65rem;
+  font-family: var(--mono);
+}

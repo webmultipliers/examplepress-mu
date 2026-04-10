@@ -112,8 +112,13 @@ final class GenerationJob
         if (function_exists('as_enqueue_async_action')) {
             as_enqueue_async_action(self::HOOK, [$jobId], 'examplepress-agent');
         } else {
-            // Fallback: synchronous run if Action Scheduler isn't loaded.
-            wp_schedule_single_event(time() + 1, self::HOOK, [$jobId]);
+            // Action Scheduler not available — run inline. This blocks
+            // the current request but is the only reliable fallback.
+            // Bump limits so a long LLM call doesn't get killed.
+            if ((int) ini_get('max_execution_time') < 300) {
+                @set_time_limit(300);
+            }
+            self::handle($jobId);
         }
 
         return $jobId;

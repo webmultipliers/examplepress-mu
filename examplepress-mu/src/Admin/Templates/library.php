@@ -15,11 +15,12 @@ if (!defined('ABSPATH')) exit;
 		<div class="ep-panels">
 
 		<div class="ep-panel" id="p-library" role="tabpanel" aria-hidden="false">
-			<section class="ep-section ep-library-hero">
-				<div class="ep-library-icon">&#9783;</div>
-				<div class="ep-doc-section-title">The Component Library is arriving soon.</div>
-				<p class="ep-section-desc">Browse, preview, and import companion plugins built for the ExamplePress ecosystem. Install with one click and extend your site with pre-built functionality.</p>
-				<span class="ep-badge badge-info"><span class="ep-dot"></span>Coming Soon</span>
+			<section class="ep-section">
+				<div class="ep-empty">
+					<div class="ep-empty__title">The Component Library is arriving soon.</div>
+					<div class="ep-empty__desc">Browse, preview, and import companion plugins built for the ExamplePress ecosystem. Install with one click and extend your site with pre-built functionality.</div>
+				</div>
+				<span class="ep-badge ep-badge--info"><span class="ep-dot"></span>Coming Soon</span>
 			</section>
 		</div>
 

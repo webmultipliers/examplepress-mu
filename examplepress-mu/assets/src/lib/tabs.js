@@ -44,10 +44,10 @@ export function hideTab(tabId) {
 export function updateTabCount(tabElementId, count, hideWhenZero = false) {
 	const tab = document.getElementById(tabElementId);
 	if (!tab) return;
-	let countEl = tab.querySelector('.ep-tab-count');
+	let countEl = tab.querySelector('.ep-tab__count');
 	if (!countEl) {
 		countEl = document.createElement('span');
-		countEl.className = 'ep-tab-count';
+		countEl.className = 'ep-tab__count';
 		tab.appendChild(countEl);
 	}
 	countEl.textContent = count;

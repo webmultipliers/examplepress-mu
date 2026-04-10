@@ -4,16 +4,41 @@ declare(strict_types=1);
 
 namespace ExamplePress\MU\Governance;
 
+use ExamplePress\MU\Config\FeatureRegistry;
+
 /**
  * Fleet-wide policy enforcement.
  *
  * Strips dangerous capabilities, enforces permalink structure,
- * locks wp_options, and disables 404 redirect guessing.
+ * locks wp_options, disables 404 redirect guessing, and enforces
+ * platform immutability (blocking all filesystem writes to plugin dirs).
  */
 final class PlatformPolicy
 {
     public static function init(): void
     {
+        // ── Platform Immutability ──────────────────────────────────
+        // Gated by the platform-immutability feature flag (default on).
+        // Bypassed when EP_DEV_MODE is defined or via filter.
+        FeatureRegistry::register('platform-immutability', [
+            'label'   => 'Platform Immutability (block file editing & modifications)',
+            'group'   => 'governance',
+            'default' => true,
+        ]);
+
+        $featureOff = !FeatureRegistry::enabled('platform-immutability');
+        $devMode    = defined('EP_DEV_MODE') && EP_DEV_MODE;
+        $bypassed   = $featureOff || $devMode;
+
+        if (!apply_filters('examplepress_mu_bypass_platform_immutability', $bypassed)) {
+            if (!defined('DISALLOW_FILE_EDIT')) {
+                define('DISALLOW_FILE_EDIT', true);
+            }
+            if (!defined('DISALLOW_FILE_MODS')) {
+                define('DISALLOW_FILE_MODS', true);
+            }
+        }
+
         // 1. Enforce Permalink Structure globally (opt-out via filter).
         if (apply_filters('examplepress_mu_enforce_permalinks', true)) {
             add_filter('pre_option_permalink_structure', [self::class, 'enforcePermalinks']);
@@ -24,11 +49,6 @@ final class PlatformPolicy
         $strippedCaps = (array) apply_filters('examplepress_mu_stripped_capabilities', []);
         if (!empty($strippedCaps)) {
             add_filter('user_has_cap', [self::class, 'stripCapabilities'], 20, 4);
-        }
-
-        // Hard disable file editing (opt-out via filter; respects existing define).
-        if (!defined('DISALLOW_FILE_EDIT') && apply_filters('examplepress_mu_disallow_file_edit', true)) {
-            define('DISALLOW_FILE_EDIT', true);
         }
 
         // 3. Managed Options.

@@ -38,22 +38,13 @@ final class AssetManager
             return;
         }
 
-        // Admin settings CSS (shared across all EP pages).
+        // Design system CSS (single stylesheet, shared across all EP pages).
         wp_enqueue_style(
-            'ep-admin-settings',
-            EXAMPLEPRESS_MU_URI . '/assets/src/css/admin-settings.css',
+            'ep-design-system',
+            EXAMPLEPRESS_MU_URI . '/assets/src/css/index.css',
             [],
             EXAMPLEPRESS_MU_VERSION
         );
-
-        // Google Fonts.
-        $fontsUrl = (string) apply_filters(
-            'examplepress_mu_settings_fonts_url',
-            'https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&display=swap'
-        );
-        if ($fontsUrl) {
-            wp_enqueue_style('ep-settings-fonts', $fontsUrl, [], null);
-        }
 
         self::enqueueProductionEntry($pageId);
 
@@ -106,10 +97,10 @@ final class AssetManager
 
         foreach (array_unique($cssFiles) as $cssFile) {
             wp_enqueue_style(
-                'ep-' . $entry . '-' . md5($cssFile),
+                'ep-page-' . $entry,
                 EXAMPLEPRESS_MU_URI . '/dist/' . $cssFile,
-                ['ep-settings-fonts'],
-                null
+                ['ep-design-system'],
+                EXAMPLEPRESS_MU_VERSION
             );
         }
 

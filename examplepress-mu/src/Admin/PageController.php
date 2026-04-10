@@ -37,12 +37,12 @@ final class PageController
         $template = __DIR__ . '/Templates/' . $pageId . '.php';
 
         ?>
-        <div class="ep-settings-wrapper">
-            <div class="ep-settings">
+        <div class="ep-page">
+            <div class="ep-page__shell">
 
                 <?php self::renderHeader($isDev); ?>
 
-                <div class="ep-layout">
+                <div class="ep-page__body">
                     <?php
                     if (file_exists($template)) {
                         include $template;
@@ -66,18 +66,18 @@ final class PageController
     public static function renderHeader(bool $isDev, string $extraHtml = ''): void
     {
         if ($isDev) : ?>
-            <div class="ep-dev-banner">Developer Mode is active &mdash; template guards are bypassed by the MU Kernel. Remove <code>EP_DEV_MODE</code> from wp-config.php before deploying.</div>
+            <div class="ep-page__dev-banner">Developer Mode is active &mdash; template guards are bypassed by the MU Kernel. Remove <code>EP_DEV_MODE</code> from wp-config.php before deploying.</div>
         <?php endif; ?>
 
-        <header class="ep-header">
-            <div class="ep-header-top">
-                <div class="ep-logo"><span>&lt;</span>ExamplePress<span>/&gt;</span></div>
-                <div class="ep-header-right">
+        <header class="ep-page__header">
+            <div class="ep-page__header-top">
+                <div class="ep-page__logo"><span>&lt;</span>ExamplePress<span>/&gt;</span></div>
+                <div class="ep-page__header-actions">
                     <?php
                     // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
                     echo $extraHtml;
                     ?>
-                    <div class="ep-version">v<?php echo esc_html(EXAMPLEPRESS_MU_VERSION); ?></div>
+                    <div class="ep-page__version">v<?php echo esc_html(EXAMPLEPRESS_MU_VERSION); ?></div>
                 </div>
             </div>
         </header>
@@ -93,16 +93,16 @@ final class PageController
     public static function renderDetailModal(): void
     {
         ?>
-        <div class="ep-modal-overlay" id="ep-feature-modal" style="display:none">
+        <div class="ep-modal__overlay" id="ep-feature-modal" hidden>
             <div class="ep-modal">
-                <div class="ep-modal-header">
+                <div class="ep-modal__header">
                     <div>
-                        <span class="ep-modal-title" id="ep-modal-title"></span>
-                        <span class="ep-modal-id" id="ep-modal-id"></span>
+                        <span class="ep-modal__title" id="ep-modal-title"></span>
+                        <span class="ep-modal__subtitle" id="ep-modal-id"></span>
                     </div>
-                    <button class="ep-modal-close" id="ep-modal-close">&times;</button>
+                    <button class="ep-modal__close" id="ep-modal-close">&times;</button>
                 </div>
-                <div class="ep-modal-body" id="ep-modal-body"></div>
+                <div class="ep-modal__body" id="ep-modal-body"></div>
             </div>
         </div>
         <?php

@@ -9,9 +9,6 @@
  * dedicated Apps page and publish into the native WordPress Plugins screen
  * via AppUpdateProvider. Surfacing them in three places would just be noise.
  */
-import '../css/base.css';
-import '../css/updates.css';
-
 import { initLogger, log } from '../lib/logger.js';
 import { initApi } from '../lib/api.js';
 import { initTabs } from '../lib/tabs.js';

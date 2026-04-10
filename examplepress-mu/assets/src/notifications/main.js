@@ -2,7 +2,6 @@
  * Notifications page entry point.
  * Tabs: Active (default), Archived
  */
-import '../css/base.css';
 
 import { initLogger, log } from '../lib/logger.js';
 import { initApi } from '../lib/api.js';

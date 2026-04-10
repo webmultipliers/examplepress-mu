@@ -1,0 +1,32 @@
+/*
+ * ExamplePress Design System — Empty State
+ * ep-empty
+ */
+
+.ep-empty {
+  padding: 2.5rem 1.5rem;
+  color: var(--text-faint);
+  font-size: 0.9rem;
+  line-height: 1.6;
+  text-align: center;
+}
+
+.ep-empty__icon {
+  margin-bottom: var(--space-3);
+  font-size: 2rem;
+  opacity: 0.5;
+}
+
+.ep-empty__title {
+  margin-bottom: 0.3rem;
+  color: var(--text-light);
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.ep-empty__desc {
+  max-width: 400px;
+  margin: 0 auto;
+  color: var(--text-faint);
+  font-size: 0.85rem;
+}

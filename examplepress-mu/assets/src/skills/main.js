@@ -11,9 +11,6 @@
  *   - Responsive 3-column → 2-column → 1-column layout
  */
 
-import '../css/base.css';
-import './skills.css';
-
 import { marked }    from 'marked';
 import hljs          from 'highlight.js/lib/core';
 import javascript    from 'highlight.js/lib/languages/javascript';

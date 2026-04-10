@@ -700,20 +700,32 @@ final class AppRegistry
      */
     public static function listDraftsPending(): array
     {
-        // Find every post with EITHER a stashed payload OR a non-empty
-        // draft_status (which covers in-flight placeholders that haven't
-        // produced a payload yet). meta_query gives us OR semantics.
+        // Find every post that is either:
+        // 1. A never-pushed draft (post_status=draft) — always show so
+        //    orphaned placeholders are visible and can be discarded.
+        // 2. A published app with a stashed payload or draft status
+        //    (pending iteration/repair).
+        // Single query: every ep_app post that is either an unpushed
+        // draft OR a published app with pending draft work. Using 'any'
+        // post_status catches orphans regardless of status.
         $posts = get_posts([
             'post_type'      => 'ep_app',
-            'post_status'    => ['draft', 'publish'],
+            'post_status'    => 'any',
             'posts_per_page' => 100,
             'no_found_rows'  => true,
-            'meta_query'     => [
-                'relation' => 'OR',
-                [ 'key' => self::META_DRAFT_PAYLOAD, 'compare' => 'EXISTS' ],
-                [ 'key' => self::META_DRAFT_STATUS,  'compare' => 'EXISTS' ],
-            ],
         ]);
+        // Filter down to posts that belong in the drafts panel:
+        // - Never-pushed drafts (post_status !== publish)
+        // - Published apps with a stashed payload or draft status
+        $posts = array_filter($posts, static function (\WP_Post $post): bool {
+            if ($post->post_status !== 'publish') {
+                return true; // All non-published posts show (draft, trash, etc.)
+            }
+            // Published: only show if pending draft work exists.
+            $hasPayload = metadata_exists('post', $post->ID, self::META_DRAFT_PAYLOAD);
+            $hasStatus  = metadata_exists('post', $post->ID, self::META_DRAFT_STATUS);
+            return $hasPayload || $hasStatus;
+        });
 
         $out = [];
         foreach ($posts as $post) {
@@ -736,6 +748,8 @@ final class AppRegistry
                 'prompt'         => $prompt,
                 'has_payload'    => !empty($files),
                 'in_flight'      => in_array($draftStatus, ['queued', 'drafting', 'iterating', 'repairing', 'pushing'], true),
+                'stalled'        => in_array($draftStatus, ['queued', 'drafting', 'iterating', 'repairing'], true)
+                                    && ((int) get_post_meta($post->ID, self::META_DRAFT_UPDATED_AT, true)) < (time() - 300),
                 'updated_at'     => (int) get_post_meta($post->ID, self::META_DRAFT_UPDATED_AT, true),
                 'version'        => (string) ($payload['manifest']['version'] ?? ''),
                 'files_count'    => count($files),

@@ -1,0 +1,93 @@
+/*
+ * ExamplePress Design System — Button
+ * ep-btn, ep-btn--primary/secondary/danger/ghost, ep-btn-group
+ * Unified from: ep-apps-btn, ep-demo-btn, ep-build-submit, ep-editor-btn-secondary
+ */
+
+.ep-page button.ep-btn {
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  padding: 0.5rem 1rem;
+  font-weight: 500;
+  font-size: 0.88rem;
+  font-family: var(--sans);
+  line-height: 1.4;
+}
+
+.ep-page button.ep-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* Secondary (default) */
+.ep-btn--secondary {
+  border-color: var(--border);
+  background: var(--surface);
+  color: var(--text-light);
+}
+
+.ep-btn--secondary:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--surface-alt);
+}
+
+/* Primary */
+.ep-btn--primary {
+  border-color: #135e96;
+  background: var(--accent-ui);
+  color: #ffffff;
+}
+
+.ep-btn--primary:hover:not(:disabled) {
+  background: var(--accent-hover-ui);
+}
+
+/* Danger */
+.ep-btn--danger {
+  border-color: var(--red-border);
+  background: var(--red-bg);
+  color: var(--red);
+}
+
+.ep-btn--danger:hover:not(:disabled) {
+  border-color: var(--red);
+  background: rgba(138, 36, 36, 0.12);
+}
+
+/* Ghost (text-only) */
+.ep-btn--ghost {
+  box-shadow: none;
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-faint);
+}
+
+.ep-btn--ghost:hover:not(:disabled) {
+  background: var(--surface-alt);
+  color: var(--text);
+}
+
+/* Special: purple/troy variant */
+.ep-btn--purple {
+  border-color: var(--purple-border);
+  background: var(--purple-bg);
+  color: var(--purple);
+}
+
+.ep-btn--purple:hover:not(:disabled) {
+  border-color: rgba(123, 73, 150, 0.3);
+  background: rgba(123, 73, 150, 0.12);
+}
+
+/* Button group */
+.ep-btn-group {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.ep-btn-group--end {
+  justify-content: flex-end;
+}

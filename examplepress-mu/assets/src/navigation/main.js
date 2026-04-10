@@ -2,7 +2,6 @@
  * Navigation page entry point.
  * Tabs: Locations (default), Menus
  */
-import '../css/base.css';
 
 import { initLogger, log } from '../lib/logger.js';
 import { initApi } from '../lib/api.js';

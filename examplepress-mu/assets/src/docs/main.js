@@ -2,7 +2,6 @@
  * Docs page entry point.
  * Tabs: Guides (default), Hooks, Support
  */
-import '../css/base.css';
 
 import { initLogger, log } from '../lib/logger.js';
 import { initApi } from '../lib/api.js';

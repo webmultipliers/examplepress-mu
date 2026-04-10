@@ -23,10 +23,10 @@ export function renderDemo(data) {
 
 	function renderPlugin() {
 		const badgeMap = {
-			'not-installed': { cls: 'badge-off',  lbl: 'Not Installed' },
-			'installed':     { cls: 'badge-warn', lbl: 'Installed' },
-			'active':        { cls: 'badge-on',   lbl: 'Active' },
-			'foreign':       { cls: 'badge-err',  lbl: 'Conflict' },
+			'not-installed': { cls: 'ep-badge--pending',  lbl: 'Not Installed' },
+			'installed':     { cls: 'ep-badge--warning', lbl: 'Installed' },
+			'active':        { cls: 'ep-badge--success',   lbl: 'Active' },
+			'foreign':       { cls: 'ep-badge--danger',  lbl: 'Conflict' },
 		};
 		const b = badgeMap[status] || badgeMap['not-installed'];
 		badge.className = `ep-badge ${b.cls}`;
@@ -178,7 +178,7 @@ export function renderDemo(data) {
 						const isPinned = result.settings?.pinned_version;
 
 						availBadge.textContent = result.available.version;
-						availBadge.className = 'ep-badge badge-warn';
+						availBadge.className = 'ep-badge ep-badge--warning';
 
 						if (isPinned) {
 							checkMsg.textContent = `Pinned to ${result.available.version} — installed version differs.`;

@@ -1,0 +1,120 @@
+/*
+ * ExamplePress Design System — Tabs
+ * ep-tabs, ep-tab, ep-tab--active, ep-panels, ep-panel
+ */
+
+/* Vertical sidebar tab bar */
+.ep-tabs {
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column;
+  gap: 0;
+  border-right: 1px solid var(--border);
+  background: var(--surface-alt);
+  padding: 0.75rem 0;
+  width: 200px;
+  overflow-y: auto;
+  scrollbar-color: var(--border) transparent;
+  scrollbar-width: thin;
+}
+
+.ep-tabs::-webkit-scrollbar {
+  width: 4px;
+}
+
+.ep-tabs::-webkit-scrollbar-thumb {
+  border-radius: 2px;
+  background: var(--border);
+}
+
+/* Individual tab */
+.ep-page button.ep-tab {
+  position: relative;
+  transition: color 0.15s, background 0.15s;
+  cursor: pointer;
+  border: none;
+  border-radius: 0;
+  background: none;
+  padding: 0.6rem 1rem;
+  width: 100%;
+  color: var(--text-light);
+  font-weight: 500;
+  font-size: 0.85rem;
+  font-family: var(--sans);
+  letter-spacing: 0;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.ep-page button.ep-tab:hover {
+  background: rgba(0, 0, 0, 0.03);
+  color: var(--text);
+}
+
+/* Active tab */
+.ep-page button.ep-tab[aria-selected="true"] {
+  background: var(--surface);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.ep-page button.ep-tab[aria-selected="true"]::after {
+  position: absolute;
+  top: 0;
+  right: -1px;
+  bottom: 0;
+  border-radius: 0;
+  background: var(--accent-ui);
+  width: 3px;
+  height: auto;
+  content: '';
+}
+
+/* Tab count badge */
+.ep-tab__count {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  margin-left: 0.4rem;
+  border-radius: 100px;
+  background: var(--border);
+  padding: 0 0.4rem;
+  min-width: 1.4rem;
+  height: 1.4rem;
+  color: var(--text);
+  font-weight: 600;
+  font-size: 0.75rem;
+}
+
+.ep-tab[aria-selected="true"] .ep-tab__count {
+  background: var(--accent-bg);
+  color: var(--accent-text);
+}
+
+/* Panel container */
+.ep-panels {
+  flex: 1;
+  padding: 1.75rem 2rem;
+  min-width: 0;
+}
+
+/* Individual panel */
+.ep-panel {
+  display: none;
+  animation: epPanelIn 0.2s var(--ease);
+}
+
+.ep-panel[aria-hidden="false"] {
+  display: block;
+}
+
+@keyframes epPanelIn {
+  from {
+    transform: translateY(3px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}

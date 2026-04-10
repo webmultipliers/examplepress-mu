@@ -1,0 +1,80 @@
+/*
+ * ExamplePress Design System — Form
+ * ep-form, ep-form__row, ep-form__label, ep-form__control, ep-form__error, ep-form__hint
+ * Unified from: ep-build-field/label/input/error/hint, ep-conn-group/field
+ */
+
+.ep-form {
+  max-width: 640px;
+}
+
+.ep-form__row {
+  margin-bottom: 1.25rem;
+}
+
+.ep-form__row:last-child {
+  margin-bottom: 0;
+}
+
+.ep-form__label {
+  display: block;
+  margin-bottom: 0.4rem;
+  color: var(--text);
+  font-weight: 500;
+  font-size: 0.88rem;
+}
+
+.ep-form__label--required::after {
+  content: ' *';
+  color: var(--red);
+}
+
+.ep-form__control input,
+.ep-form__control select,
+.ep-form__control textarea {
+  width: 100%;
+}
+
+.ep-form__hint {
+  margin-top: 0.35rem;
+  color: var(--text-faint);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.ep-form__error {
+  margin-top: 0.35rem;
+  color: var(--red);
+  font-weight: 500;
+  font-size: 0.8rem;
+}
+
+.ep-form__separator {
+  margin: 1.5rem 0;
+  border: none;
+  border-top: 1px solid var(--border);
+}
+
+/* Form grid (for connection-style side-by-side fields) */
+.ep-form--grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+  max-width: none;
+}
+
+/* Radio group */
+.ep-radio-group {
+  margin-bottom: 1.25rem;
+}
+
+.ep-radio-group__label {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  cursor: pointer;
+  margin-bottom: 0.75rem;
+  color: var(--text);
+  font-weight: 500;
+  font-size: 0.9rem;
+}

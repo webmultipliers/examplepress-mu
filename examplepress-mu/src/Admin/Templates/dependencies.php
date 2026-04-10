@@ -18,18 +18,18 @@ if (!defined('ABSPATH')) exit;
 		<!-- Required -->
 		<div class="ep-panel" id="p-required" role="tabpanel" aria-hidden="false">
 			<section class="ep-section">
-				<div class="ep-section-header"><span class="ep-section-title">Dependency Directory</span><div class="ep-section-line"></div></div>
-				<p class="ep-section-desc">Plugins, Composer packages, and libraries declared in examplepress.json. Detected via plugin registry, class_exists, or function_exists.</p>
-				<div class="ep-table" id="deps-required"></div>
+				<div class="ep-section__header"><span class="ep-section__title">Dependency Directory</span><div class="ep-section__line"></div></div>
+				<p class="ep-section__desc">Plugins, Composer packages, and libraries declared in examplepress.json. Detected via plugin registry, class_exists, or function_exists.</p>
+				<div id="deps-required"></div>
 			</section>
 		</div>
 
 		<!-- Recommended -->
 		<div class="ep-panel" id="p-recommended" role="tabpanel" aria-hidden="true">
 			<section class="ep-section">
-				<div class="ep-section-header"><span class="ep-section-title">Recommended</span><div class="ep-section-line"></div></div>
-				<p class="ep-section-desc">Optional packages and plugins that enhance the ExamplePress experience. These are not required but provide additional functionality.</p>
-				<div class="ep-table" id="deps-recommended"></div>
+				<div class="ep-section__header"><span class="ep-section__title">Recommended</span><div class="ep-section__line"></div></div>
+				<p class="ep-section__desc">Optional packages and plugins that enhance the ExamplePress experience. These are not required but provide additional functionality.</p>
+				<div id="deps-recommended"></div>
 			</section>
 		</div>
 

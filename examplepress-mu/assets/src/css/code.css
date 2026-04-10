@@ -1,0 +1,79 @@
+/*
+ * ExamplePress Design System — Code
+ * ep-code, ep-code-block, ep-json
+ */
+
+/* Inline code is handled by reset.css (.ep-page code) */
+
+/* Block code */
+.ep-code-block {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-alt);
+  padding: 1rem;
+  overflow-x: auto;
+  color: var(--text-light);
+  font-size: 0.8rem;
+  line-height: 1.7;
+  font-family: var(--mono);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* JSON viewer */
+.ep-json {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-alt);
+  padding: 1rem;
+  overflow-x: auto;
+  font-size: 0.8rem;
+  line-height: 1.65;
+  font-family: var(--mono);
+}
+
+.ep-json__key {
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.ep-json__string {
+  color: var(--green);
+}
+
+.ep-json__number {
+  color: var(--purple);
+}
+
+.ep-json__boolean {
+  color: var(--amber);
+  font-weight: 600;
+}
+
+.ep-json__null {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+.ep-json__bracket {
+  color: var(--text-faint);
+}
+
+.ep-json__toggle {
+  cursor: pointer;
+  color: var(--accent-text);
+  font-size: 0.7rem;
+}
+
+.ep-json__toggle:hover {
+  color: var(--accent-hover-text);
+}
+
+.ep-json__collapsible {
+  transition: max-height 0.2s var(--ease);
+  overflow: hidden;
+}
+
+.ep-json__collapsed {
+  display: none;
+}

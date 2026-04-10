@@ -12,13 +12,13 @@ function renderDepTable(containerId, deps) {
 		el.innerHTML = '<p class="ep-notif-empty">No dependencies in this category.</p>';
 		return;
 	}
-	let html = '<div class="ep-row ep-row-head ep-cols-4"><div class="ep-th">Dependency</div><div class="ep-th">Tier</div><div class="ep-th">Status</div><div class="ep-th">Source</div></div>';
+	let html = '<div class="ep-table__row ep-table__row--head ep-table--cols-4"><div class="ep-table__th">Dependency</div><div class="ep-table__th">Tier</div><div class="ep-table__th">Status</div><div class="ep-table__th">Source</div></div>';
 	deps.forEach(p => {
 		const statusMap = {
-			active:    { cls: 'badge-on',   lbl: 'Active' },
-			installed: { cls: 'badge-warn', lbl: 'Installed' },
-			fallback:  { cls: 'badge-info', lbl: 'Free Alt.' },
-			missing:   { cls: 'badge-err',  lbl: 'Missing' },
+			active:    { cls: 'ep-badge--success',   lbl: 'Active' },
+			installed: { cls: 'ep-badge--warning', lbl: 'Installed' },
+			fallback:  { cls: 'ep-badge--info', lbl: 'Free Alt.' },
+			missing:   { cls: 'ep-badge--danger',  lbl: 'Missing' },
 		};
 		const st = statusMap[p.status] || statusMap.missing;
 		const tierMap = { required: 'tier-req', recommended: 'tier-rec', optional: 'tier-opt' };
@@ -33,7 +33,7 @@ function renderDepTable(containerId, deps) {
 		let fallbackNote = '';
 		if (p.fallback) {
 			const fbSt = p.fallback.status === 'active' ? 'active' : p.fallback.status === 'installed' ? 'installed' : 'not installed';
-			fallbackNote = `<span class="ep-desc-small">Free alt: ${esc(p.fallback.slug)} (${fbSt})</span>`;
+			fallbackNote = `<span class="ep-table__desc">Free alt: ${esc(p.fallback.slug)} (${fbSt})</span>`;
 		}
 
 		let sourceLink = '';
@@ -43,8 +43,8 @@ function renderDepTable(containerId, deps) {
 			sourceLink = `<a href="${esc(p.url)}" class="ep-link" target="_blank" rel="noopener">${esc(domain)} &rarr;</a>`;
 		}
 
-		html += `<div class="ep-row ep-cols-4 ep-row-clickable" data-dep-slug="${esc(p.slug)}">
-			<div class="ep-td-label"><span class="ep-name">${esc(p.name)}${badges}</span><span class="ep-id">${esc(p.slug)}</span>${fallbackNote}</div>
+		html += `<div class="ep-table__row ep-table--cols-4 ep-table__row--clickable" data-dep-slug="${esc(p.slug)}">
+			<div class="ep-table__label"><span class="ep-table__name">${esc(p.name)}${badges}</span><span class="ep-table__id">${esc(p.slug)}</span>${fallbackNote}</div>
 			<div><span class="ep-tier ${tierCls}">${esc(p.tier)}</span></div>
 			<div><span class="ep-badge ${st.cls}"><span class="ep-dot"></span>${st.lbl}</span></div>
 			<div>${sourceLink}</div>
@@ -53,17 +53,17 @@ function renderDepTable(containerId, deps) {
 	el.innerHTML = html;
 
 	// Dependency detail modals.
-	el.querySelectorAll('.ep-row-clickable[data-dep-slug]').forEach(row => {
+	el.querySelectorAll('.ep-table__row--clickable[data-dep-slug]').forEach(row => {
 		row.addEventListener('click', (e) => {
 			if (e.target.closest('a')) return;
 			const slug = row.dataset.depSlug;
 			const p = deps.find(d => d.slug === slug);
 			if (!p) return;
 			const statusMap = {
-				active:    { cls: 'badge-on',   lbl: 'Active' },
-				installed: { cls: 'badge-warn', lbl: 'Installed' },
-				fallback:  { cls: 'badge-info', lbl: 'Free Alt.' },
-				missing:   { cls: 'badge-err',  lbl: 'Missing' },
+				active:    { cls: 'ep-badge--success',   lbl: 'Active' },
+				installed: { cls: 'ep-badge--warning', lbl: 'Installed' },
+				fallback:  { cls: 'ep-badge--info', lbl: 'Free Alt.' },
+				missing:   { cls: 'ep-badge--danger',  lbl: 'Missing' },
 			};
 			const st = statusMap[p.status] || statusMap.missing;
 			const tierMap = { required: 'tier-req', recommended: 'tier-rec', optional: 'tier-opt' };

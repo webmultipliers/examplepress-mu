@@ -19,69 +19,32 @@ if (!defined('ABSPATH')) exit;
 		<!-- Guides -->
 		<div class="ep-panel" id="p-guides" role="tabpanel" aria-hidden="false">
 			<section class="ep-section">
-				<div class="ep-doc-section-title">Getting Started</div>
-				<div class="ep-doc-section-desc">ExamplePress is the FSE theme layer for Blockstudio. It provides a router, feature registry, and Blockstudio integration. Everything else is built in your companion plugin.</div>
-				<div class="ep-docs-grid" id="docs-cards"></div>
+				<div class="ep-section__header"><span class="ep-section__title">Getting Started</span><div class="ep-section__line"></div></div>
+				<p class="ep-section__desc">ExamplePress is the FSE theme layer for Blockstudio. It provides a router, feature registry, and Blockstudio integration. Everything else is built in your companion plugin.</p>
+				<div class="ep-card-grid" id="docs-cards"></div>
 			</section>
 			<section class="ep-section">
-				<div class="ep-section-header"><span class="ep-section-title">Resolution Order</span><div class="ep-section-line"></div></div>
-				<p class="ep-section-desc">When the feature registry resolves a value, it checks sources in priority order. The first match wins.</p>
-				<div class="ep-table">
-					<div class="ep-row ep-row-head ep-cols-3">
-						<div class="ep-th">Priority</div><div class="ep-th">Source</div><div class="ep-th">Mechanism</div>
-					</div>
-					<div class="ep-row ep-cols-3">
-						<div class="ep-td-label"><span class="ep-name">1 — Highest</span></div>
-						<div><span class="ep-src src-php">PHP filter</span></div>
-						<div><span class="ep-id">add_filter()</span></div>
-					</div>
-					<div class="ep-row ep-cols-3">
-						<div class="ep-td-label"><span class="ep-name">2</span></div>
-						<div><span class="ep-src src-json">JSON</span></div>
-						<div><span class="ep-id">examplepress.json</span></div>
-					</div>
-					<div class="ep-row ep-cols-3">
-						<div class="ep-td-label"><span class="ep-name">3 — Lowest</span></div>
-						<div><span class="ep-src">default</span></div>
-						<div><span class="ep-id">register_feature()</span></div>
-					</div>
-				</div>
+				<div class="ep-section__header"><span class="ep-section__title">Resolution Order</span><div class="ep-section__line"></div></div>
+				<p class="ep-section__desc">When the feature registry resolves a value, it checks sources in priority order. The first match wins.</p>
+				<div class="ep-table" id="docs-resolution-table"></div>
 			</section>
 		</div>
 
 		<!-- Hooks -->
 		<div class="ep-panel" id="p-hooks" role="tabpanel" aria-hidden="true">
 			<section class="ep-section">
-				<div class="ep-section-header"><span class="ep-section-title">Filter &amp; Action Reference</span><div class="ep-section-line"></div></div>
-				<p class="ep-section-desc">Every hook the theme exposes. Use these from your companion plugin to control routing, features, and design tokens.</p>
-				<div class="ep-hooks-list" id="hooks-list"></div>
+				<div class="ep-section__header"><span class="ep-section__title">Filter &amp; Action Reference</span><div class="ep-section__line"></div></div>
+				<p class="ep-section__desc">Every hook the theme exposes. Use these from your companion plugin to control routing, features, and design tokens.</p>
+				<div id="hooks-list"></div>
 			</section>
 		</div>
 
 		<!-- Support -->
 		<div class="ep-panel" id="p-support" role="tabpanel" aria-hidden="true">
 			<section class="ep-section">
-				<div class="ep-doc-section-title">Support &amp; Resources</div>
-				<div class="ep-doc-section-desc">Find help, contribute to the project, or get in touch with the team.</div>
-				<div class="ep-support-grid">
-					<a class="ep-overview-card" href="https://github.com/flavor/flavor" target="_blank" rel="noopener">
-						<div class="ep-overview-card-title">Blockstudio</div>
-						<p class="ep-overview-card-desc">The parent framework that ExamplePress extends. Browse the source, file issues, and follow development.</p>
-					</a>
-					<div class="ep-overview-card">
-						<div class="ep-overview-card-title">ExamplePress Support</div>
-						<p class="ep-overview-card-desc">Dedicated support channel for ExamplePress users. Ask questions, report bugs, and share feedback.</p>
-						<span class="ep-badge badge-info"><span class="ep-dot"></span>Coming Soon</span>
-					</div>
-					<a class="ep-overview-card" href="https://github.com/webmultipliers/examplepress-theme" target="_blank" rel="noopener">
-						<div class="ep-overview-card-title">Contribute</div>
-						<p class="ep-overview-card-desc">Open a pull request, suggest a feature, or help improve the documentation. All contributions are welcome.</p>
-					</a>
-					<a class="ep-overview-card" href="https://examplepress.com/contact" target="_blank" rel="noopener">
-						<div class="ep-overview-card-title">Get In Touch</div>
-						<p class="ep-overview-card-desc">Reach the ExamplePress team directly for partnerships, custom development, or general inquiries.</p>
-					</a>
-				</div>
+				<div class="ep-section__header"><span class="ep-section__title">Support &amp; Resources</span><div class="ep-section__line"></div></div>
+				<p class="ep-section__desc">Find help, contribute to the project, or get in touch with the team.</p>
+				<div class="ep-card-grid" id="docs-support-cards"></div>
 			</section>
 		</div>
 

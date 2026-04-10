@@ -18,18 +18,18 @@ if (!defined('ABSPATH')) exit;
 		<!-- Locations -->
 		<div class="ep-panel" id="p-locations" role="tabpanel" aria-hidden="false">
 			<section class="ep-section">
-				<div class="ep-section-header"><span class="ep-section-title">Registered Locations</span><div class="ep-section-line"></div></div>
-				<p class="ep-section-desc">ExamplePress uses the native WordPress menu system. Register locations in your companion plugin and assign menus via Appearance &rarr; Menus or the Navigation block.</p>
-				<div class="ep-table" id="tbl-nav-locations"></div>
+				<div class="ep-section__header"><span class="ep-section__title">Registered Locations</span><div class="ep-section__line"></div></div>
+				<p class="ep-section__desc">ExamplePress uses the native WordPress menu system. Register locations in your companion plugin and assign menus via Appearance &rarr; Menus or the Navigation block.</p>
+				<div id="tbl-nav-locations"></div>
 			</section>
 		</div>
 
 		<!-- Menus -->
 		<div class="ep-panel" id="p-menus" role="tabpanel" aria-hidden="true">
 			<section class="ep-section">
-				<div class="ep-section-header"><span class="ep-section-title">Menus</span><div class="ep-section-line"></div></div>
-				<p class="ep-section-desc">All menus registered in this WordPress installation. Manage items via <a href="<?php echo esc_url( admin_url( 'nav-menus.php' ) ); ?>" class="ep-link">Appearance &rarr; Menus</a> or the Navigation block in the editor.</p>
-				<div class="ep-table" id="tbl-nav-menus"></div>
+				<div class="ep-section__header"><span class="ep-section__title">Menus</span><div class="ep-section__line"></div></div>
+				<p class="ep-section__desc">All menus registered in this WordPress installation. Manage items via <a href="<?php echo esc_url( admin_url( 'nav-menus.php' ) ); ?>">Appearance &rarr; Menus</a> or the Navigation block in the editor.</p>
+				<div id="tbl-nav-menus"></div>
 			</section>
 		</div>
 

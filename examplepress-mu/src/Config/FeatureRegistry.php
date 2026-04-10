@@ -294,27 +294,7 @@ final class FeatureRegistry
             },
         ]);
 
-        self::register('login-branding', [
-            'label'   => 'Login Branding',
-            'group'   => 'admin',
-            'default' => true,
-            'setup'   => static function (string $id): void {
-                if (!self::enabled($id)) {
-                    return;
-                }
-                add_action('login_enqueue_scripts', static function (): void {
-                    $cssPath = EXAMPLEPRESS_MU_DIR . '/assets/src/css/login.css';
-                    if (file_exists($cssPath)) {
-                        wp_enqueue_style(
-                            'examplepress-login',
-                            EXAMPLEPRESS_MU_URI . '/assets/src/css/login.css',
-                            [],
-                            EXAMPLEPRESS_MU_VERSION
-                        );
-                    }
-                });
-            },
-        ]);
+        // Login branding removed — the kernel no longer ships a custom login stylesheet.
 
         // Design Tokens — each feature owns its own slice of theme.json.
         self::register('theme-colors', [

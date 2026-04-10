@@ -2,7 +2,6 @@
  * System page entry point.
  * Tabs: Health (default), Features, Routes, Blocks
  */
-import '../css/base.css';
 
 import { initLogger, log } from '../lib/logger.js';
 import { initApi } from '../lib/api.js';
