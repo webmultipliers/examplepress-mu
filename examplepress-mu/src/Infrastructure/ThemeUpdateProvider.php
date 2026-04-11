@@ -279,16 +279,43 @@ final class ThemeUpdateProvider
     //  Repo
     // ─────────────────────────────────────────────────────────────────
 
+    /** Hardcoded default repo for the theme. Wrapped in a constant so
+     * repo() and repoSource() share a single source of truth. */
+    private const DEFAULT_REPO = 'webmultipliers/examplepress-theme';
+
     /**
      * Resolve the GitHub repo slug (owner/name) for the theme. Filterable
-     * so fleets can point at a private fork or enterprise mirror.
+     * so fleets can point at a private fork or enterprise mirror. A
+     * filter return that doesn't match the GitHub owner/repo pattern
+     * falls back to the hardcoded default so a typo in a filter can't
+     * point the updater at a garbage URL.
      */
     public static function repo(): string
     {
         /**
          * Filter the GitHub repo used for ExamplePress theme updates.
          */
-        return (string) apply_filters('examplepress_mu_theme_repo', 'webmultipliers/examplepress-theme');
+        $filtered = (string) apply_filters('examplepress_mu_theme_repo', self::DEFAULT_REPO);
+
+        return Helpers::isValidGitHubRepo($filtered) ? $filtered : self::DEFAULT_REPO;
+    }
+
+    /**
+     * Where the effective theme repo string came from: 'filter' when
+     * the examplepress_mu_theme_repo filter returned a valid override,
+     * 'default' otherwise. Mirrors Updater::repoSource() so the admin
+     * UI can annotate fleet mirrors consistently across kernel + theme.
+     *
+     * @return string One of: filter, default.
+     */
+    public static function repoSource(): string
+    {
+        $filtered = (string) apply_filters('examplepress_mu_theme_repo', self::DEFAULT_REPO);
+
+        if ($filtered === self::DEFAULT_REPO || !Helpers::isValidGitHubRepo($filtered)) {
+            return 'default';
+        }
+        return 'filter';
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -428,6 +455,7 @@ final class ThemeUpdateProvider
             'last_checked'      => self::getLastChecked(),
             'theme_active'      => self::isThemeActive(),
             'repo'              => self::repo(),
+            'repo_source'       => self::repoSource(),
             'kernel_api'        => self::currentKernelApi(),
             'kernel_api_block'  => is_array($kernelApiBlock) ? $kernelApiBlock : null,
             'manifest_kernel_api' => $manifest ? self::manifestKernelApi($manifest) : null,

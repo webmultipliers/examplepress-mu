@@ -84,6 +84,99 @@ final class ConnectionsController
             'callback'            => [self::class, 'testTroy'],
             'permission_callback' => [self::class, 'permissionCheck'],
         ]);
+
+        // CSRF protection for the Troy auth popup round-trip. The admin UI
+        // calls this BEFORE opening the popup to mint a one-shot state
+        // token, passes the token to Troy as ?state=..., and Troy echoes
+        // it back on the callback URL. handleTroyAuthCallback then
+        // verifies + consumes it. See the block comment above
+        // handleTroyAuthCallback for the full threat model.
+        register_rest_route('examplepress-mu/v1', '/connections/troy/prepare-auth', [
+            'methods'             => 'POST',
+            'callback'            => [self::class, 'prepareTroyAuth'],
+            'permission_callback' => [self::class, 'permissionCheck'],
+        ]);
+
+        // Same CSRF protection for the GitHub App installation callback.
+        // GitHub App install URLs support a `state` parameter that GitHub
+        // echoes back to the callback, so the same round-trip works:
+        //   https://github.com/apps/{app}/installations/new?state={token}
+        register_rest_route('examplepress-mu/v1', '/connections/github/prepare-auth', [
+            'methods'             => 'POST',
+            'callback'            => [self::class, 'prepareGitHubAuth'],
+            'permission_callback' => [self::class, 'permissionCheck'],
+        ]);
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    //  OAuth-state CSRF protection
+    // ─────────────────────────────────────────────────────────────────
+
+    /** Transient key prefix for one-shot popup-flow state tokens. */
+    private const AUTH_STATE_KEY = 'ep_oauth_state';
+
+    /** Scope identifiers (appended to the transient key for isolation). */
+    private const TROY_AUTH_STATE_KEY   = self::AUTH_STATE_KEY . ':troy';
+    private const GITHUB_AUTH_STATE_KEY = self::AUTH_STATE_KEY . ':github';
+
+    /** TTL of the state token. Short because the popup flow is synchronous. */
+    private const AUTH_STATE_TTL = 5 * 60;
+
+    /**
+     * Mint a one-shot state token for an OAuth popup round-trip.
+     * Generic over the scope so Troy and GitHub App callbacks share
+     * one implementation without the risk of a scope mix-up.
+     *
+     * @param string $scopeKey One of the *_AUTH_STATE_KEY constants.
+     */
+    private static function mintAuthState(string $scopeKey): string
+    {
+        $state  = bin2hex(random_bytes(16));
+        $userId = get_current_user_id();
+
+        set_transient(
+            $scopeKey . ':' . $userId,
+            $state,
+            self::AUTH_STATE_TTL
+        );
+
+        return $state;
+    }
+
+    /**
+     * POST /connections/troy/prepare-auth
+     *
+     * Generate a one-shot state token for the Troy OAuth popup round-trip.
+     * The admin UI calls this immediately before opening the Troy auth
+     * popup and passes the returned token to Troy as a `state` query
+     * parameter. Troy echoes it back on the callback URL and the kernel
+     * verifies + consumes it before accepting any credentials.
+     *
+     * @return \WP_REST_Response
+     */
+    public static function prepareTroyAuth(): \WP_REST_Response
+    {
+        return rest_ensure_response([
+            'state'      => self::mintAuthState(self::TROY_AUTH_STATE_KEY),
+            'expires_in' => self::AUTH_STATE_TTL,
+        ]);
+    }
+
+    /**
+     * POST /connections/github/prepare-auth
+     *
+     * Generate a one-shot state token for the GitHub App installation
+     * popup round-trip. Symmetric with prepareTroyAuth — see the block
+     * comment above handleGitHubAppCallback for the threat model.
+     *
+     * @return \WP_REST_Response
+     */
+    public static function prepareGitHubAuth(): \WP_REST_Response
+    {
+        return rest_ensure_response([
+            'state'      => self::mintAuthState(self::GITHUB_AUTH_STATE_KEY),
+            'expires_in' => self::AUTH_STATE_TTL,
+        ]);
     }
 
     /**
@@ -416,6 +509,30 @@ final class ConnectionsController
     }
 
     // ── Troy Auth Callback ──────────────────────────────────────────
+    //
+    // THREAT MODEL:
+    //   This handler is an admin_init endpoint that writes
+    //   `ep_troy_credentials`. An attacker who can trick an authenticated
+    //   administrator into visiting a URL of the form
+    //       /wp-admin/?ep_troy_auth_cb=success&user_login=evil&password=evil
+    //   (via a phishing link, an img tag, a meta refresh on an external
+    //   site, etc.) would otherwise have the kernel happily overwrite
+    //   Troy credentials with attacker-controlled values. That is a
+    //   classic CSRF, and "current_user_can" alone doesn't stop it
+    //   because the session cookie is sent on any cross-site GET.
+    //
+    //   We defend by requiring a one-shot state token that must have
+    //   been minted via POST /connections/troy/prepare-auth before the
+    //   popup was opened. The token is per-user, short-lived (5 min),
+    //   and deleted after a single successful consumption, so a crafted
+    //   URL with no state (or a stale state) is rejected outright.
+    //
+    //   SEPARATE ARCHITECTURAL ISSUE not fixed here: passwords arrive
+    //   as query-string parameters and end up in web server access
+    //   logs, upstream proxies, browser history, and Referer headers.
+    //   The only fix is a Troy-side change to POST credentials back
+    //   instead of redirecting with them in the URL. Flagged for the
+    //   Troy OAuth flow redesign — cannot be fixed from the kernel.
 
     public static function handleTroyAuthCallback(): void
     {
@@ -432,8 +549,20 @@ final class ConnectionsController
             return;
         }
 
-        $user_login = sanitize_text_field($_GET['user_login'] ?? '');
-        $password   = sanitize_text_field($_GET['password'] ?? '');
+        // CSRF: verify + consume the one-shot state token. See the
+        // block comment above for the threat model.
+        $providedState = isset($_GET['state']) ? sanitize_text_field(wp_unslash($_GET['state'])) : '';
+        if (!self::verifyAndConsumeTroyAuthState($providedState)) {
+            error_log(sprintf(
+                '[ExamplePress ConnectionsController] Troy auth callback rejected — invalid or missing state token (user_id=%d).',
+                get_current_user_id()
+            ));
+            self::closePopup(false, 'Authorization state token is invalid, expired, or missing. Restart the connection flow.');
+            return;
+        }
+
+        $user_login = sanitize_text_field(wp_unslash($_GET['user_login'] ?? ''));
+        $password   = sanitize_text_field(wp_unslash($_GET['password'] ?? ''));
 
         if (!$user_login || !$password) {
             self::closePopup(false, 'Missing credentials in callback.');
@@ -445,8 +574,87 @@ final class ConnectionsController
         self::closePopup(true, 'Connected to Troy.');
     }
 
+    /**
+     * Verify a callback's state token against the per-user + per-scope
+     * transient minted by the corresponding prepare*() method. Always
+     * deletes the transient on lookup (one-shot semantics) so a replay
+     * of the same state fails.
+     *
+     * A scope-specific legacy-compat filter can accept state-less
+     * callbacks during the one-release transition window before the
+     * admin UI has been updated to call prepare*. Filters default to
+     * FALSE (secure) and should only be flipped with a loud comment
+     * about the CSRF risk.
+     *
+     * @param string $scopeKey   One of the *_AUTH_STATE_KEY constants.
+     * @param string $legacyFilter Filter name to allow unverified fallback.
+     */
+    private static function verifyAndConsumeAuthState(string $scopeKey, string $legacyFilter, string $provided): bool
+    {
+        $userId       = get_current_user_id();
+        $transientKey = $scopeKey . ':' . $userId;
+        $expected     = get_transient($transientKey);
+
+        // Always delete — we never want a state to be reusable, even
+        // when the provided value didn't match.
+        delete_transient($transientKey);
+
+        if (!is_string($expected) || $expected === '') {
+            // No pending auth attempt. Legacy fallback is the only way
+            // through — intentionally a filter that defaults to false.
+            return (bool) apply_filters($legacyFilter, false);
+        }
+
+        if ($provided === '') {
+            return false;
+        }
+
+        // Constant-time compare to defeat timing side-channels. The
+        // entropy is 128 bits so practical timing attacks are unlikely,
+        // but hash_equals is a cheap defensive habit.
+        return hash_equals($expected, $provided);
+    }
+
+    /**
+     * Back-compat shim — the Troy callback uses the generic helper
+     * but keeps its own filter identifier for the legacy fallback.
+     */
+    private static function verifyAndConsumeTroyAuthState(string $provided): bool
+    {
+        return self::verifyAndConsumeAuthState(
+            self::TROY_AUTH_STATE_KEY,
+            'examplepress_mu_allow_unverified_troy_auth',
+            $provided
+        );
+    }
+
+    /**
+     * Same for the GitHub App installation callback.
+     */
+    private static function verifyAndConsumeGitHubAuthState(string $provided): bool
+    {
+        return self::verifyAndConsumeAuthState(
+            self::GITHUB_AUTH_STATE_KEY,
+            'examplepress_mu_allow_unverified_github_auth',
+            $provided
+        );
+    }
+
     // ── GitHub App Callback ─────────────────────────────────────────
 
+    /**
+     * Threat model (see handleTroyAuthCallback for the parallel Troy flow):
+     *
+     * Storing `ep_github_app_installation_id` on a GET callback means an
+     * attacker who tricks an admin into visiting
+     *   /wp-admin/?ep_github_app_cb=1&installation_id=attacker_controlled
+     * can overwrite the kernel's GitHub App pointer. The direct damage
+     * is limited — the attacker's installation id won't grant them write
+     * access because the kernel generates its own JWT against its own
+     * App private key — but it does DoS the integration until an admin
+     * re-installs the App. The CSRF fix is the same state-token
+     * round-trip as Troy.
+     */
     public static function handleGitHubAppCallback(): void
     {
         if (!isset($_GET['ep_github_app_cb'])) {
@@ -457,10 +665,26 @@ final class ConnectionsController
             wp_die('Unauthorized.', 403);
         }
 
-        $installation_id = sanitize_text_field($_GET['installation_id'] ?? '');
+        // CSRF: verify + consume the one-shot state token. When the admin
+        // UI opens the GitHub App install URL it should include
+        // `state=<token>` from POST /connections/github/prepare-auth.
+        $providedState = isset($_GET['state']) ? sanitize_text_field(wp_unslash($_GET['state'])) : '';
+        if (!self::verifyAndConsumeGitHubAuthState($providedState)) {
+            error_log(sprintf(
+                '[ExamplePress ConnectionsController] GitHub App callback rejected — invalid or missing state token (user_id=%d).',
+                get_current_user_id()
+            ));
+            self::closePopup(false, 'Authorization state token is invalid, expired, or missing. Restart the connection flow.');
+            return;
+        }
 
-        if (!$installation_id) {
-            self::closePopup(false, 'No installation ID received from GitHub.');
+        $installation_id = sanitize_text_field(wp_unslash($_GET['installation_id'] ?? ''));
+
+        // GitHub installation ids are numeric. Reject anything that
+        // isn't — prevents an attacker from storing a non-numeric
+        // payload even on the legacy path.
+        if (!$installation_id || !ctype_digit($installation_id)) {
+            self::closePopup(false, 'No valid installation ID received from GitHub.');
             return;
         }
 

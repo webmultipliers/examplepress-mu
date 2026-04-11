@@ -346,7 +346,7 @@ final class RouteRegistry
             $defaultFiles
         );
 
-        $themePath  = defined('EP_THEME_PATH') ? EP_THEME_PATH : get_template_directory();
+        $themePath  = ThemeManifest::path();
         $unexpected = [];
         $entries    = @scandir($themePath);
 

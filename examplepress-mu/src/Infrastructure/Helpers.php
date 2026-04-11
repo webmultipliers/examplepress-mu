@@ -137,4 +137,20 @@ final class Helpers
     {
         return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
     }
+
+    /**
+     * Validate a GitHub "owner/repo" slug. Used by Updater, ThemeUpdateProvider,
+     * and anywhere else that accepts a filter-supplied repo string — centralised
+     * so the pattern can't drift between call sites.
+     *
+     * Pattern rationale:
+     *   - Owner and repo must each match GitHub's allowed charset
+     *     ([A-Za-z0-9_.-]+).
+     *   - Exactly one slash separator.
+     *   - No leading/trailing whitespace or extra path segments.
+     */
+    public static function isValidGitHubRepo(string $repo): bool
+    {
+        return $repo !== '' && (bool) preg_match('#^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$#', $repo);
+    }
 }

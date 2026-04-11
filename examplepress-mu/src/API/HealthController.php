@@ -122,6 +122,7 @@ final class HealthController
                 'update_available'    => !empty($theme['update_available']),
                 'channel'             => (string) ($theme['channel'] ?? ''),
                 'repo'                => (string) ($theme['repo'] ?? ''),
+                'repo_source'         => (string) ($theme['repo_source'] ?? 'default'),
                 'kernel_api'          => (int) ($theme['kernel_api'] ?? 0),
                 'manifest_kernel_api' => $theme['manifest_kernel_api'] ?? null,
                 'kernel_api_block'    => $theme['kernel_api_block'] ?? null,

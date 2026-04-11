@@ -882,13 +882,21 @@ final class GitHub
         $maxFiles = (int) apply_filters('examplepress_mu_agent_iterate_max_files', 80);
 
         foreach ($treeBody['tree'] as $entry) {
-            if (($entry['type'] ?? '') !== 'blob') {
+            // Per-entry shape guard — GitHub's tree API usually returns
+            // well-formed entries, but a malformed item would otherwise
+            // produce PHP 8 warnings on offset access below.
+            if (!is_array($entry) || ($entry['type'] ?? '') !== 'blob') {
+                continue;
+            }
+            $entryPath = $entry['path'] ?? '';
+            $entrySha  = $entry['sha'] ?? '';
+            if (!is_string($entryPath) || $entryPath === '' || !is_string($entrySha) || $entrySha === '') {
                 continue;
             }
             if (count($files) >= $maxFiles) {
                 break;
             }
-            $blob = wp_remote_get("https://api.github.com/repos/{$ownerRepo}/git/blobs/{$entry['sha']}", [
+            $blob = wp_remote_get("https://api.github.com/repos/{$ownerRepo}/git/blobs/{$entrySha}", [
                 'headers' => $headers,
                 'timeout' => 15,
             ]);
@@ -896,11 +904,11 @@ final class GitHub
                 continue;
             }
             $blobBody = json_decode(wp_remote_retrieve_body($blob), true);
-            if (empty($blobBody['content'])) {
+            if (!is_array($blobBody) || empty($blobBody['content'])) {
                 continue;
             }
             $contents = ($blobBody['encoding'] ?? 'base64') === 'base64'
-                ? (string) base64_decode($blobBody['content'])
+                ? (string) base64_decode((string) $blobBody['content'])
                 : (string) $blobBody['content'];
 
             // Skip binary files for context.
@@ -908,7 +916,7 @@ final class GitHub
                 continue;
             }
 
-            $files[] = ['path' => (string) $entry['path'], 'contents' => $contents];
+            $files[] = ['path' => $entryPath, 'contents' => $contents];
         }
 
         return ['files' => $files, 'sha' => $sha];

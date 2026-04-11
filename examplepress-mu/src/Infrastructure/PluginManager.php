@@ -191,16 +191,33 @@ final class PluginManager
 
         if (!is_wp_error($response) && 200 === wp_remote_retrieve_response_code($response)) {
             $release = json_decode(wp_remote_retrieve_body($response), true);
-            if (is_array($release) && !empty($release['assets'])) {
+            if (is_array($release) && !empty($release['assets']) && is_array($release['assets'])) {
                 foreach ($release['assets'] as $asset) {
-                    if (($asset['name'] ?? '') === $assetName) {
-                        return $asset['browser_download_url'];
+                    // Guard per-entry shape — GitHub occasionally returns a
+                    // non-array placeholder for a stripped asset, and we'd
+                    // otherwise trigger a PHP 8 warning on the offset access.
+                    if (!is_array($asset)) {
+                        continue;
+                    }
+                    if (($asset['name'] ?? '') !== $assetName) {
+                        continue;
+                    }
+                    $url = $asset['browser_download_url'] ?? '';
+                    if (is_string($url) && $url !== '') {
+                        return $url;
                     }
                 }
             }
         }
 
-        return sprintf('https://github.com/%s/archive/refs/heads/development.zip', $repo);
+        // Branch-name fallback. Filterable so forks can ship on a
+        // different default branch without editing kernel code.
+        /** @var string $branch */
+        $branch = (string) apply_filters('examplepress_mu_zipball_fallback_branch', 'development', $repo);
+        if ($branch === '') {
+            $branch = 'development';
+        }
+        return sprintf('https://github.com/%s/archive/refs/heads/%s.zip', $repo, $branch);
     }
 
     // ── Status helpers ────────────────────────────────────────────

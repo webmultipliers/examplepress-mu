@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace ExamplePress\MU\Config;
 
 use ExamplePress\MU\Infrastructure\Helpers;
+use ExamplePress\MU\Infrastructure\ThemeManifest;
 
 /**
  * Reads, deep-merges and caches the platform configuration from
@@ -45,15 +46,10 @@ final class ConfigManager
             $muData = is_array($decoded) ? $decoded : [];
         }
 
-        // 2. Theme layer (design tokens, blockstudio, overrides).
-        $themePath = (defined('EP_THEME_PATH') ? EP_THEME_PATH : get_template_directory())
-            . '/examplepress.json';
-        $themeData = [];
-        $raw = Helpers::readFile($themePath);
-        if ($raw !== false) {
-            $decoded = json_decode($raw, true);
-            $themeData = is_array($decoded) ? $decoded : [];
-        }
+        // 2. Theme layer (design tokens, blockstudio, overrides). Delegated
+        //    to ThemeManifest so every theme-file read in the kernel goes
+        //    through one cache + one set of error-handling rules.
+        $themeData = ThemeManifest::examplepress();
 
         // Deep merge: theme wins so it controls design tokens.
         $merged = array_replace_recursive($muData, $themeData);
@@ -104,11 +100,14 @@ final class ConfigManager
     }
 
     /**
-     * Force-reload the configuration on next access.
+     * Force-reload the configuration on next access. Also flushes
+     * ThemeManifest so upstream theme-file reads don't serve stale data
+     * from before an admin "refresh".
      */
     public static function reset(): void
     {
         self::$config = null;
+        ThemeManifest::flush();
     }
 
     /**

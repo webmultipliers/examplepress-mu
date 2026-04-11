@@ -35,22 +35,16 @@ final class Updater
      */
     public static function repo(): string
     {
+        $default = self::$repoOwner . '/' . self::$repoName;
         /**
          * Filter the GitHub repo used for ExamplePress MU kernel updates.
          *
          * Return a string in "owner/name" format. Values that don't match
          * the GitHub owner/repo pattern fall back to the hardcoded default.
          */
-        $filtered = (string) apply_filters(
-            'examplepress_mu_kernel_repo',
-            self::$repoOwner . '/' . self::$repoName
-        );
+        $filtered = (string) apply_filters('examplepress_mu_kernel_repo', $default);
 
-        if ($filtered === '' || !preg_match('#^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$#', $filtered)) {
-            return self::$repoOwner . '/' . self::$repoName;
-        }
-
-        return $filtered;
+        return Helpers::isValidGitHubRepo($filtered) ? $filtered : $default;
     }
 
     /**
@@ -67,10 +61,7 @@ final class Updater
         $default  = self::$repoOwner . '/' . self::$repoName;
         $filtered = (string) apply_filters('examplepress_mu_kernel_repo', $default);
 
-        if ($filtered === $default) {
-            return 'default';
-        }
-        if ($filtered === '' || !preg_match('#^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$#', $filtered)) {
+        if ($filtered === $default || !Helpers::isValidGitHubRepo($filtered)) {
             return 'default';
         }
         return 'filter';

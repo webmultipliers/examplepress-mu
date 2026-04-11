@@ -395,23 +395,19 @@ final class DataProvider
      */
     private static function getHealth(): array
     {
-        $wpVer      = get_bloginfo('version');
-        $phpVer     = phpversion();
-        $hasAutoload = file_exists(EP_THEME_PATH . '/vendor/autoload.php');
-        $memory     = (string) ini_get('memory_limit');
+        $wpVer       = get_bloginfo('version');
+        $phpVer      = phpversion();
+        $hasAutoload = \ExamplePress\MU\Infrastructure\ThemeManifest::hasFile('vendor/autoload.php');
+        $memory      = (string) ini_get('memory_limit');
 
-        $hasConfig = file_exists(EP_THEME_PATH . '/examplepress.json');
-        $hasTheme  = file_exists(EP_THEME_PATH . '/theme.json');
-        $hasBs     = file_exists(EP_THEME_PATH . '/blockstudio.json');
+        $hasConfig = \ExamplePress\MU\Infrastructure\ThemeManifest::hasFile('examplepress.json');
+        $hasTheme  = \ExamplePress\MU\Infrastructure\ThemeManifest::hasFile('theme.json');
+        $hasBs     = \ExamplePress\MU\Infrastructure\ThemeManifest::hasFile('blockstudio.json');
 
-        $themeJson = $hasTheme
-            ? (json_decode((string) file_get_contents(EP_THEME_PATH . '/theme.json'), true) ?? [])
-            : [];
+        $themeJson = \ExamplePress\MU\Infrastructure\ThemeManifest::themeJson();
 
-        $indexContent = file_exists(EP_THEME_PATH . '/templates/index.html')
-            ? trim((string) file_get_contents(EP_THEME_PATH . '/templates/index.html'))
-            : '';
-        $routerOnly = $indexContent === '<!-- wp:examplepress-theme/router /-->';
+        $indexContent = \ExamplePress\MU\Infrastructure\ThemeManifest::indexTemplate();
+        $routerOnly   = $indexContent === '<!-- wp:examplepress-theme/router /-->';
 
         $bsActive = class_exists('Blockstudio\\Build');
 
@@ -754,17 +750,18 @@ final class DataProvider
      */
     private static function getConfigFiles(): array
     {
-        $files = [];
-        $paths = [
-            'examplepress.json' => EP_THEME_PATH . '/examplepress.json',
-            'theme.json'        => EP_THEME_PATH . '/theme.json',
-            'blockstudio.json'  => EP_THEME_PATH . '/blockstudio.json',
-        ];
+        $manifest = \ExamplePress\MU\Infrastructure\ThemeManifest::class;
 
-        foreach ($paths as $name => $path) {
-            if (file_exists($path)) {
-                $files[$name] = json_decode((string) file_get_contents($path), true) ?? [];
+        $files = [];
+        foreach (['examplepress.json', 'theme.json', 'blockstudio.json'] as $name) {
+            if (!$manifest::hasFile($name)) {
+                continue;
             }
+            $decoded = $manifest::readJson($name);
+            // readJson returns [] for missing OR invalid JSON. Preserve
+            // the original behavior of only including files we could
+            // actually parse — use hasFile+readJson rather than defaulting.
+            $files[$name] = $decoded;
         }
 
         return $files;
