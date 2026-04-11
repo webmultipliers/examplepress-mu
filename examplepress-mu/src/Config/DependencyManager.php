@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace ExamplePress\MU\Config;
 
 use ExamplePress\MU\Infrastructure\AppDiscovery;
+use ExamplePress\MU\Infrastructure\Helpers;
 
 /**
  * Validates required ecosystem plugins.
@@ -155,7 +156,24 @@ final class DependencyManager
             static fn(array $app): bool => !empty($app['active'])
         );
         foreach ($apps as $app) {
-            $appJsonPath = WP_PLUGIN_DIR . '/' . $app['slug'] . '/examplepress.json';
+            // Use the on-disk directory name (id), NOT the manifest's
+            // self-declared slug. An app that declares a different slug
+            // in its manifest than its directory name would otherwise
+            // be silently skipped here — the path
+            //   WP_PLUGIN_DIR/{manifest_slug}/examplepress.json
+            // wouldn't exist and file_exists() would return false.
+            // $app['id'] always matches the actual directory scanned
+            // by AppDiscovery.
+            $pluginDirName = (string) ($app['id'] ?? '');
+            if ($pluginDirName === '' || !Helpers::isSafeRelativePath($pluginDirName)) {
+                // Defence in depth: an app with a malicious directory
+                // name would already have been rejected by WordPress's
+                // plugin loader, but we double-check because this is
+                // the one place we concatenate it into a filesystem path.
+                continue;
+            }
+
+            $appJsonPath = WP_PLUGIN_DIR . '/' . $pluginDirName . '/examplepress.json';
             if (!file_exists($appJsonPath)) {
                 continue;
             }
@@ -170,11 +188,18 @@ final class DependencyManager
                 continue;
             }
 
-            // Merge, deduplicating by slug
+            // Merge, deduplicating by slug.
             $existingSlugs = array_column($deps, 'slug');
             foreach ($appDeps as $appDep) {
+                // Per-entry shape guard — a malformed manifest that
+                // declared dependencies as a list of strings instead of
+                // a list of objects would otherwise trigger a PHP 8
+                // warning on $appDep['slug'].
+                if (!is_array($appDep)) {
+                    continue;
+                }
                 $depSlug = $appDep['slug'] ?? '';
-                if ($depSlug && !in_array($depSlug, $existingSlugs, true)) {
+                if (is_string($depSlug) && $depSlug !== '' && !in_array($depSlug, $existingSlugs, true)) {
                     $deps[] = $appDep;
                     $existingSlugs[] = $depSlug;
                 }

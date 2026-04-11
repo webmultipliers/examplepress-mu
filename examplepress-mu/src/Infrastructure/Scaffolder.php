@@ -224,7 +224,10 @@ final class Scaffolder
             }
 
             $treeBody = json_decode(wp_remote_retrieve_body($treeResponse), true);
-            $tree     = $treeBody['tree'] ?? [];
+            if (!is_array($treeBody)) {
+                continue;
+            }
+            $tree = (isset($treeBody['tree']) && is_array($treeBody['tree'])) ? $treeBody['tree'] : [];
 
             if (! empty($tree)) {
                 break;
@@ -248,12 +251,32 @@ final class Scaffolder
         $newTreeEntries = [];
 
         foreach ($tree as $entry) {
-            if ($entry['type'] !== 'blob') {
+            // Per-entry shape guard — malformed tree entries would
+            // otherwise trigger PHP 8 warnings on array access.
+            if (!is_array($entry) || ($entry['type'] ?? '') !== 'blob') {
                 continue;
             }
 
-            $filePath = $entry['path'];
-            $ext      = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
+            $filePath = $entry['path'] ?? '';
+            if (!is_string($filePath) || $filePath === '') {
+                continue;
+            }
+
+            // Path-traversal guard — even though we're not writing to
+            // local disk in this method, we DO send the path back to
+            // GitHub's tree API as-is. Reject anything that looks like
+            // an attempt to escape the repo root; callers expect only
+            // intra-repo paths.
+            if (!Helpers::isSafeRelativePath($filePath)) {
+                error_log(sprintf(
+                    '[ExamplePress Scaffolder] Refused unsafe tree path "%s" from %s.',
+                    $filePath,
+                    $fullName
+                ));
+                continue;
+            }
+
+            $ext = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
 
             // Determine the output path (handle __SLUG__.php rename).
             $outputPath = $filePath;
@@ -339,7 +362,10 @@ final class Scaffolder
         // and list everything). The simplest approach: include a deletion entry.
         $hasSlugFile = false;
         foreach ($tree as $entry) {
-            if ($entry['type'] === 'blob' && $entry['path'] === '__SLUG__.php') {
+            if (is_array($entry)
+                && ($entry['type'] ?? '') === 'blob'
+                && ($entry['path'] ?? '') === '__SLUG__.php'
+            ) {
                 $hasSlugFile = true;
                 break;
             }
@@ -363,26 +389,38 @@ final class Scaffolder
             }
 
             foreach ($tree as $entry) {
+                // Per-entry shape guard (malformed tree items).
+                if (!is_array($entry)) {
+                    continue;
+                }
+
+                $entryPath = $entry['path'] ?? '';
+                $entryType = $entry['type'] ?? '';
+
+                if (!is_string($entryPath) || $entryPath === '') {
+                    continue;
+                }
+
                 // Skip the old __SLUG__.php (it's been renamed).
-                if ($entry['path'] === '__SLUG__.php') {
+                if ($entryPath === '__SLUG__.php') {
                     continue;
                 }
 
                 // Skip entries we're overriding with new blobs.
-                if (isset($overriddenPaths[$entry['path']])) {
+                if (isset($overriddenPaths[$entryPath])) {
                     continue;
                 }
 
                 // Skip subtree entries — the API reconstructs them from blob paths.
-                if ($entry['type'] !== 'blob') {
+                if ($entryType !== 'blob') {
                     continue;
                 }
 
                 $fullTreeEntries[] = [
-                    'path' => $entry['path'],
-                    'mode' => $entry['mode'],
+                    'path' => $entryPath,
+                    'mode' => $entry['mode'] ?? '100644',
                     'type' => 'blob',
-                    'sha'  => $entry['sha'],
+                    'sha'  => $entry['sha'] ?? '',
                 ];
             }
 
@@ -585,7 +623,10 @@ final class Scaffolder
         }
 
         $treeBody = json_decode(wp_remote_retrieve_body($treeResponse), true);
-        $tree     = $treeBody['tree'] ?? [];
+        if (!is_array($treeBody)) {
+            return new \WP_Error('tree_invalid', 'Template repository tree response was not valid JSON.');
+        }
+        $tree = (isset($treeBody['tree']) && is_array($treeBody['tree'])) ? $treeBody['tree'] : [];
 
         if (empty($tree)) {
             return new \WP_Error('empty_tree', 'Template repository tree is empty.');
@@ -609,20 +650,48 @@ final class Scaffolder
         }
 
         foreach ($tree as $entry) {
-            if ($entry['type'] === 'tree') {
-                // Create subdirectory.
-                $dirPath = $dest . '/' . $entry['path'];
-                if (! $fs->is_dir($dirPath)) {
-                    wp_mkdir_p($dirPath);
-                }
+            // Per-entry shape guard — a malformed tree item would
+            // otherwise trigger PHP 8 warnings on offset access.
+            if (!is_array($entry)) {
                 continue;
             }
 
-            if ($entry['type'] !== 'blob') {
+            $entryType = $entry['type'] ?? '';
+            $rawPath   = $entry['path'] ?? '';
+
+            if (!is_string($rawPath) || $rawPath === '') {
                 continue;
             }
 
-            $filePath = $entry['path'];
+            // PATH TRAVERSAL GUARD: template repos are trusted in the
+            // sense that the kernel defaults to webmultipliers/... but
+            // getTemplateRepo() is filter- and option-overridable, so
+            // a compromised or hostile template repo could ship entries
+            // like '../../wp-config.php' or '/etc/passwd' to write
+            // outside the destination. Reject anything that isn't a
+            // safe relative path.
+            if (!Helpers::isSafeRelativePath($rawPath)) {
+                error_log(sprintf(
+                    '[ExamplePress Scaffolder] Refused unsafe template path "%s" from %s.',
+                    $rawPath,
+                    self::getTemplateRepo()
+                ));
+                continue;
+            }
+
+            if ($entryType === 'tree') {
+                // Create subdirectory using the WP_Filesystem handle so
+                // we stay consistent with the $fs abstraction. mkdir()
+                // returns true for existing dirs so no prior is_dir check.
+                $fs->mkdir($dest . '/' . $rawPath);
+                continue;
+            }
+
+            if ($entryType !== 'blob') {
+                continue;
+            }
+
+            $filePath = $rawPath;
 
             // Download file content.
             $fileResponse = wp_remote_get("{$baseUrl}/contents/{$filePath}?ref={$defaultBranch}", [
@@ -636,11 +705,17 @@ final class Scaffolder
 
             $fileData = json_decode(wp_remote_retrieve_body($fileResponse), true);
 
-            if (empty($fileData['content'])) {
+            if (!is_array($fileData) || empty($fileData['content'])) {
                 continue;
             }
 
-            $content = base64_decode($fileData['content']);
+            $content = base64_decode((string) $fileData['content']);
+            if ($content === false) {
+                // Strict base64_decode would fail, but we didn't use the
+                // strict flag to avoid breaking on GitHub's whitespace
+                // wrapping. Explicit false-check for safety.
+                continue;
+            }
 
             // Replace placeholders in text files.
             $ext = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
@@ -656,6 +731,16 @@ final class Scaffolder
             $localPath = $filePath;
             if ($filePath === '__SLUG__.php') {
                 $localPath = $slug . '.php';
+            }
+
+            // Double-check the rewritten local path is still safe —
+            // a template that legitimately contains a file named
+            // '__SLUG__.php' is fine, but we validate again to catch
+            // any edge cases where $slug itself is weird (it's already
+            // validated upstream by AppsController, but defense-in-depth
+            // is cheap here).
+            if (!Helpers::isSafeRelativePath($localPath)) {
+                continue;
             }
 
             $fs->put_contents($dest . '/' . $localPath, $content);

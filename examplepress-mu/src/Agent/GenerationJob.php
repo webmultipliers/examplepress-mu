@@ -32,6 +32,21 @@ final class GenerationJob
     public const MAX_JOBS     = 50;
 
     /**
+     * Advisory lock for the jobs option. Closes the read-modify-write
+     * race between concurrent Action Scheduler workers (or a cron tick
+     * racing with a user-initiated commit). Backed by wp_options'
+     * UNIQUE index via add_option() which gives us genuine atomic
+     * compare-and-swap on every host, including native MySQL.
+     */
+    private const JOBS_LOCK_KEY          = 'ep_agent_jobs_lock';
+    private const JOBS_LOCK_MAX_AGE      = 30;
+    private const JOBS_LOCK_MAX_ATTEMPTS = 5;
+
+    /** Re-entrant flag — PHP is single-threaded per-request so a
+     *  process-local bool is all we need to prevent self-deadlock. */
+    private static bool $holdingJobsLock = false;
+
+    /**
      * Steps surfaced to the UI for the progress pill.
      */
     public const STEP_QUEUED   = 'queued';
@@ -271,9 +286,11 @@ final class GenerationJob
             AppRegistry::discardDraft($slug);
         }
 
-        $jobs = (array) get_option(self::OPTION_JOBS, []);
-        unset($jobs[$jobId]);
-        update_option(self::OPTION_JOBS, $jobs, false);
+        self::withJobsLock(static function () use ($jobId): void {
+            $jobs = (array) get_option(self::OPTION_JOBS, []);
+            unset($jobs[$jobId]);
+            update_option(self::OPTION_JOBS, $jobs, false);
+        });
         return true;
     }
 
@@ -972,20 +989,85 @@ final class GenerationJob
     }
 
     /**
+     * Run a callable while holding the jobs-option advisory lock.
+     *
+     * Two threat models:
+     *   (a) Concurrent writers in separate PHP processes — closed by
+     *       the atomic add_option() / delete_option() pair.
+     *   (b) Re-entrant calls from inside the same process (e.g.
+     *       updateJob() → saveJob()) — closed by the $holdingJobsLock
+     *       static bool, which skips re-acquisition to prevent
+     *       self-deadlock.
+     *
+     * Stale-lock recovery: if an existing lock is older than
+     * JOBS_LOCK_MAX_AGE seconds, it's assumed orphaned (process died
+     * between add_option and delete_option) and forcibly cleared.
+     *
+     * Failure mode: if the lock can't be acquired after
+     * JOBS_LOCK_MAX_ATTEMPTS, we log and fall through unlocked —
+     * preferring to risk one lost write over silently dropping a
+     * state change that the user is waiting on.
+     *
+     * @template T
+     * @param callable():T $fn
+     * @return T
+     */
+    private static function withJobsLock(callable $fn): mixed
+    {
+        if (self::$holdingJobsLock) {
+            return $fn();
+        }
+
+        for ($attempt = 0; $attempt < self::JOBS_LOCK_MAX_ATTEMPTS; $attempt++) {
+            $now = time();
+
+            // add_option returns false if the option already exists —
+            // that's the UNIQUE-index CAS we're relying on.
+            if (add_option(self::JOBS_LOCK_KEY, (string) $now, '', 'no')) {
+                self::$holdingJobsLock = true;
+                try {
+                    return $fn();
+                } finally {
+                    self::$holdingJobsLock = false;
+                    delete_option(self::JOBS_LOCK_KEY);
+                }
+            }
+
+            // Existing lock — check for staleness.
+            $existing = (int) get_option(self::JOBS_LOCK_KEY, 0);
+            if ($existing > 0 && ($now - $existing) > self::JOBS_LOCK_MAX_AGE) {
+                delete_option(self::JOBS_LOCK_KEY);
+                continue;
+            }
+
+            // Back off linearly. PHP usleep is in microseconds.
+            usleep(20000 * ($attempt + 1));
+        }
+
+        error_log(sprintf(
+            '[ExamplePress GenerationJob] Could not acquire jobs lock after %d attempts — proceeding unlocked. Job state writes may race.',
+            self::JOBS_LOCK_MAX_ATTEMPTS
+        ));
+        return $fn();
+    }
+
+    /**
      * @param array<string,mixed> $job
      */
     private static function saveJob(array $job): void
     {
-        $jobs = (array) get_option(self::OPTION_JOBS, []);
-        $jobs[$job['id']] = $job;
+        self::withJobsLock(static function () use ($job): void {
+            $jobs = (array) get_option(self::OPTION_JOBS, []);
+            $jobs[$job['id']] = $job;
 
-        // FIFO cap: drop oldest if we exceed the limit.
-        if (count($jobs) > self::MAX_JOBS) {
-            uasort($jobs, static fn($a, $b) => ($a['created_at'] ?? 0) <=> ($b['created_at'] ?? 0));
-            $jobs = array_slice($jobs, -self::MAX_JOBS, null, true);
-        }
+            // FIFO cap: drop oldest if we exceed the limit.
+            if (count($jobs) > self::MAX_JOBS) {
+                uasort($jobs, static fn($a, $b) => ($a['created_at'] ?? 0) <=> ($b['created_at'] ?? 0));
+                $jobs = array_slice($jobs, -self::MAX_JOBS, null, true);
+            }
 
-        update_option(self::OPTION_JOBS, $jobs, false);
+            update_option(self::OPTION_JOBS, $jobs, false);
+        });
     }
 
     /**
@@ -993,27 +1075,35 @@ final class GenerationJob
      */
     private static function updateJob(string $jobId, array $patch): void
     {
-        $job = self::getJob($jobId);
-        if (!$job) {
-            return;
-        }
-        $job = array_merge($job, $patch);
-        $job['updated_at'] = time();
-        self::saveJob($job);
+        self::withJobsLock(static function () use ($jobId, $patch): void {
+            $job = self::getJob($jobId);
+            if (!$job) {
+                return;
+            }
+            $job = array_merge($job, $patch);
+            $job['updated_at'] = time();
+            self::saveJob($job);
+        });
     }
 
     private static function fail(string $jobId, string $error): void
     {
-        $job = self::getJob($jobId);
-        if (!$job) {
-            return;
+        $loggedJob = null;
+        self::withJobsLock(static function () use ($jobId, $error, &$loggedJob): void {
+            $job = self::getJob($jobId);
+            if (!$job) {
+                return;
+            }
+            $job['status']     = 'failed';
+            $job['step']       = self::STEP_FAILED;
+            $job['errors'][]   = $error;
+            $job['updated_at'] = time();
+            self::saveJob($job);
+            $loggedJob = $job;
+        });
+        if ($loggedJob !== null) {
+            self::log($loggedJob, '✗ ' . $error);
         }
-        $job['status']     = 'failed';
-        $job['step']       = self::STEP_FAILED;
-        $job['errors'][]   = $error;
-        $job['updated_at'] = time();
-        self::saveJob($job);
-        self::log($job, '✗ ' . $error);
         error_log("ExamplePress agent job {$jobId} failed: {$error}");
     }
 

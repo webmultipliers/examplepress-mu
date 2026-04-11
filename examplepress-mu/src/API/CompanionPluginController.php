@@ -379,13 +379,23 @@ abstract class CompanionPluginController
 
         $list = [];
         foreach ($releases as $r) {
-            $tag = ltrim($r['tag_name'] ?? '', 'v');
+            // Per-entry shape guard — fetchReleases filters out drafts
+            // but doesn't type-check individual entries, so a malformed
+            // GitHub response could still leak non-array items.
+            if (!is_array($r)) {
+                continue;
+            }
+            $tagName = (string) ($r['tag_name'] ?? '');
+            if ($tagName === '') {
+                continue;
+            }
+            $name = (string) ($r['name'] ?? '');
             $list[] = [
-                'tag'        => $r['tag_name'],
-                'version'    => $tag,
-                'name'       => $r['name'] ?: $r['tag_name'],
+                'tag'        => $tagName,
+                'version'    => ltrim($tagName, 'v'),
+                'name'       => $name !== '' ? $name : $tagName,
                 'prerelease' => !empty($r['prerelease']),
-                'date'       => $r['published_at'] ?? '',
+                'date'       => (string) ($r['published_at'] ?? ''),
             ];
         }
 
@@ -439,16 +449,22 @@ abstract class CompanionPluginController
     protected static function formatReleaseTarget(array $release, string $version): array
     {
         $has_package = false;
-        foreach ($release['assets'] ?? [] as $asset) {
-            if (($asset['name'] ?? '') === static::$assetName) {
-                $has_package = true;
-                break;
+        $assets      = $release['assets'] ?? [];
+        if (is_array($assets)) {
+            foreach ($assets as $asset) {
+                if (!is_array($asset)) {
+                    continue;
+                }
+                if (($asset['name'] ?? '') === static::$assetName) {
+                    $has_package = true;
+                    break;
+                }
             }
         }
 
         return [
             'version'    => $version,
-            'url'        => $release['html_url'] ?? '',
+            'url'        => (string) ($release['html_url'] ?? ''),
             'package'    => $has_package,
             'prerelease' => !empty($release['prerelease']),
         ];
@@ -487,7 +503,15 @@ abstract class CompanionPluginController
             return null;
         }
 
-        self::$releaseCache[$key] = array_values(array_filter($data, fn($r) => empty($r['draft'])));
-        return self::$releaseCache[$key];
+        // Filter out drafts AND non-array entries in one pass so every
+        // downstream consumer can assume each entry is a decoded array
+        // with at least a tag_name hint.
+        $filtered = array_values(array_filter(
+            $data,
+            static fn($r): bool => is_array($r) && empty($r['draft'])
+        ));
+
+        self::$releaseCache[$key] = $filtered;
+        return $filtered;
     }
 }

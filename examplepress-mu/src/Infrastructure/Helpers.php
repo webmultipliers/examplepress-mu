@@ -153,4 +153,41 @@ final class Helpers
     {
         return $repo !== '' && (bool) preg_match('#^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$#', $repo);
     }
+
+    /**
+     * Validate that a relative path cannot escape its destination directory.
+     *
+     * Rejects:
+     *   - Empty strings
+     *   - Any path containing a ".." segment (walks up the tree)
+     *   - Absolute paths (leading '/')
+     *   - Windows drive-letter absolute paths (e.g. "C:\")
+     *   - Null bytes (filename truncation trick)
+     *
+     * Used anywhere the kernel writes or reads files whose relative path
+     * comes from an external source (template repo entries, LLM-generated
+     * app payloads, user-supplied editor paths). AppValidator and Scaffolder
+     * both need this exact check, and the check previously lived inline in
+     * AppValidator::validateGenerated — centralised here so the two paths
+     * cannot drift.
+     */
+    public static function isSafeRelativePath(string $path): bool
+    {
+        if ($path === '' || strlen($path) > 4096) {
+            return false;
+        }
+        if (str_contains($path, "\0")) {
+            return false;
+        }
+        if (str_contains($path, '..')) {
+            return false;
+        }
+        if (str_starts_with($path, '/') || str_starts_with($path, '\\')) {
+            return false;
+        }
+        if (preg_match('#^[a-zA-Z]:[\\\\/]#', $path)) {
+            return false;
+        }
+        return true;
+    }
 }

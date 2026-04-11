@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace ExamplePress\MU\Governance;
 
+use ExamplePress\MU\Infrastructure\Helpers;
 use ExamplePress\MU\Infrastructure\Router;
 
 /**
@@ -449,8 +450,10 @@ final class AppValidator
             $path     = (string) $file['path'];
             $contents = (string) $file['contents'];
 
-            // Path traversal / absolute path / escape.
-            if ($path === '' || str_contains($path, '..') || str_starts_with($path, '/') || preg_match('#^[a-zA-Z]:[\\\\/]#', $path)) {
+            // Path traversal / absolute path / escape. Delegated to
+            // Helpers::isSafeRelativePath so the rules stay in lock-step
+            // with Scaffolder's template-repo scanner.
+            if (!Helpers::isSafeRelativePath($path)) {
                 $errors[] = "File path is unsafe: {$path}";
                 continue;
             }
