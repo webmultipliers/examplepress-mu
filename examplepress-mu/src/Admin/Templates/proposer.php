@@ -43,8 +43,8 @@ $has_repo = !empty($manifest['repository']) || !empty($manifest['troy']['repo'])
 			<span id="ep-proposer-app-name" class="ep-proposer-toolbar__app-name"><?php echo esc_html( $manifest['name'] ?? $slug ); ?></span>
 			<span id="ep-proposer-ref" class="ep-proposer-toolbar__ref"></span>
 			<span class="ep-proposer-toolbar__spacer"></span>
-			<span id="ep-proposer-draft-badge" class="ep-badge--info" hidden></span>
-			<button id="ep-proposer-discard" class="ep-btn ep-btn--secondary" hidden>Discard Draft</button>
+			<span id="ep-proposer-draft-badge" class="ep-badge--info" style="display:none"></span>
+			<button id="ep-proposer-discard" class="ep-btn ep-btn--secondary" style="display:none">Discard Draft</button>
 			<button id="ep-proposer-submit" class="ep-btn ep-btn--primary">Submit Proposal</button>
 		</div>
 		<div class="ep-proposer-body">
@@ -59,7 +59,7 @@ $has_repo = !empty($manifest['repository']) || !empty($manifest['troy']['repo'])
 </div>
 
 <!-- Submit Proposal Modal -->
-<div class="ep-modal__overlay" id="ep-proposer-submit-modal" hidden>
+<div class="ep-modal__overlay" id="ep-proposer-submit-modal" style="display:none">
 	<div class="ep-modal">
 		<div class="ep-modal__header">
 			<div>
@@ -78,7 +78,7 @@ $has_repo = !empty($manifest['repository']) || !empty($manifest['troy']['repo'])
 				<textarea class="ep-build-input" id="ep-proposer-pr-body" rows="3" placeholder="What does this change do and why?"></textarea>
 			</div>
 			<div id="ep-proposer-changeset-summary" class="ep-proposer-changeset"></div>
-			<div id="ep-proposer-submit-error" class="ep-build-error" hidden></div>
+			<div id="ep-proposer-submit-error" class="ep-build-error" style="display:none"></div>
 		</div>
 		<div class="ep-modal__footer">
 			<button class="ep-btn ep-btn--secondary" data-modal="ep-proposer-submit-modal">Cancel</button>
@@ -88,7 +88,7 @@ $has_repo = !empty($manifest['repository']) || !empty($manifest['troy']['repo'])
 </div>
 
 <!-- Proposal Success Card -->
-<div class="ep-modal__overlay" id="ep-proposer-success-modal" hidden>
+<div class="ep-modal__overlay" id="ep-proposer-success-modal" style="display:none">
 	<div class="ep-modal">
 		<div class="ep-modal__body ep-modal__body--centered">
 			<h2 class="ep-modal__title">Proposal Created</h2>

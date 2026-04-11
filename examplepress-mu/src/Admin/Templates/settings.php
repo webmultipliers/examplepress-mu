@@ -154,7 +154,7 @@ $ep_github_app_available = \ExamplePress\MU\Infrastructure\GitHub::appIsConfigur
 							<button class="ep-btn ep-btn--secondary" id="ep-inspect-skills-btn" type="button">Inspect Skills</button>
 							<span id="ep-test-agent-status"></span>
 						</div>
-						<details id="ep-skills-inspector" hidden>
+						<details id="ep-skills-inspector" style="display:none">
 							<summary>Compiled curriculum &amp; merge tags</summary>
 							<div id="ep-skills-inspector-body"></div>
 						</details>

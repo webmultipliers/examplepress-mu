@@ -131,12 +131,19 @@ final class DataProvider
             'demoSettingsUrl'     => esc_url_raw(rest_url('examplepress-mu/v1/demo/settings')),
             'demoReleasesUrl'     => esc_url_raw(rest_url('examplepress-mu/v1/demo/releases')),
             'agent'               => [
-                'enabled'   => $agentEnabled,
-                'ready'     => \ExamplePress\MU\Infrastructure\PrismContainer::isAvailable(),
-                'configured'=> (bool) get_option('ep_agent_api_key', ''),
-                'provider'  => (string) get_option('ep_agent_provider', 'anthropic'),
-                'model'     => (string) get_option('ep_agent_model', 'claude-sonnet-4-6'),
-                'error'     => \ExamplePress\MU\Infrastructure\PrismContainer::lastError(),
+                'enabled'        => $agentEnabled,
+                'ready'          => \ExamplePress\MU\Infrastructure\PrismContainer::isAvailable(),
+                'configured'     => (bool) get_option('ep_agent_api_key', ''),
+                'provider'       => (string) get_option('ep_agent_provider', 'anthropic'),
+                'model'          => (string) get_option('ep_agent_model', 'claude-sonnet-4-6'),
+                'error'          => \ExamplePress\MU\Infrastructure\PrismContainer::lastError(),
+                // Persistent cooldown state — non-zero timestamp means
+                // the runtime is disabled until then following a prior
+                // boot failure; 0 means no active cooldown. Surfaced so
+                // the Settings UI can explain why the agent is off
+                // instead of silently appearing unavailable.
+                'cooldownUntil'  => \ExamplePress\MU\Infrastructure\PrismContainer::cooldownUntil(),
+                'cooldownReason' => \ExamplePress\MU\Infrastructure\PrismContainer::disabledReason(),
             ],
             'agentGenerateUrl'    => esc_url_raw(rest_url('examplepress-mu/v1/agent/generate')),
             'agentIterateUrl'     => esc_url_raw(rest_url('examplepress-mu/v1/agent/iterate/__SLUG__')),

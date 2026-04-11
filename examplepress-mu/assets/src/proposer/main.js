@@ -5,6 +5,7 @@
  * accumulate in a draft that is submitted as a proposal via REST.
  */
 
+import '../css/index.css';
 import { initLogger, log } from '../lib/logger.js';
 import { initApi, apiFetch } from '../lib/api.js';
 

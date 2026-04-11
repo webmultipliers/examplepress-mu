@@ -2,6 +2,7 @@
  * Build — Connections tab: form hydration, save, test, and auth callbacks.
  */
 import { $connections, updateConnections } from '../stores/connections.js';
+import { apiFetch } from '../lib/api.js';
 
 const data = () => window.ExamplePressData;
 const conn = () => data().connections;
@@ -18,12 +19,16 @@ function setStatus(el, text, ok) {
 	el.style.color = ok ? SUCCESS_COLOR : (ok === false ? ERROR_COLOR : '');
 }
 
+// Thin wrapper that routes every Connections POST through apiFetch so
+// non-2xx responses surface as thrown Errors (with a useful .message)
+// instead of JSON-parse noise when the server returns an HTML 5xx page.
+// Returns the decoded body on success so existing `.then(res => ...)`
+// call sites keep working unchanged.
 function post(url, body) {
-	return fetch(url, {
+	return apiFetch(url, {
 		method: 'POST',
-		headers: { 'Content-Type': 'application/json', 'X-WP-Nonce': data().nonce },
-		body: body ? JSON.stringify(body) : undefined,
-	}).then(r => r.json());
+		body: body || undefined,
+	});
 }
 
 // ── Hydrate form fields from saved state ─────────────────────────
@@ -62,7 +67,20 @@ function hydrateForm() {
 	loadAgentModels(a.provider || 'anthropic', a.model || '');
 	if (agentKeyEl && a.hasKey) agentKeyEl.placeholder = CONFIGURED;
 	if (agentRuntimeEl) {
-		if (a.ready) {
+		// Cooldown takes precedence over both `ready` and `error` —
+		// when the runtime is in cooldown after a prior failure, that's
+		// the most actionable thing to show the operator (explains *why*
+		// it's off and how long until auto-retry). Saving this form
+		// clears the cooldown.
+		if (a.cooldownUntil && a.cooldownUntil * 1000 > Date.now()) {
+			const mins = Math.max(1, Math.ceil((a.cooldownUntil * 1000 - Date.now()) / 60000));
+			const reason = a.cooldownReason ? ` — ${a.cooldownReason}` : '';
+			setStatus(
+				agentRuntimeEl,
+				`Cooldown: auto-retry in ~${mins}m (save to retry now)${reason}`,
+				false
+			);
+		} else if (a.ready) {
 			setStatus(agentRuntimeEl, '\u2713 Prism container ready', true);
 		} else if (a.error) {
 			setStatus(agentRuntimeEl, 'Runtime error: ' + a.error, false);

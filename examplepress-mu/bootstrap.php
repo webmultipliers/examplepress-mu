@@ -21,10 +21,33 @@ if ( ! defined( 'ABSPATH' ) ) {
 // Version is the single source of truth in the loader header
 // (examplepress-mu.php). We parse it at runtime so the kernel and the
 // release-workflow scraper can never disagree.
+//
+// The loader path is resolved relative to this file: bootstrap.php
+// lives at <mu-plugins>/examplepress-mu/bootstrap.php, so the loader
+// is two directories up — NOT dirname(__DIR__), which would walk to
+// <mu-plugins>/ but miss the specific file. We check multiple
+// candidate locations to survive symlinked kernels and non-standard
+// mu-plugins layouts; the first readable candidate wins.
+//
+// If every candidate fails, the version falls back to '0.0.0', which
+// breaks version compare in the updater. That outcome logs a loud
+// warning so operators can see it in debug.log instead of silently
+// download-looping releases.
 if ( ! defined( 'EXAMPLEPRESS_MU_VERSION' ) ) {
-    $ep_mu_loader = dirname( __DIR__ ) . '/examplepress-mu.php';
-    $ep_mu_ver    = '0.0.0';
-    if ( is_readable( $ep_mu_loader ) ) {
+    $ep_mu_ver     = '0.0.0';
+    $ep_mu_loader  = null;
+    $ep_mu_candidates = [
+        dirname( __DIR__ ) . '/examplepress-mu.php',              // standard layout
+        dirname( __DIR__, 2 ) . '/examplepress-mu.php',           // symlinked kernel
+        WP_CONTENT_DIR . '/mu-plugins/examplepress-mu.php',       // hard-coded fallback
+    ];
+    foreach ( $ep_mu_candidates as $ep_mu_candidate ) {
+        if ( is_readable( $ep_mu_candidate ) ) {
+            $ep_mu_loader = $ep_mu_candidate;
+            break;
+        }
+    }
+    if ( $ep_mu_loader !== null ) {
         if ( ! function_exists( 'get_file_data' ) ) {
             require_once ABSPATH . 'wp-admin/includes/functions.php';
         }
@@ -33,8 +56,16 @@ if ( ! defined( 'EXAMPLEPRESS_MU_VERSION' ) ) {
             $ep_mu_ver = $ep_mu_headers['Version'];
         }
     }
+    if ( $ep_mu_ver === '0.0.0' ) {
+        error_log(
+            '[ExamplePress] WARNING: could not resolve loader version; '
+            . 'EXAMPLEPRESS_MU_VERSION fell back to 0.0.0. '
+            . 'Updater version-compare will misbehave. '
+            . 'Checked: ' . implode( ', ', $ep_mu_candidates )
+        );
+    }
     define( 'EXAMPLEPRESS_MU_VERSION', $ep_mu_ver );
-    unset( $ep_mu_loader, $ep_mu_ver, $ep_mu_headers );
+    unset( $ep_mu_loader, $ep_mu_ver, $ep_mu_headers, $ep_mu_candidates, $ep_mu_candidate );
 }
 define( 'EXAMPLEPRESS_MU_DIR', __DIR__ );
 define( 'EXAMPLEPRESS_MU_URI', plugins_url( '', __FILE__ ) );

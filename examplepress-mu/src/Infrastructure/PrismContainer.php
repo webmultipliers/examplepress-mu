@@ -24,6 +24,33 @@ use Prism\Prism\PrismManager;
  */
 final class PrismContainer
 {
+    /**
+     * Option key: unix timestamp until which the agent runtime is
+     * cooldown-disabled following a boot failure. 0 / unset = not
+     * disabled. The Kernel feature filter reads this to short-circuit
+     * the 'agent' feature flag without reattempting boot on every
+     * request while the cooldown is active.
+     */
+    public const DISABLED_UNTIL_OPTION = 'ep_agent_disabled_until';
+
+    /**
+     * Option key: human-readable reason for the last cooldown disable.
+     * Surfaced to the Settings page so operators know *why* the agent
+     * is off without having to read debug.log.
+     */
+    public const DISABLED_REASON_OPTION = 'ep_agent_disabled_reason';
+
+    /**
+     * Cooldown window (seconds) applied after a boot failure. Chosen
+     * to balance "don't hammer a broken subsystem every request" with
+     * "recover automatically from transient blips" — an hour is long
+     * enough to survive a deploy window but short enough that a
+     * legitimately-fixed issue clears itself within a page refresh or
+     * two. Operators can force an earlier retry by re-saving agent
+     * settings (which calls clearDisabled()).
+     */
+    private const COOLDOWN_SECONDS = 3600;
+
     private static bool $booted = false;
     private static bool $available = false;
     private static ?string $error = null;
@@ -97,14 +124,84 @@ final class PrismContainer
 
             self::$app = $app;
             self::$available = true;
+
+            // Successful boot implicitly clears any prior cooldown —
+            // whatever was wrong has resolved itself.
+            self::clearDisabled();
         } catch (\Throwable $e) {
             self::$error = $e->getMessage();
             error_log('ExamplePress PrismContainer boot failed: ' . $e->getMessage());
 
-            // Auto-disable the agent feature for this request so the admin
-            // UI does not advertise capabilities we cannot fulfill.
-            add_filter('examplepress_mu_feature_agent', '__return_false', PHP_INT_MAX);
+            // Persist the disable across requests with a bounded cooldown
+            // so the next page load doesn't retry a known-broken boot path.
+            self::markDisabled($e->getMessage());
         }
+    }
+
+    /**
+     * Record an agent-runtime disable with a bounded cooldown window.
+     * Safe to call multiple times; the cooldown restarts from "now"
+     * on each call.
+     */
+    public static function markDisabled(string $reason): void
+    {
+        if (!\function_exists('update_option')) {
+            return;
+        }
+        \update_option(self::DISABLED_UNTIL_OPTION, time() + self::COOLDOWN_SECONDS, false);
+        \update_option(self::DISABLED_REASON_OPTION, $reason, false);
+    }
+
+    /**
+     * Clear a persisted agent-runtime disable. Called on successful
+     * boot and on manual reset from the Settings UI (saving the agent
+     * form implies operator intent to retry).
+     */
+    public static function clearDisabled(): void
+    {
+        if (!\function_exists('delete_option')) {
+            return;
+        }
+        \delete_option(self::DISABLED_UNTIL_OPTION);
+        \delete_option(self::DISABLED_REASON_OPTION);
+    }
+
+    /**
+     * True if the agent runtime is currently cooldown-disabled.
+     * Used by the Kernel feature filter to short-circuit.
+     */
+    public static function isCooldownActive(): bool
+    {
+        if (!\function_exists('get_option')) {
+            return false;
+        }
+        $until = (int) \get_option(self::DISABLED_UNTIL_OPTION, 0);
+        return $until > time();
+    }
+
+    /**
+     * Unix timestamp remaining in the cooldown, or 0 if inactive.
+     * Exposed for DataProvider / UI surfacing.
+     */
+    public static function cooldownUntil(): int
+    {
+        if (!\function_exists('get_option')) {
+            return 0;
+        }
+        $until = (int) \get_option(self::DISABLED_UNTIL_OPTION, 0);
+        return $until > time() ? $until : 0;
+    }
+
+    /**
+     * Persisted failure reason from the last boot attempt, if any.
+     */
+    public static function disabledReason(): ?string
+    {
+        if (!\function_exists('get_option')) {
+            return null;
+        }
+        $reason = \get_option(self::DISABLED_REASON_OPTION, '');
+        return is_string($reason) && $reason !== '' ? $reason : null;
     }
 
     public static function isAvailable(): bool

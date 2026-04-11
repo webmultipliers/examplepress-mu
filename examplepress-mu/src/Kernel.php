@@ -4,22 +4,16 @@ declare(strict_types=1);
 
 namespace ExamplePress\MU;
 
-use ExamplePress\MU\Config\ConfigManager;
 use ExamplePress\MU\Config\FeatureRegistry;
-use ExamplePress\MU\Config\DependencyManager;
 use ExamplePress\MU\Governance\PlatformPolicy;
 use ExamplePress\MU\Governance\AppValidator;
 use ExamplePress\MU\Governance\EditorGuard;
-use ExamplePress\MU\Infrastructure\AppDiscovery;
 use ExamplePress\MU\Infrastructure\AppRegistry;
-use ExamplePress\MU\Infrastructure\Scaffolder;
 use ExamplePress\MU\Infrastructure\Updater;
 use ExamplePress\MU\Infrastructure\CliCommand;
 use ExamplePress\MU\Infrastructure\RouteRegistry;
 use ExamplePress\MU\Infrastructure\Router;
-use ExamplePress\MU\Infrastructure\GitHub;
 use ExamplePress\MU\Infrastructure\PluginManager;
-use ExamplePress\MU\Infrastructure\Helpers;
 use ExamplePress\MU\Infrastructure\Notifications;
 use ExamplePress\MU\Infrastructure\AppUpdateProvider;
 use ExamplePress\MU\Infrastructure\ThemeUpdateProvider;
@@ -35,7 +29,6 @@ use ExamplePress\MU\Editor\RepoController;
 use ExamplePress\MU\Admin\MenuManager;
 use ExamplePress\MU\Admin\AssetManager;
 use ExamplePress\MU\Admin\PageController;
-use ExamplePress\MU\Admin\DataProvider;
 
 final class Kernel
 {
@@ -49,19 +42,39 @@ final class Kernel
         self::$booted = true;
 
         // ── Governance (non-toggleable, MU-enforced) ────────────
+        // These are hard failures: governance / routing must boot or the
+        // platform contract is broken. Let exceptions propagate so the
+        // fatal-loop counter trips and the loader can quarantine or roll
+        // back a genuinely-broken kernel.
         PlatformPolicy::init();
         AppValidator::init();
         EditorGuard::init();
 
-        // ── Updater (WP-Cron based) ────────────────────────────
-        Updater::init();
-
-        // ── Infrastructure ──────────────────────────────────────
+        // ── Core routing ────────────────────────────────────────
+        // AppRegistry (CPT registration) and Router (Blockstudio filter +
+        // route helper function definition) are also hard requirements.
         AppRegistry::init();
-        PluginManager::init();
-        AppUpdateProvider::init();
-        ThemeUpdateProvider::init();
         Router::init();
+
+        // ── Non-critical subsystems ─────────────────────────────
+        // Updater, AppUpdateProvider, ThemeUpdateProvider, PluginManager
+        // are "nice to have" at boot time. A failure in any one of them
+        // (missing cron, bad transient, GitHub API shape change, etc.)
+        // should log and be skipped — not burn a fatal-loop attempt that
+        // pushes the loader toward quarantine. Each gets its own guarded
+        // init so one subsystem's failure can't suppress later subsystems.
+        foreach ([
+            'Updater'             => [Updater::class, 'init'],
+            'PluginManager'       => [PluginManager::class, 'init'],
+            'AppUpdateProvider'   => [AppUpdateProvider::class, 'init'],
+            'ThemeUpdateProvider' => [ThemeUpdateProvider::class, 'init'],
+        ] as $label => $callable) {
+            try {
+                $callable();
+            } catch (\Throwable $e) {
+                error_log("ExamplePress: {$label}::init failed (caught): " . $e->getMessage());
+            }
+        }
 
         // ── REST API Controllers ────────────────────────────────
         // AppsController owns the canonical /apps route (AppRegistry-backed).
@@ -81,7 +94,18 @@ final class Kernel
         // Surface the ep_agent_enabled option through the feature
         // filter so the settings UI can flip the flag without a
         // code deploy. Site-level filters can still override.
+        //
+        // The cooldown check also short-circuits the flag when a
+        // prior PrismContainer::boot() failure is still within its
+        // retry window (PrismContainer::COOLDOWN_SECONDS, currently
+        // 1 hour). This replaces the old pattern of re-attempting
+        // boot on every request and logging the same failure each
+        // time. A successful boot or a manual Settings save clears
+        // the cooldown.
         add_filter('examplepress_mu_feature_agent', static function ($enabled) {
+            if (PrismContainer::isCooldownActive()) {
+                return false;
+            }
             $opt = \get_option('ep_agent_enabled', null);
             return $opt === null ? $enabled : (bool) $opt;
         }, 5);
@@ -104,7 +128,14 @@ final class Kernel
                 PrismContainer::boot();
             } catch (\Throwable $e) {
                 error_log('ExamplePress: PrismContainer boot failed (caught): ' . $e->getMessage());
-                add_filter('examplepress_mu_feature_agent', '__return_false', PHP_INT_MAX);
+                // Persist the failure so the next request's feature filter
+                // short-circuits without retrying the broken boot path.
+                // PrismContainer's own inner catch also writes this on
+                // exceptions from within its try block — this outer
+                // catch covers the pre-try guards (missing classes,
+                // require of prism-helpers.php failing) that would
+                // otherwise skip the inner handler.
+                PrismContainer::markDisabled($e->getMessage());
             }
         }, 20);
 

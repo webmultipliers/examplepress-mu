@@ -38,14 +38,9 @@ final class AssetManager
             return;
         }
 
-        // Design system CSS (single stylesheet, shared across all EP pages).
-        wp_enqueue_style(
-            'ep-design-system',
-            EXAMPLEPRESS_MU_URI . '/assets/src/css/index.css',
-            [],
-            EXAMPLEPRESS_MU_VERSION
-        );
-
+        // CSS is bundled into each Vite entry via `import '../css/index.css'`
+        // in the page's main.js. AssetManager picks it up from the manifest
+        // below — there is no separate design-system stylesheet to enqueue.
         self::enqueueProductionEntry($pageId);
 
         // Localize the page data payload.
@@ -95,11 +90,11 @@ final class AssetManager
             }
         }
 
-        foreach (array_unique($cssFiles) as $cssFile) {
+        foreach (array_unique($cssFiles) as $i => $cssFile) {
             wp_enqueue_style(
-                'ep-page-' . $entry,
+                'ep-page-' . $entry . ($i > 0 ? '-' . $i : ''),
                 EXAMPLEPRESS_MU_URI . '/dist/' . $cssFile,
-                ['ep-design-system'],
+                [],
                 EXAMPLEPRESS_MU_VERSION
             );
         }

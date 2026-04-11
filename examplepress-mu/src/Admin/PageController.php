@@ -93,7 +93,7 @@ final class PageController
     public static function renderDetailModal(): void
     {
         ?>
-        <div class="ep-modal__overlay" id="ep-feature-modal" hidden>
+        <div class="ep-modal__overlay" id="ep-feature-modal" style="display:none">
             <div class="ep-modal">
                 <div class="ep-modal__header">
                     <div>

@@ -3,6 +3,7 @@
  * Tabs: Health (default), Features, Routes, Blocks
  */
 
+import '../css/index.css';
 import { initLogger, log } from '../lib/logger.js';
 import { initApi } from '../lib/api.js';
 import { initTabs, updateTabCount } from '../lib/tabs.js';

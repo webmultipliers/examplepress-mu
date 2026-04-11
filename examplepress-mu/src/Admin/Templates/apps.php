@@ -67,11 +67,11 @@ if (!defined('ABSPATH')) exit;
 				<button class="ep-btn ep-btn--secondary" id="ep-apps-jobs-btn" hidden title="View AI generation history">
 					Jobs &amp; History
 				</button>
-				<div id="ep-agent-runtime-warning" class="ep-form__error" hidden></div>
+				<div id="ep-agent-runtime-warning" class="ep-form__error" style="display:none"></div>
 			</section>
 
 			<!-- Pending Drafts (AI generations awaiting review or push) -->
-			<section class="ep-section" id="ep-agent-drafts-section" hidden>
+			<section class="ep-section" id="ep-agent-drafts-section" style="display:none">
 				<div class="ep-section__header"><span class="ep-section__title">Pending Drafts</span><div class="ep-section__line"></div></div>
 				<p class="ep-section__desc">AI-generated apps stashed as drafts. Resume to review or repair, push to commit to GitHub, or discard to throw away.</p>
 				<div id="ep-agent-drafts-list"></div>
@@ -111,18 +111,18 @@ if (!defined('ABSPATH')) exit;
 						<div class="ep-demo-status-label">Installed</div>
 						<span class="ep-badge ep-badge--success" id="ep-demo-current-ver">&mdash;</span>
 					</div>
-					<div class="ep-demo-status" id="ep-demo-target-row" hidden>
+					<div class="ep-demo-status" id="ep-demo-target-row" style="display:none">
 						<div class="ep-demo-status-label">Target</div>
 						<span class="ep-badge ep-badge--success" id="ep-demo-target-ver"></span>
 					</div>
-					<div class="ep-demo-status" id="ep-demo-available-row" hidden>
+					<div class="ep-demo-status" id="ep-demo-available-row" style="display:none">
 						<div class="ep-demo-status-label">Action Needed</div>
 						<span class="ep-badge ep-badge--warning" id="ep-demo-available-ver"></span>
 					</div>
 					<p class="ep-demo-message" id="ep-demo-check-message">Click below to check GitHub releases against your channel and pin settings.</p>
 					<div class="ep-demo-actions">
 						<button class="ep-btn ep-btn--primary" id="ep-demo-check-btn">Check Now</button>
-						<button class="ep-btn ep-btn--primary" id="ep-demo-update-btn" hidden>Update Now</button>
+						<button class="ep-btn ep-btn--primary" id="ep-demo-update-btn" style="display:none">Update Now</button>
 					</div>
 				</div>
 			</section>
@@ -152,7 +152,7 @@ if (!defined('ABSPATH')) exit;
 					<div class="ep-demo-actions">
 						<button class="ep-btn ep-btn--primary" id="ep-demo-save-settings">Save Settings</button>
 					</div>
-					<p class="ep-demo-message" id="ep-demo-settings-message" hidden></p>
+					<p class="ep-demo-message" id="ep-demo-settings-message" style="display:none"></p>
 				</div>
 			</section>
 		</div>
@@ -160,7 +160,7 @@ if (!defined('ABSPATH')) exit;
 		</div><!-- /.ep-panels -->
 
 	<!-- App Scaffold Modal -->
-	<div class="ep-modal__overlay" id="ep-apps-scaffold-modal" hidden>
+	<div class="ep-modal__overlay" id="ep-apps-scaffold-modal" style="display:none">
 		<div class="ep-modal ep-modal--sm">
 			<div class="ep-modal__header">
 				<div>
@@ -181,8 +181,8 @@ if (!defined('ABSPATH')) exit;
 					</div>
 				</div>
 				<div class="ep-scaffold-steps" id="ep-scaffold-steps"></div>
-				<div id="ep-apps-scaffold-error" class="ep-form__error" hidden></div>
-				<div id="ep-apps-scaffold-warnings" class="ep-scaffold-warnings" hidden></div>
+				<div id="ep-apps-scaffold-error" class="ep-form__error" style="display:none"></div>
+				<div id="ep-apps-scaffold-warnings" class="ep-scaffold-warnings" style="display:none"></div>
 			</div>
 			<div class="ep-modal__footer">
 				<button class="ep-btn ep-btn--secondary" data-modal="ep-apps-scaffold-modal">Cancel</button>
@@ -192,7 +192,7 @@ if (!defined('ABSPATH')) exit;
 	</div>
 
 	<!-- Troy Connect Modal -->
-	<div class="ep-modal__overlay" id="ep-apps-troy-modal" hidden>
+	<div class="ep-modal__overlay" id="ep-apps-troy-modal" style="display:none">
 		<div class="ep-modal ep-modal--sm">
 			<div class="ep-modal__header">
 				<div>
@@ -215,9 +215,9 @@ if (!defined('ABSPATH')) exit;
 						<input type="radio" name="ep-apps-troy-target" value="custom" />
 						Self-hosted Troy instance
 					</label>
-					<input type="url" id="ep-apps-troy-custom-url" placeholder="https://troy.yourdomain.com" hidden />
+					<input type="url" id="ep-apps-troy-custom-url" placeholder="https://troy.yourdomain.com" style="display:none" />
 				</div>
-				<div id="ep-apps-troy-error" class="ep-form__error" hidden></div>
+				<div id="ep-apps-troy-error" class="ep-form__error" style="display:none"></div>
 				<input type="hidden" id="ep-apps-troy-target-slug" />
 			</div>
 			<div class="ep-modal__footer">
@@ -228,7 +228,7 @@ if (!defined('ABSPATH')) exit;
 	</div>
 
 	<!-- Generate-with-AI Modal (new app) -->
-	<div class="ep-modal__overlay" id="ep-agent-modal" hidden>
+	<div class="ep-modal__overlay" id="ep-agent-modal" style="display:none">
 		<div class="ep-modal ep-modal--lg">
 			<div class="ep-modal__header">
 				<div>
@@ -262,30 +262,30 @@ if (!defined('ABSPATH')) exit;
 					</div>
 				</div>
 				<div class="ep-scaffold-steps" id="ep-agent-steps"></div>
-				<div id="ep-agent-error" class="ep-form__error" hidden></div>
+				<div id="ep-agent-error" class="ep-form__error" style="display:none"></div>
 
 				<!-- Draft preview (revealed when status === 'drafted') -->
-				<div id="ep-agent-draft-preview" class="ep-agent-draft-preview" hidden>
+				<div id="ep-agent-draft-preview" class="ep-agent-draft-preview" style="display:none">
 					<div class="ep-agent-draft-preview__header">
 						<strong class="ep-agent-draft-preview__title">Draft ready for review</strong>
 						<span class="ep-modal__subtitle" id="ep-agent-draft-summary"></span>
 					</div>
 					<div id="ep-agent-draft-files" class="ep-agent-draft-files"></div>
-					<div id="ep-agent-draft-file-viewer" class="ep-agent-file-viewer" hidden></div>
+					<div id="ep-agent-draft-file-viewer" class="ep-agent-file-viewer" style="display:none"></div>
 				</div>
 			</div>
 			<div class="ep-modal__footer">
 				<button class="ep-btn ep-btn--secondary" data-modal="ep-agent-modal" id="ep-agent-cancel-btn">Cancel</button>
-				<button class="ep-btn ep-btn--danger" id="ep-agent-discard-btn" hidden>Discard draft</button>
-				<button class="ep-btn" id="ep-agent-retry-btn" hidden>Retry</button>
+				<button class="ep-btn ep-btn--danger" id="ep-agent-discard-btn" style="display:none">Discard draft</button>
+				<button class="ep-btn" id="ep-agent-retry-btn" style="display:none">Retry</button>
 				<button class="ep-btn ep-btn--primary" id="ep-agent-submit">Generate Draft</button>
-				<button class="ep-btn ep-btn--primary ep-btn--success" id="ep-agent-commit-btn" hidden>Push to GitHub</button>
+				<button class="ep-btn ep-btn--primary ep-btn--success" id="ep-agent-commit-btn" style="display:none">Push to GitHub</button>
 			</div>
 		</div>
 	</div>
 
 	<!-- Iterate-with-AI Modal (chat thread) -->
-	<div class="ep-modal__overlay" id="ep-agent-iterate-modal" hidden>
+	<div class="ep-modal__overlay" id="ep-agent-iterate-modal" style="display:none">
 		<div class="ep-modal ep-modal--lg">
 			<div class="ep-modal__header">
 				<div>
@@ -311,10 +311,10 @@ if (!defined('ABSPATH')) exit;
 						</div>
 					</div>
 					<div class="ep-scaffold-steps" id="ep-agent-iterate-steps"></div>
-					<div id="ep-agent-iterate-error" class="ep-form__error" hidden></div>
+					<div id="ep-agent-iterate-error" class="ep-form__error" style="display:none"></div>
 
 					<!-- Draft preview for iterations -->
-					<div id="ep-agent-iterate-draft-preview" class="ep-agent-draft-preview" hidden>
+					<div id="ep-agent-iterate-draft-preview" class="ep-agent-draft-preview" style="display:none">
 						<div class="ep-agent-draft-preview__header">
 							<strong class="ep-agent-draft-preview__title">Draft ready for review</strong>
 							<span class="ep-modal__subtitle" id="ep-agent-iterate-draft-summary"></span>
@@ -328,15 +328,15 @@ if (!defined('ABSPATH')) exit;
 			<div class="ep-modal__footer">
 				<button class="ep-btn ep-btn--danger" id="ep-agent-iterate-eject-btn">Eject…</button>
 				<button class="ep-btn ep-btn--secondary" data-modal="ep-agent-iterate-modal">Close</button>
-				<button class="ep-btn ep-btn--danger" id="ep-agent-iterate-discard-btn" hidden>Discard draft</button>
+				<button class="ep-btn ep-btn--danger" id="ep-agent-iterate-discard-btn" style="display:none">Discard draft</button>
 				<button class="ep-btn ep-btn--primary" id="ep-agent-iterate-submit">Send</button>
-				<button class="ep-btn ep-btn--primary ep-btn--success" id="ep-agent-iterate-commit-btn" hidden>Push to GitHub</button>
+				<button class="ep-btn ep-btn--primary ep-btn--success" id="ep-agent-iterate-commit-btn" style="display:none">Push to GitHub</button>
 			</div>
 		</div>
 	</div>
 
 	<!-- Repair Modal (surgical fix for a reported error) -->
-	<div class="ep-modal__overlay" id="ep-agent-repair-modal" hidden>
+	<div class="ep-modal__overlay" id="ep-agent-repair-modal" style="display:none">
 		<div class="ep-modal ep-modal--lg">
 			<div class="ep-modal__header">
 				<div>
@@ -371,10 +371,10 @@ if (!defined('ABSPATH')) exit;
 				</div>
 
 				<div class="ep-scaffold-steps" id="ep-agent-repair-steps"></div>
-				<div id="ep-agent-repair-error-msg" class="ep-form__error" hidden></div>
+				<div id="ep-agent-repair-error-msg" class="ep-form__error" style="display:none"></div>
 
 				<!-- Draft preview with change summary -->
-				<div id="ep-agent-repair-draft-preview" class="ep-agent-draft-preview" hidden>
+				<div id="ep-agent-repair-draft-preview" class="ep-agent-draft-preview" style="display:none">
 					<div class="ep-agent-draft-preview__header">
 						<strong class="ep-agent-draft-preview__title">Surgical fix ready for review</strong>
 						<span class="ep-modal__subtitle" id="ep-agent-repair-draft-summary"></span>
@@ -387,15 +387,15 @@ if (!defined('ABSPATH')) exit;
 			</div>
 			<div class="ep-modal__footer">
 				<button class="ep-btn ep-btn--secondary" data-modal="ep-agent-repair-modal">Cancel</button>
-				<button class="ep-btn ep-btn--danger" id="ep-agent-repair-discard-btn" hidden>Discard draft</button>
+				<button class="ep-btn ep-btn--danger" id="ep-agent-repair-discard-btn" style="display:none">Discard draft</button>
 				<button class="ep-btn ep-btn--primary" id="ep-agent-repair-submit">Diagnose &amp; Draft Fix</button>
-				<button class="ep-btn ep-btn--primary ep-btn--success" id="ep-agent-repair-commit-btn" hidden>Push fix to GitHub</button>
+				<button class="ep-btn ep-btn--primary ep-btn--success" id="ep-agent-repair-commit-btn" style="display:none">Push fix to GitHub</button>
 			</div>
 		</div>
 	</div>
 
 	<!-- Eject Confirmation Modal (separate, hardened) -->
-	<div class="ep-modal__overlay" id="ep-agent-eject-modal" hidden>
+	<div class="ep-modal__overlay" id="ep-agent-eject-modal" style="display:none">
 		<div class="ep-modal ep-modal--sm">
 			<div class="ep-modal__header">
 				<div>
@@ -418,7 +418,7 @@ if (!defined('ABSPATH')) exit;
 						<input type="text" id="ep-agent-eject-confirm" autocomplete="off" />
 					</div>
 				</div>
-				<div id="ep-agent-eject-error" class="ep-form__error" hidden></div>
+				<div id="ep-agent-eject-error" class="ep-form__error" style="display:none"></div>
 				<input type="hidden" id="ep-agent-eject-target-slug" />
 			</div>
 			<div class="ep-modal__footer">
@@ -429,7 +429,7 @@ if (!defined('ABSPATH')) exit;
 	</div>
 
 	<!-- Jobs & History Modal -->
-	<div class="ep-modal__overlay" id="ep-agent-jobs-modal" hidden>
+	<div class="ep-modal__overlay" id="ep-agent-jobs-modal" style="display:none">
 		<div class="ep-modal ep-modal--lg">
 			<div class="ep-modal__header">
 				<div>
@@ -448,7 +448,7 @@ if (!defined('ABSPATH')) exit;
 	</div>
 
 	<!-- Review Draft Modal -->
-	<div class="ep-modal__overlay" id="ep-agent-review-modal" hidden>
+	<div class="ep-modal__overlay" id="ep-agent-review-modal" style="display:none">
 		<div class="ep-modal ep-modal--xl">
 			<div class="ep-modal__header">
 				<div>
@@ -470,7 +470,7 @@ if (!defined('ABSPATH')) exit;
 	</div>
 
 	<!-- Codespace Modal -->
-	<div class="ep-modal__overlay" id="ep-apps-codespace-modal" hidden>
+	<div class="ep-modal__overlay" id="ep-apps-codespace-modal" style="display:none">
 		<div class="ep-modal ep-modal--sm">
 			<div class="ep-modal__body ep-modal__body--centered">
 				<svg width="40" height="40" viewBox="0 0 98 96" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="M48.854 0C21.839 0 0 22 0 49.217c0 21.756 13.993 40.172 33.405 46.69 2.427.49 3.316-1.059 3.316-2.362 0-1.141-.08-5.052-.08-9.127-13.59 2.934-16.42-5.867-16.42-5.867-2.184-5.704-5.42-7.17-5.42-7.17-4.448-3.015.324-3.015.324-3.015 4.934.326 7.523 5.052 7.523 5.052 4.367 7.496 11.404 5.378 14.235 4.074.404-3.178 1.699-5.378 3.074-6.6-10.839-1.141-22.243-5.378-22.243-24.283 0-5.378 1.94-9.778 5.014-13.2-.485-1.222-2.184-6.275.486-13.038 0 0 4.125-1.304 13.426 5.052a46.97 46.97 0 0 1 12.214-1.63c4.125 0 8.33.571 12.213 1.63 9.302-6.356 13.427-5.052 13.427-5.052 2.67 6.763.97 11.816.485 13.038 3.155 3.422 5.015 7.822 5.015 13.2 0 18.905-11.404 23.06-22.324 24.283 1.78 1.548 3.316 4.481 3.316 9.126 0 6.6-.08 11.897-.08 13.526 0 1.304.89 2.853 3.316 2.364 19.412-6.52 33.405-24.935 33.405-46.691C97.707 22 75.788 0 48.854 0z" fill="#24292f"/></svg>

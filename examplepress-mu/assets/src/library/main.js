@@ -3,6 +3,7 @@
  * Single panel — coming soon placeholder.
  */
 
+import '../css/index.css';
 import { initLogger, log } from '../lib/logger.js';
 
 document.addEventListener('DOMContentLoaded', () => {

@@ -3,6 +3,7 @@
  * Tabs: Color Palette (default), Layout, Typography, Size Scale
  */
 
+import '../css/index.css';
 import { initLogger, log } from '../lib/logger.js';
 import { initApi } from '../lib/api.js';
 import { initTabs } from '../lib/tabs.js';

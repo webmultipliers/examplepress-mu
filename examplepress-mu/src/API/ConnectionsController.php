@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace ExamplePress\MU\API;
 
 use ExamplePress\MU\Infrastructure\GitHub;
+use ExamplePress\MU\Infrastructure\PrismContainer;
 
 /**
  * Connection settings REST API — save/test GitHub and Troy connections,
@@ -119,6 +120,19 @@ final class ConnectionsController
         $agentEnabled = $request->get_param('agent_enabled');
         if ($agentEnabled !== null) {
             update_option('ep_agent_enabled', (bool) $agentEnabled);
+        }
+
+        // Any save of the agent form is an explicit operator "retry" —
+        // clear any active cooldown so the next request re-attempts the
+        // PrismContainer boot instead of short-circuiting on the stale
+        // failure. Agent-form saves are detected by the presence of any
+        // agent_* param in the request.
+        $agentTouched = $agentEnabled !== null
+            || $request->get_param('agent_provider') !== null
+            || $request->get_param('agent_model') !== null
+            || $request->get_param('agent_api_key') !== null;
+        if ($agentTouched) {
+            PrismContainer::clearDisabled();
         }
 
         $updated = [];
