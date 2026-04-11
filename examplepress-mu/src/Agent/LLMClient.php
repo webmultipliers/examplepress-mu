@@ -140,11 +140,27 @@ final class LLMClient
         }
 
         $providerKey = (string) get_option('ep_agent_provider', 'anthropic');
-        $model       = (string) get_option('ep_agent_model', 'claude-sonnet-4-6');
-        $apiKey      = (string) get_option('ep_agent_api_key', '');
+        /**
+         * Filter the default model used when no ep_agent_model option is set.
+         * Operators can override without a code deploy when a provider
+         * deprecates a model. The option still wins if configured.
+         *
+         * @param string $default  Hardcoded default.
+         * @param string $provider The Prism provider key being used.
+         */
+        $defaultModel = (string) apply_filters(
+            'examplepress_mu_agent_default_model',
+            'claude-sonnet-4-6',
+            $providerKey
+        );
+        $model  = (string) get_option('ep_agent_model', $defaultModel);
+        $apiKey = (string) get_option('ep_agent_api_key', '');
 
         if (!$apiKey) {
             throw new \RuntimeException('No agent API key configured.');
+        }
+        if ($model === '') {
+            throw new \RuntimeException('No agent model configured and no default resolved from filter.');
         }
         if (!class_exists('\\Prism\\Prism\\Prism')) {
             throw new \RuntimeException('Prism is not installed.');

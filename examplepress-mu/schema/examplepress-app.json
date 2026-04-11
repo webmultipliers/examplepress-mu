@@ -1,0 +1,142 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://www.examplepress.com/schema/examplepress-app",
+    "title": "ExamplePress Companion App Manifest",
+    "description": "Declarative manifest for an ExamplePress companion plugin (an App). This schema encodes the rules enforced by ExamplePress\\MU\\Governance\\AppValidator — both the active-plugin zero-trust gate and the generated-payload validator. Apps that fail validation are silently skipped by WordPress's plugin loader. Fields validated in PHP but not yet encoded here will be added over time; the schema and the validator should stay in lock-step.",
+    "type": "object",
+    "additionalProperties": true,
+    "required": ["name", "slug"],
+    "properties": {
+        "$schema": {
+            "type": "string",
+            "description": "JSON Schema reference for IDE autocompletion."
+        },
+        "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Human-readable app name. Required by AppValidator::validatePlugin (rule 2)."
+        },
+        "slug": {
+            "type": "string",
+            "pattern": "^[a-z0-9-]+$",
+            "description": "URL-safe slug. Must match [a-z0-9-]+. Must equal the plugin directory name, the bootstrap filename ({slug}.php), and the Text Domain header. Required by AppValidator (rules 1, 2)."
+        },
+        "description": {
+            "type": "string",
+            "description": "Short description displayed in the ExamplePress admin UI."
+        },
+        "version": {
+            "type": "string",
+            "description": "App version. Falls back to the plugin's Version header if omitted."
+        },
+        "repository": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+            "description": "GitHub owner/repo where the app's source lives. Required for the Codespaces and Propose Change workflows. A missing value produces a non-blocking admin notice but does not deactivate the app."
+        },
+        "requires_kernel_api": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Minimum kernel API version required (ExamplePress\\MU\\Infrastructure\\Router::API_VERSION). Apps that target a newer API than the running kernel are deactivated at validation time."
+        },
+        "permissions": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "App-declared permission strings. Filtered against examplepress_mu_banned_permissions; requesting a banned permission deactivates the app. Permissions are NOT automatically installed as WordPress capabilities — the app is responsible for its own role management."
+        },
+        "supports_ai_iteration": {
+            "type": "boolean",
+            "description": "Whether this app can be iterated on by the Generative UI Agent. Validated as a boolean by AppValidator::validateGenerated."
+        },
+        "routing": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Route origin metadata. The PHP closures passed to examplepress_register_route_origin() remain the runtime source of truth; values here are read by the admin Route Visualizer and by AppDiscovery.",
+            "properties": {
+                "priority": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 99,
+                    "default": 10,
+                    "description": "Evaluation order. Lower wins. 1-5: core routes, 10: default, 20-50: add-ons, 90-99: catch-all/fallback."
+                },
+                "routes": {
+                    "type": "object",
+                    "description": "Declarative route metadata for the admin Route Visualizer. Display-only — does not affect dispatch.",
+                    "additionalProperties": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                            "condition": {
+                                "type": "string",
+                                "description": "Human-readable PHP condition expression (display only)."
+                            },
+                            "urls": {
+                                "type": "array",
+                                "items": { "type": "string" },
+                                "description": "Representative URLs for sitemap visualization."
+                            },
+                            "desc": {
+                                "type": "string",
+                                "description": "Short description of what this route handles."
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "troy": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Troy Server integration metadata, written automatically when an app is connected to a Troy instance. Do not edit by hand.",
+            "properties": {
+                "server_url": {
+                    "type": "string",
+                    "description": "Troy Server hostname without protocol (e.g. 'internal.repo.mustuse.com')."
+                },
+                "repo": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$",
+                    "description": "GitHub owner/repo associated with this app on Troy."
+                },
+                "repo_id": {
+                    "type": "string",
+                    "pattern": "^[0-9]*$",
+                    "description": "GitHub numeric repository ID."
+                }
+            }
+        },
+        "updater": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Optional per-app updater metadata. Most apps rely on Troy instead.",
+            "properties": {
+                "github_repo": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$"
+                },
+                "asset_filename": {
+                    "type": "string",
+                    "pattern": "\\.zip$"
+                },
+                "default_channel": {
+                    "type": "string",
+                    "enum": ["stable", "prerelease", "development"]
+                },
+                "requires_wp": {
+                    "type": "string",
+                    "pattern": "^\\d+\\.\\d+(\\.\\d+)?$"
+                },
+                "requires_php": {
+                    "type": "string",
+                    "pattern": "^\\d+\\.\\d+(\\.\\d+)?$"
+                },
+                "requires_kernel_api": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Mirror of the top-level requires_kernel_api; either location is accepted."
+                }
+            }
+        }
+    }
+}

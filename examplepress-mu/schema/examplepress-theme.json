@@ -698,6 +698,11 @@
 					"type": "string",
 					"description": "Minimum PHP version required for updates (e.g. '8.4').",
 					"pattern": "^\\d+\\.\\d+(\\.\\d+)?$"
+				},
+				"requires_kernel_api": {
+					"type": "integer",
+					"minimum": 1,
+					"description": "Minimum ExamplePress MU Kernel API version this release targets. Compared at install time against ExamplePress\\MU\\Infrastructure\\Router::API_VERSION — a staged release that declares a higher value is refused by ThemeUpdateProvider so an older kernel cannot install a theme it cannot run."
 				}
 			}
 		},

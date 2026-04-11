@@ -9,8 +9,27 @@ namespace ExamplePress\MU\Infrastructure;
  */
 final class AppDiscovery
 {
+    /** Transient key for the cross-request scan cache. */
+    private const CACHE_KEY = 'ep_mu_app_discovery';
+
+    /** TTL for the transient cache. Short — operators editing a manifest
+     * want to see changes within a minute, and the mtime fingerprint
+     * usually invalidates before the TTL expires anyway. */
+    private const CACHE_TTL = 5 * 60;
+
+    /** @var array<string, array<int, array<string, mixed>>> Per-request memo keyed by cache hash. */
+    private static array $memo = [];
+
     /**
      * Discover all ExamplePress apps by scanning plugin directories.
+     *
+     * Caches in two layers:
+     *  1. Per-request memoization keyed on a fingerprint hash.
+     *  2. A transient keyed on the same hash. The hash includes each
+     *     candidate manifest's mtime, the plugins dir mtime, the active
+     *     plugins list, and the serialized excludes filter — so a changed
+     *     manifest, an activate/deactivate, or a changed filter all
+     *     invalidate the cache automatically with no explicit flush.
      *
      * @return array<int, array<string, mixed>>
      */
@@ -29,32 +48,62 @@ final class AppDiscovery
          */
         $excludes = (array) apply_filters('examplepress_mu_app_scan_excludes', ['.', '..']);
 
-        $apps = [];
         $entries = scandir($pluginsDir);
-
         if (!$entries) {
             return [];
         }
 
+        // First pass: collect candidates and build the fingerprint. Cheap —
+        // scandir + filemtime on each examplepress.json only.
+        $candidates = [];
+        $fingerprintParts = [];
         foreach ($entries as $entry) {
             if (in_array($entry, $excludes, true)) {
                 continue;
             }
-
             $pluginPath = $pluginsDir . '/' . $entry;
-
             if (!is_dir($pluginPath)) {
                 continue;
             }
-
             $jsonPath = $pluginPath . '/examplepress.json';
-
             if (!file_exists($jsonPath)) {
                 continue;
             }
+            $candidates[] = [
+                'slug'       => $entry,
+                'jsonPath'   => $jsonPath,
+                'pluginPath' => $pluginPath,
+            ];
+            $fingerprintParts[] = $entry . '@' . (int) @filemtime($jsonPath);
+        }
 
-            $app = self::parseApp($entry, $jsonPath, $pluginPath);
+        sort($fingerprintParts);
+        $activePlugins = (array) get_option('active_plugins', []);
+        sort($activePlugins);
+        $hash = md5(implode('|', [
+            'entries=' . implode(',', $fingerprintParts),
+            'plugins_dir_mtime=' . (int) @filemtime($pluginsDir),
+            'active=' . implode(',', $activePlugins),
+            'excludes=' . serialize(array_values($excludes)),
+        ]));
 
+        // Per-request memo — eliminates repeat calls within one admin page load.
+        if (isset(self::$memo[$hash])) {
+            return self::$memo[$hash];
+        }
+
+        // Cross-request cache. Stored under a single key; mismatching hash
+        // just means we parse and overwrite.
+        $cached = get_transient(self::CACHE_KEY);
+        if (is_array($cached) && ($cached['hash'] ?? '') === $hash && isset($cached['apps']) && is_array($cached['apps'])) {
+            self::$memo[$hash] = $cached['apps'];
+            return $cached['apps'];
+        }
+
+        // Cache miss — parse.
+        $apps = [];
+        foreach ($candidates as $candidate) {
+            $app = self::parseApp($candidate['slug'], $candidate['jsonPath'], $candidate['pluginPath']);
             if ($app) {
                 $apps[] = $app;
             }
@@ -65,7 +114,23 @@ final class AppDiscovery
          *
          * @param array $apps Discovered apps from the plugins directory.
          */
-        return (array) apply_filters('examplepress_mu_discovered_apps', $apps);
+        $apps = (array) apply_filters('examplepress_mu_discovered_apps', $apps);
+
+        self::$memo[$hash] = $apps;
+        set_transient(self::CACHE_KEY, ['hash' => $hash, 'apps' => $apps], self::CACHE_TTL);
+
+        return $apps;
+    }
+
+    /**
+     * Drop all AppDiscovery caches. Call after explicit state changes
+     * (app install/destroy, manifest write) if you don't want to wait for
+     * the fingerprint-based invalidation to catch up.
+     */
+    public static function flushCache(): void
+    {
+        self::$memo = [];
+        delete_transient(self::CACHE_KEY);
     }
 
     /**

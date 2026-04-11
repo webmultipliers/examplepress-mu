@@ -65,8 +65,17 @@ final class ConfigManager
          */
         $merged = apply_filters('examplepress_mu_config_raw', $merged);
         // Defensive: a misbehaving filter callback may return null/non-array.
-        // Coerce so the normalisers (which type-hint array) cannot fatal the kernel.
+        // Coerce so the normalisers (which type-hint array) cannot fatal the
+        // kernel. When WP_DEBUG is on, also log the misbehaviour so the
+        // filter author sees feedback instead of silently getting an empty
+        // config back.
         if (!is_array($merged)) {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log(sprintf(
+                    '[ExamplePress ConfigManager] examplepress_mu_config_raw filter returned %s (expected array). Coerced to []. Check your filter callback.',
+                    gettype($merged)
+                ));
+            }
             $merged = [];
         }
 
@@ -80,7 +89,16 @@ final class ConfigManager
          * @param array $merged Fully normalized config.
          */
         $final = apply_filters('examplepress_mu_config', $merged);
-        self::$config = is_array($final) ? $final : $merged;
+        if (!is_array($final)) {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log(sprintf(
+                    '[ExamplePress ConfigManager] examplepress_mu_config filter returned %s (expected array). Falling back to pre-filter value. Check your filter callback.',
+                    gettype($final)
+                ));
+            }
+            $final = $merged;
+        }
+        self::$config = $final;
 
         return self::$config;
     }

@@ -14,15 +14,159 @@ final class RouteRegistry
     private static array $origins = [];
 
     /**
+     * @var array<int, array{namespace: string, slug: string, priority: int, existing_namespace: string}>
+     * Conflicts detected during register() calls — recorded at registration
+     * time so the admin Route Visualizer can surface them without having to
+     * re-walk the registry.
+     */
+    private static array $conflicts = [];
+
+    /** Slug/namespace format enforced at registration. Matches the schema. */
+    private const SLUG_PATTERN = '/^[a-z0-9-]+$/';
+
+    /** Priority bounds match schema/examplepress-app.json routing.priority. */
+    private const MIN_PRIORITY = 1;
+    private const MAX_PRIORITY = 99;
+
+    /**
      * Register a route origin.
+     *
+     * Validates inputs at registration time. Failures are logged and the
+     * entire call is dropped — partial registrations would be confusing.
+     * A colliding slug at the SAME priority against an already-registered
+     * namespace is logged as a conflict but the new registration still
+     * takes effect for non-colliding slugs (via a filtered copy).
+     *
+     * @param string                  $namespace Block namespace the companion plugin claims.
+     * @param array<string, callable> $routes    Map of slug => is-this-current-page condition.
+     * @param int                     $priority  Lower wins; default 10.
      */
     public static function register(string $namespace, array $routes, int $priority = 10): void
     {
+        // Namespace must be a valid slug.
+        if ($namespace === '' || !preg_match(self::SLUG_PATTERN, $namespace)) {
+            self::logRegistrationError(sprintf(
+                'RouteRegistry::register rejected namespace "%s" — must match %s.',
+                $namespace,
+                self::SLUG_PATTERN
+            ));
+            return;
+        }
+
+        // Priority must be in the documented range.
+        if ($priority < self::MIN_PRIORITY || $priority > self::MAX_PRIORITY) {
+            self::logRegistrationError(sprintf(
+                'RouteRegistry::register rejected namespace "%s" — priority %d out of range [%d..%d].',
+                $namespace,
+                $priority,
+                self::MIN_PRIORITY,
+                self::MAX_PRIORITY
+            ));
+            return;
+        }
+
+        // Routes array must be non-empty — an origin with zero routes is
+        // almost always a bug in the caller's routing conditionals.
+        if (empty($routes)) {
+            self::logRegistrationError(sprintf(
+                'RouteRegistry::register rejected namespace "%s" — empty routes array.',
+                $namespace
+            ));
+            return;
+        }
+
+        // Validate each entry: slug format + callable condition.
+        $validated = [];
+        foreach ($routes as $slug => $condition) {
+            if (!is_string($slug) || !preg_match(self::SLUG_PATTERN, $slug)) {
+                self::logRegistrationError(sprintf(
+                    'RouteRegistry::register: namespace "%s" dropped invalid slug "%s" — must match %s.',
+                    $namespace,
+                    is_string($slug) ? $slug : gettype($slug),
+                    self::SLUG_PATTERN
+                ));
+                continue;
+            }
+            if (!is_callable($condition)) {
+                self::logRegistrationError(sprintf(
+                    'RouteRegistry::register: namespace "%s" slug "%s" dropped — condition is not callable (got %s).',
+                    $namespace,
+                    $slug,
+                    gettype($condition)
+                ));
+                continue;
+            }
+            $validated[$slug] = $condition;
+        }
+
+        if (empty($validated)) {
+            self::logRegistrationError(sprintf(
+                'RouteRegistry::register rejected namespace "%s" — every route entry failed validation.',
+                $namespace
+            ));
+            return;
+        }
+
+        // Detect conflicts with already-registered routes at the SAME
+        // priority. Resolution order inside a priority bucket is
+        // "whichever was registered first wins", which is arbitrary —
+        // log it so operators can reshuffle priorities.
+        if (isset(self::$origins[$priority])) {
+            foreach (self::$origins[$priority] as $existingNamespace => $existingRoutes) {
+                foreach (array_keys($validated) as $newSlug) {
+                    if (array_key_exists($newSlug, $existingRoutes) && $existingNamespace !== $namespace) {
+                        self::$conflicts[] = [
+                            'namespace'          => $namespace,
+                            'slug'               => $newSlug,
+                            'priority'           => $priority,
+                            'existing_namespace' => $existingNamespace,
+                        ];
+                        self::logRegistrationError(sprintf(
+                            'RouteRegistry::register: namespace "%s" slug "%s" at priority %d collides with existing namespace "%s". First registration wins; consider changing priority.',
+                            $namespace,
+                            $newSlug,
+                            $priority,
+                            $existingNamespace
+                        ));
+                    }
+                }
+            }
+        }
+
         if (!isset(self::$origins[$priority])) {
             self::$origins[$priority] = [];
         }
 
-        self::$origins[$priority][$namespace] = $routes;
+        // If the same namespace re-registers at the same priority, merge
+        // so a caller can add routes incrementally.
+        if (isset(self::$origins[$priority][$namespace])) {
+            self::$origins[$priority][$namespace] = array_merge(
+                self::$origins[$priority][$namespace],
+                $validated
+            );
+        } else {
+            self::$origins[$priority][$namespace] = $validated;
+        }
+    }
+
+    /**
+     * Return every conflict recorded during register() calls this request.
+     *
+     * @return array<int, array{namespace: string, slug: string, priority: int, existing_namespace: string}>
+     */
+    public static function registrationConflicts(): array
+    {
+        return self::$conflicts;
+    }
+
+    /**
+     * Log a registration-time validation error. Uses error_log directly
+     * rather than do_action so failures are visible even before any
+     * logging hooks are in place.
+     */
+    private static function logRegistrationError(string $message): void
+    {
+        error_log('[ExamplePress RouteRegistry] ' . $message);
     }
 
     /**

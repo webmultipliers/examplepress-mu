@@ -29,6 +29,31 @@ final class Updater
     private static string $repoName = 'examplepress-mu';
 
     /**
+     * Resolve the GitHub repo slug (owner/name) for the kernel. Filterable
+     * so fleets can point at a private fork or enterprise mirror without
+     * editing code. Mirrors ThemeUpdateProvider::repo().
+     */
+    public static function repo(): string
+    {
+        /**
+         * Filter the GitHub repo used for ExamplePress MU kernel updates.
+         *
+         * Return a string in "owner/name" format. Values that don't match
+         * the GitHub owner/repo pattern fall back to the hardcoded default.
+         */
+        $filtered = (string) apply_filters(
+            'examplepress_mu_kernel_repo',
+            self::$repoOwner . '/' . self::$repoName
+        );
+
+        if ($filtered === '' || !preg_match('#^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$#', $filtered)) {
+            return self::$repoOwner . '/' . self::$repoName;
+        }
+
+        return $filtered;
+    }
+
+    /**
      * Register the WP-Cron event (if not already scheduled) and hook the
      * cron action callback.
      */
@@ -114,7 +139,7 @@ final class Updater
      */
     public static function fetchRemoteVersion(): ?array
     {
-        $apiUrl  = 'https://api.github.com/repos/' . self::$repoOwner . '/' . self::$repoName . '/releases/latest';
+        $apiUrl  = 'https://api.github.com/repos/' . self::repo() . '/releases/latest';
         $response = wp_remote_get($apiUrl, [
             'headers' => [
                 'Accept'     => 'application/vnd.github.v3+json',
@@ -256,7 +281,7 @@ final class Updater
             'next_scheduled'    => is_int($nextScheduled) ? $nextScheduled : null,
             'check_interval'    => self::CHECK_INTERVAL,
             'cron_hook'         => self::CRON_HOOK,
-            'repo'              => self::$repoOwner . '/' . self::$repoName,
+            'repo'              => self::repo(),
             'previous_version_available' => $previousExists,
             'quarantined'       => is_array($quarantine) ? $quarantine : null,
             'boot_attempts'     => $bootAttempts,

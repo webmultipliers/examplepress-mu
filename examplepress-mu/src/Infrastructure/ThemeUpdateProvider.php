@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace ExamplePress\MU\Infrastructure;
 
+use ExamplePress\MU\Infrastructure\Router;
+
 /**
  * GitHub release-based update provider for the ExamplePress theme.
  *
@@ -56,11 +58,155 @@ final class ThemeUpdateProvider
         // Core update pipeline.
         add_filter('pre_set_site_transient_update_themes', [self::class, 'injectUpdate']);
         add_filter('themes_api', [self::class, 'themeInfo'], 10, 3);
+
+        // Kernel-API gate runs BEFORE fixSourceDir so a staged release that
+        // declares a newer kernel API than the current kernel supports is
+        // rejected before WordPress swaps files into place. priority 5
+        // so it runs before our rename-to-expected-slug logic at priority 10.
+        add_filter('upgrader_source_selection', [self::class, 'guardKernelApiOnSource'], 5, 4);
         add_filter('upgrader_source_selection', [self::class, 'fixSourceDir'], 10, 4);
 
         // Cache invalidation.
         add_action('switch_theme', [self::class, 'flushCache']);
         add_action('upgrader_process_complete', [self::class, 'flushAfterUpgrade'], 10, 2);
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    //  Kernel API compatibility gate
+    // ─────────────────────────────────────────────────────────────────
+
+    /**
+     * Current kernel API version. Wrapped so tests can stub it and so
+     * a missing Router class (e.g. during unit testing) falls back to 0.
+     */
+    public static function currentKernelApi(): int
+    {
+        if (class_exists(Router::class) && defined(Router::class . '::API_VERSION')) {
+            return (int) Router::API_VERSION;
+        }
+        return 0;
+    }
+
+    /**
+     * Extract the requires_kernel_api floor from a release manifest
+     * (updates.json shape). Accepts the value at either the top level or
+     * under `updater.requires_kernel_api` so release-workflow authors can
+     * put it wherever is most natural. Returns null when absent.
+     *
+     * @param array<string, mixed> $manifest
+     */
+    public static function manifestKernelApi(array $manifest): ?int
+    {
+        if (isset($manifest['requires_kernel_api']) && is_numeric($manifest['requires_kernel_api'])) {
+            return (int) $manifest['requires_kernel_api'];
+        }
+        $updater = $manifest['updater'] ?? null;
+        if (is_array($updater) && isset($updater['requires_kernel_api']) && is_numeric($updater['requires_kernel_api'])) {
+            return (int) $updater['requires_kernel_api'];
+        }
+        return null;
+    }
+
+    /**
+     * Read requires_kernel_api from a staged theme source directory. Looks
+     * for examplepress.json and parses updater.requires_kernel_api. This is
+     * the zip-level check that works even if the release workflow hasn't
+     * started emitting the field in updates.json yet.
+     */
+    public static function readStagedKernelApi(string $source): ?int
+    {
+        $manifestPath = trailingslashit($source) . 'examplepress.json';
+        if (!is_readable($manifestPath)) {
+            return null;
+        }
+        $raw = @file_get_contents($manifestPath);
+        if (!is_string($raw) || $raw === '') {
+            return null;
+        }
+        $decoded = json_decode($raw, true);
+        if (!is_array($decoded)) {
+            return null;
+        }
+        return self::manifestKernelApi($decoded);
+    }
+
+    /**
+     * upgrader_source_selection filter: refuse a staged theme whose
+     * requires_kernel_api exceeds the current kernel's API_VERSION. Returning
+     * WP_Error from this filter aborts the upgrader cleanly and surfaces the
+     * message in the standard update UI.
+     *
+     * @param string|\WP_Error    $source
+     * @param string              $remoteSource
+     * @param \WP_Upgrader        $upgrader
+     * @param array<string,mixed> $extras
+     * @return string|\WP_Error
+     */
+    public static function guardKernelApiOnSource(mixed $source, string $remoteSource, \WP_Upgrader $upgrader, array $extras): mixed
+    {
+        if (is_wp_error($source) || !is_string($source)) {
+            return $source;
+        }
+        // Only gate our own theme — other themes on the site pass through.
+        if (($extras['theme'] ?? '') !== self::THEME_SLUG) {
+            return $source;
+        }
+
+        // Staged source may be the extracted archive root or a single-
+        // wrapping folder (GitHub zipballs). Check both for examplepress.json.
+        $candidates = [$source];
+        global $wp_filesystem;
+        if ($wp_filesystem instanceof \WP_Filesystem_Base) {
+            $entries = $wp_filesystem->dirlist($source);
+            if (is_array($entries)) {
+                foreach ($entries as $name => $info) {
+                    if (($info['type'] ?? '') === 'd') {
+                        $candidates[] = trailingslashit($source) . $name;
+                    }
+                }
+            }
+        }
+
+        $staged = null;
+        foreach ($candidates as $candidate) {
+            $value = self::readStagedKernelApi($candidate);
+            if ($value !== null) {
+                $staged = $value;
+                break;
+            }
+        }
+
+        if ($staged === null) {
+            // No declaration — pass through. Older releases that predate
+            // the field are always accepted; that's the backwards-compat
+            // promise of an optional contract.
+            return $source;
+        }
+
+        $current = self::currentKernelApi();
+        if ($staged <= $current) {
+            return $source;
+        }
+
+        // Persist the reason so the admin UI can show it after the redirect.
+        update_option(
+            'ep_theme_kernel_api_block',
+            [
+                'time'    => time(),
+                'staged'  => $staged,
+                'current' => $current,
+            ],
+            false
+        );
+
+        return new \WP_Error(
+            'ep_theme_kernel_api_mismatch',
+            sprintf(
+                'ExamplePress theme requires kernel API version %d; current kernel API is %d. Update ExamplePress MU before installing this theme release.',
+                $staged,
+                $current
+            )
+        );
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -203,17 +349,22 @@ final class ThemeUpdateProvider
             }
         }
 
+        $kernelApiBlock = get_option('ep_theme_kernel_api_block', null);
+
         return [
-            'current_version'  => $localVersion,
-            'latest_version'   => $latestVersion,
-            'update_available' => $updateAvailable,
-            'package_url'      => $packageUrl,
-            'channel'          => $channel,
-            'channel_source'   => self::channelSource(),
-            'pinned_version'   => $pinned,
-            'last_checked'     => self::getLastChecked(),
-            'theme_active'     => self::isThemeActive(),
-            'repo'             => self::repo(),
+            'current_version'   => $localVersion,
+            'latest_version'    => $latestVersion,
+            'update_available'  => $updateAvailable,
+            'package_url'       => $packageUrl,
+            'channel'           => $channel,
+            'channel_source'    => self::channelSource(),
+            'pinned_version'    => $pinned,
+            'last_checked'      => self::getLastChecked(),
+            'theme_active'      => self::isThemeActive(),
+            'repo'              => self::repo(),
+            'kernel_api'        => self::currentKernelApi(),
+            'kernel_api_block'  => is_array($kernelApiBlock) ? $kernelApiBlock : null,
+            'manifest_kernel_api' => $manifest ? self::manifestKernelApi($manifest) : null,
         ];
     }
 
@@ -251,6 +402,20 @@ final class ThemeUpdateProvider
         $packageUrl    = self::resolvePackageUrl($manifest);
 
         if ($remoteVersion === '' || !$packageUrl) {
+            return $transient;
+        }
+
+        // Kernel API gate (manifest-level). If the release manifest declares
+        // a higher requires_kernel_api than the running kernel, hide the
+        // update entirely — we don't want core's update UI to offer an
+        // install we're going to reject at upgrader_source_selection.
+        $requiredApi = self::manifestKernelApi($manifest);
+        if ($requiredApi !== null && $requiredApi > self::currentKernelApi()) {
+            unset($transient->response[self::THEME_SLUG]);
+            if (!isset($transient->checked) || !is_array($transient->checked)) {
+                $transient->checked = [];
+            }
+            $transient->checked[self::THEME_SLUG] = $localVersion;
             return $transient;
         }
 
@@ -391,6 +556,21 @@ final class ThemeUpdateProvider
             return ['success' => false, 'message' => 'Could not fetch update manifest.'];
         }
 
+        // Kernel API gate — same logic as injectUpdate. Belt-and-suspenders
+        // in case an operator calls installVersion() directly (REST/CLI).
+        $requiredApi = self::manifestKernelApi($manifest);
+        $currentApi  = self::currentKernelApi();
+        if ($requiredApi !== null && $requiredApi > $currentApi) {
+            return [
+                'success' => false,
+                'message' => sprintf(
+                    'Theme release requires kernel API version %d; current kernel API is %d. Update ExamplePress MU before installing.',
+                    $requiredApi,
+                    $currentApi
+                ),
+            ];
+        }
+
         $packageUrl = self::resolvePackageUrl($manifest);
         if (!$packageUrl) {
             return ['success' => false, 'message' => 'No download URL found in manifest.'];
@@ -464,6 +644,24 @@ final class ThemeUpdateProvider
 
         if (!$manifest) {
             return ['success' => false, 'message' => sprintf('Could not fetch manifest for version %s.', $target)];
+        }
+
+        // Kernel API gate — same logic as installVersion(). Reinstalling the
+        // currently-installed version is technically always safe, but it's
+        // cheap to check and closes a loophole where an operator could pin
+        // to an incompatible future version and trigger reinstall().
+        $requiredApi = self::manifestKernelApi($manifest);
+        $currentApi  = self::currentKernelApi();
+        if ($requiredApi !== null && $requiredApi > $currentApi) {
+            return [
+                'success' => false,
+                'message' => sprintf(
+                    'Theme release %s requires kernel API version %d; current kernel API is %d. Update ExamplePress MU before reinstalling this version.',
+                    $target,
+                    $requiredApi,
+                    $currentApi
+                ),
+            ];
         }
 
         $packageUrl = self::resolvePackageUrl($manifest);

@@ -1,5 +1,5 @@
 {
-    "$schema": "https://www.examplepress.com/schema/app",
+    "$schema": "./schema/examplepress-app.json",
     "name": "ExamplePress MU",
     "slug": "examplepress-mu",
     "description": "A self-updating WordPress MU plugin that auto-installs from GitHub releases.",

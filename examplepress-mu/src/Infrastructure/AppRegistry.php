@@ -950,14 +950,22 @@ final class AppRegistry
                     'timeout' => 15,
                 ]);
 
-                $code = wp_remote_retrieve_response_code($response);
-
-                if ($code === 204 || $code === 404) {
-                    $deleted[] = 'github';
-                } else {
+                if (is_wp_error($response)) {
                     $failed[] = 'github';
-                    $body = json_decode(wp_remote_retrieve_body($response), true);
-                    $warnings[] = 'GitHub delete: ' . ($body['message'] ?? "HTTP {$code}");
+                    $warnings[] = 'GitHub delete: ' . $response->get_error_message();
+                } else {
+                    $code = wp_remote_retrieve_response_code($response);
+
+                    if ($code === 204 || $code === 404) {
+                        $deleted[] = 'github';
+                    } else {
+                        $failed[] = 'github';
+                        $body = json_decode((string) wp_remote_retrieve_body($response), true);
+                        $message = (is_array($body) && isset($body['message']) && is_string($body['message']))
+                            ? $body['message']
+                            : "HTTP {$code}";
+                        $warnings[] = 'GitHub delete: ' . $message;
+                    }
                 }
             } else {
                 $failed[] = 'github';
@@ -986,14 +994,22 @@ final class AppRegistry
                     ]
                 );
 
-                $code = wp_remote_retrieve_response_code($response);
-
-                if ($code >= 200 && $code < 300 || $code === 404) {
-                    $deleted[] = 'troy';
-                } else {
+                if (is_wp_error($response)) {
                     $failed[] = 'troy';
-                    $body = json_decode(wp_remote_retrieve_body($response), true);
-                    $warnings[] = 'Troy unregister: ' . ($body['message'] ?? "HTTP {$code}");
+                    $warnings[] = 'Troy unregister: ' . $response->get_error_message();
+                } else {
+                    $code = wp_remote_retrieve_response_code($response);
+
+                    if (($code >= 200 && $code < 300) || $code === 404) {
+                        $deleted[] = 'troy';
+                    } else {
+                        $failed[] = 'troy';
+                        $body = json_decode((string) wp_remote_retrieve_body($response), true);
+                        $message = (is_array($body) && isset($body['message']) && is_string($body['message']))
+                            ? $body['message']
+                            : "HTTP {$code}";
+                        $warnings[] = 'Troy unregister: ' . $message;
+                    }
                 }
             } else {
                 $failed[] = 'troy';
