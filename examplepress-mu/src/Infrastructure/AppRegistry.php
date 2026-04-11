@@ -1020,6 +1020,12 @@ final class AppRegistry
         // 4. Remove from registry.
         self::forget($slug);
 
+        // 5. Invalidate the AppDiscovery cache so the next admin read
+        //    doesn't serve a ghost entry for the just-destroyed plugin.
+        //    The mtime fingerprint would eventually catch this, but an
+        //    explicit flush guarantees the next REST hit is fresh.
+        AppDiscovery::flushCache();
+
         return [
             'deleted'  => $deleted,
             'failed'   => $failed,

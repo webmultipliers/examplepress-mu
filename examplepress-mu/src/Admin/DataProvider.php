@@ -578,9 +578,10 @@ final class DataProvider
      */
     private static function getRouteTopology(): array
     {
-        $originMap = RouteRegistry::map();
-        $conflicts = RouteRegistry::detectConflicts();
-        $apps      = AppDiscovery::scan();
+        $originMap             = RouteRegistry::map();
+        $conflicts             = RouteRegistry::detectConflicts();
+        $registrationConflicts = RouteRegistry::registrationConflicts();
+        $apps                  = AppDiscovery::scan();
 
         $appsBySlug = [];
         foreach ($apps as $app) {
@@ -623,10 +624,11 @@ final class DataProvider
         $resolved   = \ExamplePress\MU\Infrastructure\Router::resolveRoute();
 
         return [
-            'origins'   => $origins,
-            'conflicts' => $conflicts,
-            'mode'      => $hasOrigins ? 'registry' : 'implicit',
-            'resolved'  => $resolved,
+            'origins'                => $origins,
+            'conflicts'              => $conflicts,
+            'registration_conflicts' => $registrationConflicts,
+            'mode'                   => $hasOrigins ? 'registry' : 'implicit',
+            'resolved'               => $resolved,
         ];
     }
 

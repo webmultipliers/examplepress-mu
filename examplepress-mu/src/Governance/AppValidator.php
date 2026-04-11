@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace ExamplePress\MU\Governance;
 
+use ExamplePress\MU\Infrastructure\Router;
+
 /**
  * Zero-trust plugin validation.
  *
@@ -226,6 +228,34 @@ final class AppValidator
             return false;
         }
 
+        // Rule 2b: Kernel API contract. An app that targets a newer kernel
+        // API than the current kernel supports is deactivated at validation
+        // time — matches the symmetric ThemeUpdateProvider gate. Accepts the
+        // value at either the top level or under updater.requires_kernel_api
+        // so release-workflow authors can put it wherever is natural.
+        $requiredApi = null;
+        if (isset($manifest['requires_kernel_api']) && is_numeric($manifest['requires_kernel_api'])) {
+            $requiredApi = (int) $manifest['requires_kernel_api'];
+        } elseif (isset($manifest['updater']['requires_kernel_api']) && is_numeric($manifest['updater']['requires_kernel_api'])) {
+            $requiredApi = (int) $manifest['updater']['requires_kernel_api'];
+        }
+        if ($requiredApi !== null) {
+            $currentApi = (class_exists(Router::class) && defined(Router::class . '::API_VERSION'))
+                ? (int) Router::API_VERSION
+                : 0;
+            if ($requiredApi > $currentApi) {
+                self::reject(
+                    $pluginBasename,
+                    sprintf(
+                        'App requires kernel API version %d; current kernel API is %d. Update ExamplePress MU.',
+                        $requiredApi,
+                        $currentApi
+                    )
+                );
+                return false;
+            }
+        }
+
         // Advisory: warn if the manifest is missing the `repository` field.
         // This is a non-blocking warning — the app still activates.
         if (empty($manifest['repository'])) {
@@ -292,11 +322,15 @@ final class AppValidator
     /**
      * Flush the per-request and persistent validation caches. Call after admin
      * "refresh" actions where the underlying manifest may have changed.
+     *
+     * Also clears AppDiscovery's cache — the two live in lock-step: if a
+     * manifest change invalidates validation, it also invalidates discovery.
      */
     public static function flushCache(): void
     {
         self::$cache = [];
         self::invalidatePersistentCache();
+        \ExamplePress\MU\Infrastructure\AppDiscovery::flushCache();
     }
 
     /**

@@ -53,6 +53,9 @@ final class ThemeUpdateProvider
      */
     private static bool $bypassInject = false;
 
+    /** Option key for persisting the reason a kernel-API gate blocked a theme install. */
+    private const KERNEL_API_BLOCK_OPTION = 'ep_theme_kernel_api_block';
+
     public static function init(): void
     {
         // Core update pipeline.
@@ -69,6 +72,69 @@ final class ThemeUpdateProvider
         // Cache invalidation.
         add_action('switch_theme', [self::class, 'flushCache']);
         add_action('upgrader_process_complete', [self::class, 'flushAfterUpgrade'], 10, 2);
+
+        // Admin notice + dismiss handler for the kernel-API block reason.
+        if (is_admin()) {
+            add_action('admin_notices', [self::class, 'maybeRenderKernelApiBlockNotice']);
+            add_action('admin_init', [self::class, 'maybeHandleKernelApiBlockDismiss']);
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    //  Kernel-API block admin notice
+    // ─────────────────────────────────────────────────────────────────
+
+    /**
+     * Render the "theme install was blocked because it requires a newer
+     * kernel API" notice when the gate fired. Persisted via option so the
+     * notice survives the redirect back from the upgrader screen.
+     */
+    public static function maybeRenderKernelApiBlockNotice(): void
+    {
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+        $block = get_option(self::KERNEL_API_BLOCK_OPTION, null);
+        if (!is_array($block) || empty($block['staged']) || !isset($block['current'])) {
+            return;
+        }
+
+        $dismissUrl = wp_nonce_url(
+            add_query_arg(['ep_mu_dismiss_theme_api_block' => '1'], admin_url()),
+            'ep_mu_dismiss_theme_api_block'
+        );
+
+        printf(
+            '<div class="notice notice-error"><p><strong>ExamplePress:</strong> %s</p><p><a href="%s">%s</a></p></div>',
+            esc_html(sprintf(
+                'A theme release requires kernel API version %d; current kernel API is %d. Update ExamplePress MU before installing this theme release.',
+                (int) $block['staged'],
+                (int) $block['current']
+            )),
+            esc_url($dismissUrl),
+            esc_html__('Dismiss', 'examplepress-mu')
+        );
+    }
+
+    /**
+     * Handle the dismiss link from the kernel-API block notice. Verifies
+     * the nonce, clears the option, and redirects back.
+     */
+    public static function maybeHandleKernelApiBlockDismiss(): void
+    {
+        if (empty($_GET['ep_mu_dismiss_theme_api_block'])) {
+            return;
+        }
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+        $nonce = isset($_GET['_wpnonce']) ? sanitize_text_field(wp_unslash($_GET['_wpnonce'])) : '';
+        if (!wp_verify_nonce($nonce, 'ep_mu_dismiss_theme_api_block')) {
+            return;
+        }
+        delete_option(self::KERNEL_API_BLOCK_OPTION);
+        wp_safe_redirect(admin_url());
+        exit;
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -190,7 +256,7 @@ final class ThemeUpdateProvider
 
         // Persist the reason so the admin UI can show it after the redirect.
         update_option(
-            'ep_theme_kernel_api_block',
+            self::KERNEL_API_BLOCK_OPTION,
             [
                 'time'    => time(),
                 'staged'  => $staged,
@@ -349,7 +415,7 @@ final class ThemeUpdateProvider
             }
         }
 
-        $kernelApiBlock = get_option('ep_theme_kernel_api_block', null);
+        $kernelApiBlock = get_option(self::KERNEL_API_BLOCK_OPTION, null);
 
         return [
             'current_version'   => $localVersion,
@@ -1028,14 +1094,59 @@ final class ThemeUpdateProvider
         return self::validateManifest($data) ? $data : null;
     }
 
+    /**
+     * Structural gate for a release manifest (updates.json). Rejects
+     * anything that would crash or silently misbehave downstream:
+     *   - must be an array
+     *   - must have a non-empty string version
+     *   - version must look like a semver prefix (x.y or x.y.z)
+     *   - must have EITHER a string download_url OR a non-empty
+     *     packages array where at least one entry has a string package URL
+     *   - requires_kernel_api, if present, must be numeric (the downstream
+     *     kernel-API gate casts to int)
+     *
+     * Stricter than the previous "has version + some package" check so a
+     * garbled updates.json is rejected at fetch time rather than halfway
+     * through an upgrade.
+     */
     private static function validateManifest(mixed $data): bool
     {
-        if (!is_array($data) || empty($data['version'])) {
+        if (!is_array($data)) {
             return false;
         }
-        $hasDownload = !empty($data['download_url']);
-        $hasPackages = !empty($data['packages']) && is_array($data['packages']);
-        return $hasDownload || $hasPackages;
+        $version = $data['version'] ?? null;
+        if (!is_string($version) || $version === '') {
+            return false;
+        }
+        // A well-formed version string is the x.y or x.y.z prefix we emit
+        // in the release workflow. Reject obvious garbage ("latest",
+        // "v-foo", raw commit shas, etc.) so version_compare can't trip.
+        if (!preg_match('/^\d+\.\d+(?:\.\d+)?/', $version)) {
+            return false;
+        }
+
+        // requires_kernel_api is optional but MUST be numeric when present.
+        if (array_key_exists('requires_kernel_api', $data) && !is_numeric($data['requires_kernel_api'])) {
+            return false;
+        }
+        if (isset($data['updater']) && is_array($data['updater'])
+            && array_key_exists('requires_kernel_api', $data['updater'])
+            && !is_numeric($data['updater']['requires_kernel_api'])) {
+            return false;
+        }
+
+        // Must have a usable package source.
+        if (isset($data['download_url']) && is_string($data['download_url']) && $data['download_url'] !== '') {
+            return true;
+        }
+        if (isset($data['packages']) && is_array($data['packages']) && !empty($data['packages'])) {
+            foreach ($data['packages'] as $pkg) {
+                if (is_array($pkg) && isset($pkg['package']) && is_string($pkg['package']) && $pkg['package'] !== '') {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private static function remoteGet(string $url, array $args = []): ?string

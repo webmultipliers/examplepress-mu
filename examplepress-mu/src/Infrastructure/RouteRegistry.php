@@ -292,30 +292,76 @@ final class RouteRegistry
     /**
      * Assert that the theme directory has not been modified.
      *
-     * @return string[] List of unexpected files.
+     * Dot-prefixed entries (.git, .github, .gitignore, .distignore, .vscode,
+     * etc.) are silently skipped — they're always dev/VCS metadata, never
+     * load-bearing theme code, and flagging them produces noisy
+     * false-positives in developer environments.
+     *
+     * The default whitelist covers a stock ExamplePress theme plus common
+     * build-tooling files (package.json, vite.config.js, node_modules, etc).
+     * Operators can extend via filters:
+     *   - examplepress_mu_theme_immutability_dirs  (default dir whitelist)
+     *   - examplepress_mu_theme_immutability_files (default file whitelist)
+     *
+     * @return string[] List of unexpected files or directories.
      */
     public static function checkThemeImmutability(): array
     {
-        $knownDirs = ['blockstudio', 'demo', 'docs', 'inc', 'languages', 'templates', 'vendor'];
-        $knownRootFiles = [
-            'blockstudio.json', 'composer.json', 'composer.lock', 'examplepress.json',
-            'functions.php', 'README.md', 'readme.txt', 'screenshot.png', 'style.css', 'theme.json',
+        $defaultDirs = [
+            'blockstudio', 'demo', 'docs', 'inc', 'languages', 'node_modules',
+            'templates', 'vendor',
+        ];
+        $defaultFiles = [
+            'AGENTS.md',
+            'blockstudio.json',
+            'composer.json', 'composer.lock',
+            'examplepress.json',
+            'functions.php',
+            'package.json', 'package-lock.json', 'pnpm-lock.yaml', 'yarn.lock',
+            'postcss.config.js', 'tailwind.config.js', 'vite.config.js',
+            'tsconfig.json',
+            'README.md', 'readme.txt',
+            'screenshot.png',
+            'style.css',
+            'theme.json',
         ];
 
-        $themePath = defined('EP_THEME_PATH') ? EP_THEME_PATH : get_template_directory();
+        /**
+         * Filter the whitelist of allowed theme-root directories.
+         *
+         * @param string[] $dirs Default directory whitelist.
+         */
+        $knownDirs = (array) apply_filters(
+            'examplepress_mu_theme_immutability_dirs',
+            $defaultDirs
+        );
+
+        /**
+         * Filter the whitelist of allowed theme-root files.
+         *
+         * @param string[] $files Default file whitelist.
+         */
+        $knownRootFiles = (array) apply_filters(
+            'examplepress_mu_theme_immutability_files',
+            $defaultFiles
+        );
+
+        $themePath  = defined('EP_THEME_PATH') ? EP_THEME_PATH : get_template_directory();
         $unexpected = [];
-        $entries = @scandir($themePath);
+        $entries    = @scandir($themePath);
 
         if (!$entries) {
             return $unexpected;
         }
 
         foreach ($entries as $entry) {
-            if ($entry === '.' || $entry === '..') {
+            // Skip '.', '..', and every other dot-prefixed entry —
+            // they're always VCS or dev metadata.
+            if ($entry === '' || $entry[0] === '.') {
                 continue;
             }
 
-            $isDir = is_dir($themePath . '/' . $entry);
+            $isDir   = is_dir($themePath . '/' . $entry);
             $isKnown = $isDir
                 ? in_array($entry, $knownDirs, true)
                 : in_array($entry, $knownRootFiles, true);

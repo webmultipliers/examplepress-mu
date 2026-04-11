@@ -666,6 +666,11 @@ final class AppsController
             'source'      => 'scaffolded',
         ]);
 
+        // Flush the AppDiscovery cache so the next scan picks up the
+        // newly-scaffolded plugin directory without waiting for the
+        // mtime-fingerprint to age out.
+        AppDiscovery::flushCache();
+
         $app = AppDiscovery::parseApp($slug, $plugin_dir . '/examplepress.json', $plugin_dir);
 
         return rest_ensure_response([
