@@ -134,7 +134,25 @@ final class FeatureRegistry
         $features = self::all();
 
         foreach ($features as $id => $feature) {
-            if (is_callable($feature['setup'])) {
+            // Guard: self::all() applies the examplepress_mu_features
+            // filter, which lets operators inject their own entries. An
+            // operator who returns a non-array entry (bool false to
+            // unregister, a string by mistake, a partially-built array
+            // missing keys) would otherwise trip the offset accesses
+            // below and fatal a feature boot. Skip the entry with a
+            // debug log so the operator notices the misconfiguration.
+            if (!is_string($id) || !is_array($feature)) {
+                if (defined('WP_DEBUG') && WP_DEBUG) {
+                    error_log(sprintf(
+                        '[ExamplePress FeatureRegistry] Skipped feature "%s": entry is %s (expected array).',
+                        is_string($id) ? $id : gettype($id),
+                        gettype($feature)
+                    ));
+                }
+                continue;
+            }
+
+            if (isset($feature['setup']) && is_callable($feature['setup'])) {
                 call_user_func($feature['setup'], $id, $feature);
                 continue;
             }
@@ -143,11 +161,16 @@ final class FeatureRegistry
                 continue;
             }
 
-            if ($feature['hook'] && $feature['callback']) {
-                if ('action' === $feature['type']) {
-                    add_action($feature['hook'], $feature['callback'], $feature['priority']);
+            $hook     = $feature['hook'] ?? '';
+            $callback = $feature['callback'] ?? '';
+            $type     = $feature['type'] ?? 'filter';
+            $priority = (int) ($feature['priority'] ?? 10);
+
+            if ($hook && $callback) {
+                if ('action' === $type) {
+                    add_action($hook, $callback, $priority);
                 } else {
-                    add_filter($feature['hook'], $feature['callback'], $feature['priority']);
+                    add_filter($hook, $callback, $priority);
                 }
             }
         }

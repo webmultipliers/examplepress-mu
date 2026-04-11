@@ -332,8 +332,11 @@ final class DataProvider
         $skills = [];
 
         foreach ($files as $relPath => $absPath) {
-            $raw = is_readable($absPath) ? (string) file_get_contents($absPath) : '';
-            if ($raw === '') {
+            if (!is_readable($absPath)) {
+                continue;
+            }
+            $raw = @file_get_contents($absPath);
+            if (!is_string($raw) || $raw === '') {
                 continue;
             }
             $body = \ExamplePress\MU\Agent\MergeTags::apply($raw);
@@ -558,19 +561,24 @@ final class DataProvider
         if ($troyUrl) {
             $checks[] = [
                 'name'   => 'Troy Server URL',
-                'detail' => preg_replace('#^https?://#', '', rtrim($troyUrl, '/')),
+                'detail' => (string) preg_replace('#^https?://#', '', rtrim($troyUrl, '/')),
                 'req'    => 'Configured',
                 'status' => 'pass',
             ];
 
-            $troyAuth = get_option('ep_troy_credentials', '');
+            // Cast explicitly — legacy deployments or a plugin conflict
+            // could leave non-string data in this option, which would
+            // make the "Stored"/"Not authorized" label render oddly
+            // (e.g. "Array") instead of the intended pass/warn flag.
+            $troyAuth    = (string) get_option('ep_troy_credentials', '');
+            $hasTroyAuth = $troyAuth !== '';
 
             $checks[] = [
                 'name'   => 'Troy Credentials',
-                'detail' => $troyAuth ? 'Stored' : 'Not authorized',
+                'detail' => $hasTroyAuth ? 'Stored' : 'Not authorized',
                 'req'    => 'Authorized',
-                'status' => $troyAuth ? 'pass' : 'warn',
-                'note'   => !$troyAuth ? 'Click "Authorize with Troy" in the Connections tab' : '',
+                'status' => $hasTroyAuth ? 'pass' : 'warn',
+                'note'   => !$hasTroyAuth ? 'Click "Authorize with Troy" in the Connections tab' : '',
             ];
         }
 
@@ -1145,10 +1153,16 @@ final class DataProvider
         }
 
         $callbacks = $wp_filter[$tag]->callbacks ?? [];
+        if (!is_array($callbacks)) {
+            return '';
+        }
 
         foreach ($callbacks as $hooks) {
+            if (!is_array($hooks)) {
+                continue;
+            }
             foreach ($hooks as $hook) {
-                $fn = $hook['function'] ?? null;
+                $fn = is_array($hook) ? ($hook['function'] ?? null) : null;
 
                 if (is_string($fn)) {
                     return $fn . '()';
@@ -1156,12 +1170,26 @@ final class DataProvider
 
                 if (is_array($fn) && count($fn) === 2) {
                     $class = is_object($fn[0]) ? get_class($fn[0]) : (string) $fn[0];
-                    return $class . '::' . $fn[1] . '()';
+                    $method = is_string($fn[1]) ? $fn[1] : '?';
+                    return $class . '::' . $method . '()';
                 }
 
                 if ($fn instanceof \Closure) {
-                    $ref = new \ReflectionFunction($fn);
-                    return basename((string) $ref->getFileName()) . ':' . $ref->getStartLine();
+                    // ReflectionFunction can throw on exotic closures
+                    // (e.g. a closure bound to a scope that has since
+                    // been torn down). Failing this diagnostic method
+                    // should never break a page render, so catch and
+                    // fall back to the generic "closure" label.
+                    try {
+                        $ref  = new \ReflectionFunction($fn);
+                        $file = $ref->getFileName();
+                        if (is_string($file) && $file !== '') {
+                            return basename($file) . ':' . $ref->getStartLine();
+                        }
+                        return 'closure';
+                    } catch (\Throwable $e) {
+                        return 'closure';
+                    }
                 }
             }
         }

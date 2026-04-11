@@ -110,6 +110,12 @@ final class PageController
 
     /**
      * Render the shared page header: dev banner, logo, version badge.
+     *
+     * The $extraHtml slot is run through wp_kses with a tight allowlist
+     * before echoing so a future caller that forgets to sanitize can't
+     * open an XSS hole by passing raw strings built from user input.
+     * Callers that need a tag outside the allowlist should harden their
+     * own output and add it to the allowlist here rather than bypass it.
      */
     public static function renderHeader(bool $isDev, string $extraHtml = ''): void
     {
@@ -122,8 +128,21 @@ final class PageController
                 <div class="ep-page__logo"><span>&lt;</span>ExamplePress<span>/&gt;</span></div>
                 <div class="ep-page__header-actions">
                     <?php
-                    // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
-                    echo $extraHtml;
+                    if ($extraHtml !== '') {
+                        echo wp_kses(
+                            $extraHtml,
+                            [
+                                'a'      => ['href' => true, 'class' => true, 'title' => true, 'target' => true, 'rel' => true],
+                                'button' => ['type' => true, 'class' => true, 'id' => true, 'title' => true, 'disabled' => true],
+                                'span'   => ['class' => true, 'id' => true, 'title' => true],
+                                'div'    => ['class' => true, 'id' => true],
+                                'strong' => [],
+                                'em'     => [],
+                                'code'   => [],
+                                'br'     => [],
+                            ]
+                        );
+                    }
                     ?>
                     <div class="ep-page__version">v<?php echo esc_html(EXAMPLEPRESS_MU_VERSION); ?></div>
                 </div>

@@ -156,6 +156,16 @@ final class AppRegistry
 
     /**
      * Write record data to post meta.
+     *
+     * Every meta key this method writes is contractually scalar (all
+     * strings in toRecord()'s read shape). update_post_meta will
+     * happily serialize an array if a caller passes one, which is
+     * technically valid WordPress behavior but surprising for the
+     * reader: toRecord() would hand back a string, but callers that
+     * bypass writeMeta and read raw meta would see the serialized
+     * form. Coerce every value through writeScalarMeta() which
+     * strips non-scalars with a WP_DEBUG log so the misbehaving
+     * caller notices.
      */
     public static function writeMeta(int $postId, array $data): void
     {
@@ -166,8 +176,8 @@ final class AppRegistry
         ];
 
         foreach ($flatMap as $key => $metaKey) {
-            if (isset($data[$key])) {
-                update_post_meta($postId, $metaKey, $data[$key]);
+            if (array_key_exists($key, $data)) {
+                self::writeScalarMeta($postId, $metaKey, $data[$key]);
             }
         }
 
@@ -178,8 +188,8 @@ final class AppRegistry
                 'html_url'   => '_ep_github_html_url',
             ];
             foreach ($githubMap as $key => $metaKey) {
-                if (isset($data['github'][$key])) {
-                    update_post_meta($postId, $metaKey, $data['github'][$key]);
+                if (array_key_exists($key, $data['github'])) {
+                    self::writeScalarMeta($postId, $metaKey, $data['github'][$key]);
                 }
             }
         }
@@ -191,11 +201,37 @@ final class AppRegistry
                 'repo_id'    => '_ep_troy_repo_id',
             ];
             foreach ($troyMap as $key => $metaKey) {
-                if (isset($data['troy'][$key])) {
-                    update_post_meta($postId, $metaKey, $data['troy'][$key]);
+                if (array_key_exists($key, $data['troy'])) {
+                    self::writeScalarMeta($postId, $metaKey, $data['troy'][$key]);
                 }
             }
         }
+    }
+
+    /**
+     * Coerce + write a scalar-only meta value. Arrays, objects, and
+     * resources are rejected with an error_log under WP_DEBUG (they
+     * signal a bug in the caller) and null/empty strings delete the
+     * meta entry so the read path doesn't see stale values.
+     */
+    private static function writeScalarMeta(int $postId, string $metaKey, mixed $value): void
+    {
+        if ($value === null) {
+            delete_post_meta($postId, $metaKey);
+            return;
+        }
+        if (!is_scalar($value)) {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log(sprintf(
+                    '[ExamplePress AppRegistry] writeMeta rejected non-scalar value for %s on post %d (got %s).',
+                    $metaKey,
+                    $postId,
+                    gettype($value)
+                ));
+            }
+            return;
+        }
+        update_post_meta($postId, $metaKey, (string) $value);
     }
 
     /**
@@ -216,8 +252,20 @@ final class AppRegistry
             'no_found_rows'  => true,
         ]);
 
+        // Normalize the return. get_posts returns WP_Post[] on success
+        // but is typed as array|false|string depending on suppress hooks
+        // (e.g. the 'posts_pre_query' filter can short-circuit and
+        // return anything). Coerce defensively so the foreach always
+        // iterates over WP_Post instances.
+        if (!is_array($posts)) {
+            return [];
+        }
+
         $registry = [];
         foreach ($posts as $post) {
+            if (!$post instanceof \WP_Post) {
+                continue;
+            }
             $record = self::toRecord($post);
             $registry[$record['slug']] = $record;
         }
@@ -247,7 +295,15 @@ final class AppRegistry
                 wp_update_post($updateArgs);
             }
             self::writeMeta($post->ID, $data);
-            return self::toRecord(get_post($post->ID));
+
+            $refreshed = get_post($post->ID);
+            if ($refreshed instanceof \WP_Post) {
+                return self::toRecord($refreshed);
+            }
+            // Post was deleted out from under us between the lookup and
+            // the re-fetch. Fall back to a best-effort synthesised
+            // record so callers don't get a TypeError from toRecord.
+            return array_merge(['slug' => $slug], $data);
         }
 
         $postId = wp_insert_post([
@@ -261,14 +317,24 @@ final class AppRegistry
             'post_status' => 'publish',
         ]);
 
-        if (is_wp_error($postId)) {
+        // wp_insert_post returns int|WP_Error: 0 on silent failure,
+        // a WP_Error instance when given wp_error=true (we don't), or
+        // the new post ID on success. The previous code only handled
+        // WP_Error and would then call update_post_meta(0, …) and
+        // toRecord(get_post(0)) — the latter violates the WP_Post
+        // type-hint on toRecord since get_post(0) returns null.
+        if (is_wp_error($postId) || !is_int($postId) || $postId <= 0) {
             return array_merge(['slug' => $slug], $data);
         }
 
         update_post_meta($postId, '_ep_plugin_slug', $slug);
         self::writeMeta($postId, $data);
 
-        return self::toRecord(get_post($postId));
+        $fresh = get_post($postId);
+        if ($fresh instanceof \WP_Post) {
+            return self::toRecord($fresh);
+        }
+        return array_merge(['slug' => $slug], $data);
     }
 
     // ── Draft-stash API ─────────────────────────────────────────────
@@ -609,6 +675,40 @@ final class AppRegistry
      * @param array<string,mixed> $githubData { owner_repo, repo_id, html_url }
      * @param array<string,mixed> $jobMeta
      */
+    /**
+     * Atomic "we just pushed version X" record. Updates the stored
+     * version meta AND appends a `pushed` history entry inside the
+     * per-post lock, then clears the pending payload. Replaces the
+     * inline read-modify-write cycle that used to live in
+     * GenerationJob::commitIterate — that bypassed the lock and was
+     * racey with any other writer touching the same post's history.
+     *
+     * @param array<string,mixed> $jobMeta
+     */
+    public static function recordPush(string $slug, string $newVersion, array $jobMeta = []): bool
+    {
+        $post = self::getPost($slug);
+        if (!$post) {
+            return false;
+        }
+        return self::withPostMetaLock((int) $post->ID, static function () use ($post, $slug, $newVersion, $jobMeta): bool {
+            update_post_meta($post->ID, '_ep_version', $newVersion);
+
+            $history = self::getDraftHistory($slug);
+            $entry = self::buildHistoryEntry($jobMeta, 'pushed');
+            $entry['version'] = $newVersion;
+            $history[] = $entry;
+            update_post_meta($post->ID, self::META_DRAFT_HISTORY, wp_json_encode($history));
+
+            // clearDraftPayload is itself lock-aware (takes its own lock
+            // via the re-entrant static flag), so calling it from inside
+            // the held lock is safe and keeps the state transition
+            // atomic with the version + history write.
+            self::clearDraftPayload($slug);
+            return true;
+        });
+    }
+
     public static function promoteToPublished(string $slug, array $githubData, array $jobMeta = []): bool
     {
         $post = self::getPost($slug);
@@ -877,8 +977,14 @@ final class AppRegistry
         if (!$post) {
             return false;
         }
-        wp_delete_post($post->ID, true);
-        return true;
+        // wp_delete_post returns the post object on success, false on
+        // failure, and null when nothing was deleted. Previously we
+        // returned true unconditionally which hid real failures from
+        // callers (e.g. destroy() would report success even when the
+        // CPT deletion silently failed). Return an honest bool so
+        // downstream recovery paths can react.
+        $result = wp_delete_post($post->ID, true);
+        return $result !== false && $result !== null;
     }
 
     /**
@@ -893,7 +999,14 @@ final class AppRegistry
 
         $localBySlug = [];
         foreach ($localApps as $app) {
-            $localBySlug[$app['slug']] = $app;
+            if (!is_array($app)) {
+                continue;
+            }
+            $appSlug = (string) ($app['slug'] ?? '');
+            if ($appSlug === '') {
+                continue;
+            }
+            $localBySlug[$appSlug] = $app;
         }
 
         $merged = [];
@@ -907,17 +1020,17 @@ final class AppRegistry
         foreach ($localBySlug as $slug => $local) {
             $adopted = [
                 'slug'        => $slug,
-                'name'        => $local['name'],
-                'description' => $local['description'],
-                'version'     => $local['version'] ?? '',
+                'name'        => (string) ($local['name'] ?? $slug),
+                'description' => (string) ($local['description'] ?? ''),
+                'version'     => (string) ($local['version'] ?? ''),
                 'source'      => 'discovered',
             ];
 
             if (!empty($local['troy']['server_url'])) {
                 $adopted['troy'] = [
-                    'server_url' => $local['troy']['server_url'],
-                    'repo'       => $local['troy']['repo'] ?? '',
-                    'repo_id'    => $local['troy']['repo_id'] ?? '',
+                    'server_url' => (string) $local['troy']['server_url'],
+                    'repo'       => (string) ($local['troy']['repo'] ?? ''),
+                    'repo_id'    => (string) ($local['troy']['repo_id'] ?? ''),
                 ];
             }
 
