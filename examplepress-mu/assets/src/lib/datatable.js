@@ -48,7 +48,7 @@ export function renderDatatable(containerId, config) {
 		return html;
 	}
 
-	el.innerHTML = searchHtml + '<div class="ep-datatable-table">' + headerHtml + '<div class="ep-datatable-rows">' + buildRows(data) + '</div></div>';
+	el.innerHTML = searchHtml + '<div class="ep-table ep-datatable-table">' + headerHtml + '<div class="ep-datatable-rows">' + buildRows(data) + '</div></div>';
 
 	const searchInput = el.querySelector('.ep-datatable__search input');
 	const rowsContainer = el.querySelector('.ep-datatable-rows');

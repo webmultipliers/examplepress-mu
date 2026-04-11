@@ -169,43 +169,6 @@
 
 .ep-proposer-tab-close:hover { color: var(--text); }
 
-/* ── Submit-proposal modal inputs ────────────────────────────────── */
-.ep-build-field {
-  margin-bottom: var(--space-3);
-}
-
-.ep-build-label {
-  display: block;
-  margin-bottom: 4px;
-  color: var(--text);
-  font-weight: 600;
-  font-size: 0.8rem;
-}
-
-.ep-build-input {
-  box-sizing: border-box;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--surface);
-  padding: 6px 10px;
-  width: 100%;
-  color: var(--text);
-  font-size: 0.85rem;
-  font-family: var(--sans);
-}
-
-.ep-build-input:focus {
-  outline: none;
-  border-color: var(--border-focus);
-  box-shadow: 0 0 0 1px var(--border-focus);
-}
-
-.ep-build-error {
-  margin-top: var(--space-2);
-  color: var(--red);
-  font-size: 0.8rem;
-}
-
 /* ── Changeset summary (inside submit modal) ─────────────────────── */
 .ep-proposer-changeset {
   margin: var(--space-3) 0;

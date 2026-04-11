@@ -4,7 +4,16 @@
  * Unified from: ep-apps-btn, ep-demo-btn, ep-build-submit, ep-editor-btn-secondary
  */
 
-.ep-page button.ep-btn {
+/*
+ * Base rule scoped to `.ep-btn` rather than `button.ep-btn` so anchors
+ * styled as buttons (e.g. <a class="ep-btn ep-btn--primary">Open →</a>)
+ * pick up the same padding, typography, and border-radius as <button>.
+ */
+.ep-page .ep-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
   transition: background 0.15s, border-color 0.15s, color 0.15s;
   cursor: pointer;
   box-shadow: var(--shadow-sm);
@@ -15,11 +24,17 @@
   font-size: 0.88rem;
   font-family: var(--sans);
   line-height: 1.4;
+  text-decoration: none;
+  white-space: nowrap;
 }
 
-.ep-page button.ep-btn:disabled {
+.ep-page .ep-btn:disabled {
   cursor: not-allowed;
   opacity: 0.5;
+}
+
+.ep-page a.ep-btn:hover {
+  text-decoration: none;
 }
 
 /* Secondary (default) */
@@ -69,6 +84,29 @@
   background: var(--surface-alt);
   color: var(--text);
 }
+
+/* Success (green primary variant for "Push / Commit" actions) */
+.ep-btn--success {
+  border-color: var(--green);
+  background: var(--green);
+  color: #ffffff;
+}
+
+.ep-btn--success:hover:not(:disabled) {
+  background: #004a0e;
+  border-color: #004a0e;
+}
+
+/* Visually disabled modifier (stacks with primary/secondary) — use
+ * this when the button is clickable but gated by missing config. It
+ * matches the visual weight of :disabled without actually disabling
+ * the click surface, so the title tooltip still explains why. */
+.ep-btn--disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.ep-btn--disabled:hover { opacity: 0.55; }
 
 /* Special: purple/troy variant */
 .ep-btn--purple {

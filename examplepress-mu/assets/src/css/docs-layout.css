@@ -127,6 +127,12 @@
   font-family: var(--mono);
 }
 
+.ep-docs-breadcrumb-group {
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
 .ep-docs-breadcrumb-sep {
   color: var(--text-faint);
 }

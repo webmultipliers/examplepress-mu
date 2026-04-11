@@ -69,16 +69,22 @@ $has_repo = !empty($manifest['repository']) || !empty($manifest['troy']['repo'])
 			<button class="ep-modal__close" data-modal="ep-proposer-submit-modal">&times;</button>
 		</div>
 		<div class="ep-modal__body">
-			<div class="ep-build-field">
-				<label class="ep-build-label" for="ep-proposer-pr-title">Title</label>
-				<input type="text" class="ep-build-input" id="ep-proposer-pr-title" placeholder="Brief description of the change" />
-			</div>
-			<div class="ep-build-field">
-				<label class="ep-build-label" for="ep-proposer-pr-body">Description</label>
-				<textarea class="ep-build-input" id="ep-proposer-pr-body" rows="3" placeholder="What does this change do and why?"></textarea>
+			<div class="ep-form">
+				<div class="ep-form__row">
+					<label class="ep-form__label" for="ep-proposer-pr-title">Title</label>
+					<div class="ep-form__control">
+						<input type="text" id="ep-proposer-pr-title" placeholder="Brief description of the change" />
+					</div>
+				</div>
+				<div class="ep-form__row">
+					<label class="ep-form__label" for="ep-proposer-pr-body">Description</label>
+					<div class="ep-form__control">
+						<textarea id="ep-proposer-pr-body" rows="3" placeholder="What does this change do and why?"></textarea>
+					</div>
+				</div>
 			</div>
 			<div id="ep-proposer-changeset-summary" class="ep-proposer-changeset"></div>
-			<div id="ep-proposer-submit-error" class="ep-build-error" style="display:none"></div>
+			<div id="ep-proposer-submit-error" class="ep-form__error" style="display:none"></div>
 		</div>
 		<div class="ep-modal__footer">
 			<button class="ep-btn ep-btn--secondary" data-modal="ep-proposer-submit-modal">Cancel</button>

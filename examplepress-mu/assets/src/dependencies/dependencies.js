@@ -12,7 +12,7 @@ function renderDepTable(containerId, deps) {
 		el.innerHTML = '<p class="ep-notif-empty">No dependencies in this category.</p>';
 		return;
 	}
-	let html = '<div class="ep-table__row ep-table__row--head ep-table--cols-4"><div class="ep-table__th">Dependency</div><div class="ep-table__th">Tier</div><div class="ep-table__th">Status</div><div class="ep-table__th">Source</div></div>';
+	let html = '<div class="ep-table"><div class="ep-table__row ep-table__row--head ep-table--cols-4"><div class="ep-table__th">Dependency</div><div class="ep-table__th">Tier</div><div class="ep-table__th">Status</div><div class="ep-table__th">Source</div></div>';
 	deps.forEach(p => {
 		const statusMap = {
 			active:    { cls: 'ep-badge--success',   lbl: 'Active' },
@@ -50,6 +50,7 @@ function renderDepTable(containerId, deps) {
 			<div>${sourceLink}</div>
 		</div>`;
 	});
+	html += '</div>';
 	el.innerHTML = html;
 
 	// Dependency detail modals.

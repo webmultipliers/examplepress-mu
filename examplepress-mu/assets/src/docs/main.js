@@ -100,9 +100,17 @@ renderer.code = function ({ text, lang }) {
 };
 
 renderer.heading = function ({ text, depth }) {
-	const id = slugify(text);
-	const anchor = `<a class="ep-heading-anchor" href="#${id}" aria-label="Link to this section">#</a>`;
-	return `<h${depth} id="${id}">${text} ${anchor}</h${depth}>`;
+	// Convert markdown inline code (`foo`) to <code>foo</code>. Marked's
+	// default heading renderer hands us the raw text of the heading
+	// tokens — we have to do the narrow inline-code pass ourselves so
+	// headings like `` ## \`examplepress_mu_hook\` `` render as
+	// <code>examplepress_mu_hook</code> instead of displaying literal
+	// backticks.
+	const displayText = text.replace(/`([^`]+)`/g, '<code>$1</code>');
+	const plainText   = text.replace(/`/g, '');
+	const id          = slugify(plainText);
+	const anchor      = `<a class="ep-heading-anchor" href="#${id}" aria-label="Link to this section">#</a>`;
+	return `<h${depth} id="${id}">${displayText} ${anchor}</h${depth}>`;
 };
 
 marked.setOptions({

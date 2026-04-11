@@ -12,7 +12,7 @@ export function renderNavigation(navigation) {
 		if (!navigation.locations || !navigation.locations.length) {
 			tblLocs.innerHTML = '<p class="ep-notif-empty">No navigation locations registered. Register locations in your companion plugin via register_nav_menus().</p>';
 		} else {
-			let html = '<div class="ep-table__row ep-table__row--head ep-table--cols-nav"><div class="ep-table__th">Location</div><div class="ep-table__th">Slug</div><div class="ep-table__th">Status</div></div>';
+			let html = '<div class="ep-table"><div class="ep-table__row ep-table__row--head ep-table--cols-nav"><div class="ep-table__th">Location</div><div class="ep-table__th">Slug</div><div class="ep-table__th">Status</div></div>';
 			navigation.locations.forEach(loc => {
 				const assigned = loc.assigned
 					? `<span class="ep-badge ep-badge--success"><span class="ep-dot"></span>Assigned</span>`
@@ -23,6 +23,7 @@ export function renderNavigation(navigation) {
 					<div>${assigned}</div>
 				</div>`;
 			});
+			html += '</div>';
 			tblLocs.innerHTML = html;
 		}
 	}
@@ -32,7 +33,7 @@ export function renderNavigation(navigation) {
 		if (!navigation.menus || !navigation.menus.length) {
 			tblMenus.innerHTML = '<p class="ep-notif-empty">No menus created yet. Create menus via Appearance &rarr; Menus.</p>';
 		} else {
-			let html = '<div class="ep-table__row ep-table__row--head ep-table--cols-nav"><div class="ep-table__th">Menu</div><div class="ep-table__th">Items</div><div class="ep-table__th">Locations</div></div>';
+			let html = '<div class="ep-table"><div class="ep-table__row ep-table__row--head ep-table--cols-nav"><div class="ep-table__th">Menu</div><div class="ep-table__th">Items</div><div class="ep-table__th">Locations</div></div>';
 			navigation.menus.forEach(menu => {
 				const locTags = menu.locations.length
 					? menu.locations.map(l => `<span class="ep-src">${esc(l)}</span>`).join(' ')
@@ -43,6 +44,7 @@ export function renderNavigation(navigation) {
 					<div>${locTags}</div>
 				</div>`;
 			});
+			html += '</div>';
 			tblMenus.innerHTML = html;
 		}
 	}

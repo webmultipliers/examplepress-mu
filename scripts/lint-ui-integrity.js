@@ -163,12 +163,31 @@ function harvestJs() {
 	const emittedIds     = new Set();
 	const emittedClasses = new Set();
 
+	// Prefix templates for dynamically-composed classes. A prefix like
+	// `ep-updates-badge--` (captured from a template literal like
+	// `ep-updates-badge--${state}`) should mark every CSS class starting
+	// with that prefix as "referenced", since the runtime value can be
+	// anything from the upstream enum.
+	const emittedClassPrefixes = new Set();
+
 	// Import graph: which files imports which (relative and absolute).
 	const imports = new Map(); // file → [resolved file paths]
 
 	for (const f of files) {
 		const rawSrc = readFile(f);
 		const dir    = path.dirname(f);
+
+		// Before flattening interpolations, harvest class prefixes for
+		// dynamic class composition. Pattern examples:
+		//   className = `ep-foo ep-foo--${state}`
+		//   classList.add(`ep-foo--${kind}`)
+		//   `<div class="ep-foo ep-foo--${state}">`
+		// We capture each token that immediately precedes a `${...}`.
+		const prefixRe = /(?:class(?:Name)?\s*=\s*|classList\.(?:add|toggle|remove)\s*\(\s*|class\s*=\s*)?[`'"][^`'"]*?(\bep-[a-zA-Z][\w-]*-*)\$\{/g;
+		let pm;
+		while ((pm = prefixRe.exec(rawSrc))) {
+			if (pm[1]) emittedClassPrefixes.add(pm[1]);
+		}
 
 		// For emitted-markup harvesting we flatten ${...} interpolations
 		// to an empty placeholder so class="foo${bar}" parses as class="foo".
@@ -243,7 +262,7 @@ function harvestJs() {
 		imports.set(f, resolved);
 	}
 
-	return { files, lookupIds, lookupClasses, emittedIds, emittedClasses, imports };
+	return { files, lookupIds, lookupClasses, emittedIds, emittedClasses, emittedClassPrefixes, imports };
 }
 
 /* ── 4. Read Vite entry points ──────────────────────────────────── */
@@ -335,6 +354,14 @@ function main() {
 
 	for (const [cls, declFile] of css.classes) {
 		if (allPhpJsText.includes(cls)) continue;
+		// Allow classes that match a dynamic template-literal prefix
+		// like `ep-updates-badge--${state}` — the runtime composes the
+		// final class from an upstream enum the linter can't see.
+		let matchedByPrefix = false;
+		for (const prefix of js.emittedClassPrefixes) {
+			if (cls.startsWith(prefix)) { matchedByPrefix = true; break; }
+		}
+		if (matchedByPrefix) continue;
 		warnings.push({
 			category: 'dead-css-class',
 			message: `CSS class .${cls} (${relToRoot(declFile)}) is not referenced by any PHP template or JS file.`,

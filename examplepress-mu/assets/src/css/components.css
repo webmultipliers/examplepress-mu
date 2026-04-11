@@ -1,0 +1,908 @@
+/*
+ * ExamplePress Design System — Page components
+ *
+ * Catch-all stylesheet for the page-specific visual components that
+ * live outside the core primitives (button, badge, table, form,
+ * section, modal, etc.). Everything here is namespaced under a
+ * page-specific prefix so rules don't bleed across admin pages.
+ *
+ *   Demo panel (Apps → Demo)
+ *   Theme visualizations (colors, layout, typography, size scale)
+ *   Health stat tiles (System → Health summary)
+ *   Overview cards (System → Routes stats + generic reuse)
+ *   Config file viewer (System → Config)
+ *   JSON syntax highlight classes (j-key, j-str, ...)
+ *   Notifications cards (Notifications page)
+ *   Scaffold step list (Apps → + New App modal)
+ *   Modal content helpers (sections, text, code, split body)
+ *   Meta/tier badges (Dependencies page)
+ *   Updates release list + badge variants (Updates page)
+ *   Apps Troy info / chip / status colors
+ *   Src tags (ep-src)
+ *   Form extras (required mark, label row, inline rows)
+ *   Agent draft preview + chat thread (Apps → Generate)
+ *   Color cards (Theme → Colors)
+ */
+
+/* ── Demo panel (Apps → Demo tab) ────────────────────────────────── */
+
+.ep-demo-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  padding: var(--space-5);
+}
+
+.ep-demo-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.ep-demo-status-label {
+  min-width: 100px;
+  color: var(--text-faint);
+  font-weight: 600;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.ep-demo-message {
+  margin: 0;
+  color: var(--text-light);
+  font-size: 0.85rem;
+  line-height: 1.55;
+}
+
+.ep-demo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+/* ── Theme → Color cards ─────────────────────────────────────────── */
+
+#colors-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--space-3);
+}
+
+.ep-color-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  padding: var(--space-3);
+}
+
+.ep-color-swatch {
+  flex-shrink: 0;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+  border-radius: var(--radius-sm);
+  width: 44px;
+  height: 44px;
+}
+
+.ep-color-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ep-color-name {
+  color: var(--text);
+  font-weight: 600;
+  font-size: 0.88rem;
+}
+
+.ep-color-meta {
+  display: flex;
+  gap: var(--space-2);
+  color: var(--text-faint);
+  font-size: 0.72rem;
+  font-family: var(--mono);
+}
+
+.ep-color-hex,
+.ep-color-slug { color: var(--text-faint); }
+
+/* ── Theme → Layout visualization ────────────────────────────────── */
+
+#layout-visual {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.ep-layout-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  min-height: 48px;
+  color: var(--text-light);
+  font-size: 0.82rem;
+}
+
+.ep-layout-bar.bar-wide    { background: var(--accent-bg); border-color: var(--blue-border); }
+.ep-layout-bar.bar-content { background: var(--purple-bg); border-color: var(--purple-border); }
+
+.ep-layout-lbl {
+  color: var(--text);
+  font-weight: 600;
+  font-size: 0.8rem;
+  font-family: var(--mono);
+}
+
+/* ── Theme → Typography stack ────────────────────────────────────── */
+
+#type-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.ep-type-row {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: var(--space-4);
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  padding: var(--space-3) var(--space-4);
+}
+
+.ep-type-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ep-type-name {
+  color: var(--text);
+  font-weight: 600;
+  font-size: 0.88rem;
+}
+
+.ep-type-slug {
+  color: var(--text-faint);
+  font-size: 0.72rem;
+  font-family: var(--mono);
+}
+
+.ep-type-preview {
+  color: var(--text);
+  font-size: 1.05rem;
+  line-height: 1.5;
+}
+
+/* ── Theme → Size scale ──────────────────────────────────────────── */
+
+#size-scale {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+}
+
+.ep-size-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  padding: var(--space-3) var(--space-4);
+  min-width: 160px;
+}
+
+.ep-size-sample {
+  color: var(--text);
+  font-weight: 600;
+  line-height: 1;
+}
+
+.ep-size-label {
+  color: var(--text-light);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+/* ── System → Health summary stat tiles ──────────────────────────── */
+
+.ep-health-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  padding: var(--space-4) var(--space-5);
+}
+
+.ep-health-num {
+  color: var(--text);
+  font-weight: 600;
+  font-size: 1.6rem;
+  line-height: 1;
+}
+
+.ep-health-num.val-ok { color: var(--green); }
+
+.ep-health-lbl {
+  color: var(--text-faint);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* ── Generic overview-card tile (used by Routes stats) ──────────── */
+
+.ep-overview-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  padding: var(--space-3) var(--space-4);
+}
+
+/* ── System → Config tabs + JSON viewer ──────────────────────────── */
+
+#config-switcher {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
+}
+
+.ep-config-tab {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: 4px 10px;
+  color: var(--text-light);
+  font-size: 0.78rem;
+  font-family: var(--mono);
+  cursor: pointer;
+}
+
+.ep-config-tab:hover {
+  background: var(--surface-alt);
+  color: var(--text);
+}
+
+.ep-config-tab.active {
+  border-color: var(--accent-ui);
+  background: var(--accent-bg);
+  color: var(--accent-text);
+}
+
+.ep-json-block {
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.ep-json-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-alt);
+  padding: var(--space-2) var(--space-4);
+}
+
+.ep-json-filename {
+  color: var(--text);
+  font-weight: 600;
+  font-size: 0.8rem;
+  font-family: var(--mono);
+}
+
+.ep-json-badge {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  padding: 1px 8px;
+  color: var(--text-faint);
+  font-size: 0.65rem;
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.ep-json-body {
+  margin: 0;
+  padding: var(--space-4) var(--space-5);
+  overflow-x: auto;
+  color: var(--text);
+  font-size: 0.8rem;
+  font-family: var(--mono);
+  line-height: 1.55;
+}
+
+/* JSON syntax highlighting (emitted by dom.js highlightJson) */
+.j-key   { color: var(--accent-text); font-weight: 600; }
+.j-str   { color: var(--green); }
+.j-num   { color: var(--purple); }
+.j-bool  { color: var(--amber); font-weight: 600; }
+.j-null  { color: var(--text-faint); font-style: italic; }
+
+/* ── Notifications page cards ────────────────────────────────────── */
+
+.ep-notif-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  padding: var(--space-4);
+}
+
+.ep-notif-card.notif-error { border-left-color: var(--red);   background: var(--red-bg); }
+.ep-notif-card.notif-warn  { border-left-color: var(--amber); background: var(--amber-bg); }
+.ep-notif-card.notif-info  { border-left-color: var(--blue);  background: var(--blue-bg); }
+
+.ep-notif-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.ep-notif-title {
+  color: var(--text);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.ep-notif-action {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: 2px 10px;
+  color: var(--text-light);
+  font-size: 0.72rem;
+  font-family: var(--sans);
+  cursor: pointer;
+}
+
+.ep-notif-action:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-alt);
+}
+
+.ep-notif-msg {
+  margin: 0;
+  color: var(--text-light);
+  font-size: 0.85rem;
+  line-height: 1.55;
+}
+
+.ep-notif-empty {
+  color: var(--text-faint);
+  font-size: 0.85rem;
+  font-style: italic;
+  text-align: center;
+  padding: var(--space-4);
+}
+
+/* ── Scaffold step list (Apps → New App modal) ───────────────────── */
+
+.ep-scaffold-steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.ep-scaffold-step {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  color: var(--text-light);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.ep-scaffold-step-icon {
+  flex-shrink: 0;
+  width: 14px;
+  text-align: center;
+  font-weight: 700;
+}
+
+.ep-scaffold-step-ok   .ep-scaffold-step-icon { color: var(--green); }
+.ep-scaffold-step-fail .ep-scaffold-step-icon { color: var(--red); }
+.ep-scaffold-step-skip .ep-scaffold-step-icon { color: var(--text-faint); }
+
+.ep-scaffold-step-reason {
+  color: var(--text-faint);
+  font-size: 0.75rem;
+}
+
+.ep-scaffold-warnings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-3);
+  border: 1px solid var(--amber-border);
+  border-radius: var(--radius-md);
+  background: var(--amber-bg);
+  padding: var(--space-3);
+  color: var(--amber);
+  font-size: 0.8rem;
+}
+
+.ep-scaffold-warning { line-height: 1.5; }
+
+/* ── Modal content helpers ──────────────────────────────────────── */
+
+.ep-modal__body--centered {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  text-align: center;
+}
+
+.ep-modal__body--flush { padding: 0; }
+
+.ep-modal__body--split {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 0;
+  min-height: 420px;
+}
+
+.ep-modal__heading {
+  margin: 0;
+  color: var(--text);
+  font-size: 1.05rem;
+}
+
+.ep-modal__desc {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: 0.85rem;
+  line-height: 1.55;
+}
+
+.ep-modal__actions {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.ep-modal__footer-note {
+  flex: 1;
+  color: var(--text-faint);
+  font-size: 0.78rem;
+}
+
+.ep-modal__title--danger { color: var(--red); }
+
+/* Modal section patterns (emitted by system/blocks.js, features.js, etc.) */
+.ep-modal-section {
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+
+.ep-modal-section:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+.ep-modal-section-title {
+  color: var(--text-faint);
+  font-weight: 600;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: var(--space-2);
+}
+
+.ep-modal-text {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.85rem;
+  line-height: 1.55;
+}
+
+.ep-modal-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.ep-modal-code {
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-alt);
+  padding: var(--space-3);
+  overflow-x: auto;
+  color: var(--text);
+  font-size: 0.78rem;
+  font-family: var(--mono);
+  line-height: 1.5;
+  white-space: pre;
+}
+
+.ep-modal-filter,
+.ep-modal-opt {
+  display: inline-block;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: 1px 6px;
+  color: var(--accent-text);
+  font-size: 0.78rem;
+  font-family: var(--mono);
+}
+
+/* ── Dependencies: meta badges and tier pills ────────────────────── */
+
+.ep-meta-badge {
+  display: inline-block;
+  margin-left: var(--space-1);
+  border-radius: 999px;
+  padding: 1px 7px;
+  font-size: 0.65rem;
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.ep-meta-badge.meta-paid    { background: var(--amber-bg);  color: var(--amber);  border: 1px solid var(--amber-border); }
+.ep-meta-badge.meta-cloud   { background: var(--blue-bg);   color: var(--blue);   border: 1px solid var(--blue-border); }
+.ep-meta-badge.meta-private { background: var(--purple-bg); color: var(--purple); border: 1px solid var(--purple-border); }
+.ep-meta-badge.meta-check   { background: var(--surface-alt); color: var(--text-faint); border: 1px solid var(--border); }
+
+.ep-tier {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 0.7rem;
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.ep-tier.tier-req { background: var(--red-bg);    color: var(--red);     border: 1px solid var(--red-border); }
+.ep-tier.tier-rec { background: var(--blue-bg);   color: var(--blue);    border: 1px solid var(--blue-border); }
+.ep-tier.tier-opt { background: var(--surface-alt); color: var(--text-faint); border: 1px solid var(--border); }
+
+/* ── Updates: release list + badge variants ──────────────────────── */
+
+#ep-theme-update-releases {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.ep-updates-release {
+  border-bottom: 1px solid var(--border);
+}
+
+.ep-updates-release:last-child { border-bottom: none; }
+
+.ep-updates-release-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  cursor: pointer;
+}
+
+.ep-updates-release-header:hover { background: var(--surface-alt); }
+
+.ep-updates-release-name {
+  color: var(--text);
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.ep-updates-release-version {
+  color: var(--text-faint);
+  font-size: 0.75rem;
+  font-family: var(--mono);
+}
+
+.ep-updates-release-date {
+  color: var(--text-faint);
+  font-size: 0.75rem;
+}
+
+.ep-updates-release-toggle {
+  border: none;
+  background: none;
+  padding: 2px 6px;
+  color: var(--text-faint);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.ep-updates-release-body {
+  padding: var(--space-3) var(--space-5) var(--space-4);
+  color: var(--text-light);
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
+.ep-updates-release-body pre,
+.ep-updates-release-body code {
+  background: var(--surface-alt);
+  border-radius: var(--radius-sm);
+  padding: 1px 5px;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+}
+
+.ep-updates-empty {
+  padding: var(--space-4) var(--space-5);
+  color: var(--text-faint);
+  font-size: 0.85rem;
+  font-style: italic;
+  text-align: center;
+}
+
+/* Release list item expand state — toggled by theme-update.js. */
+.ep-updates-release.ep-open .ep-updates-release-body { display: block; }
+.ep-updates-release:not(.ep-open) .ep-updates-release-body { display: none; }
+
+/*
+ * Ephemeral state/status badge emitted by updates/ui.js setBadge().
+ * The runtime state enum is: current | update | error | prerelease | info
+ * (see the JSDoc on setBadge). theme-update.js also emits
+ * ep-updates-badge--prerelease as a literal.
+ */
+.ep-updates-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-alt);
+  padding: 2px 10px;
+  color: var(--text-light);
+  font-size: 0.72rem;
+  font-weight: 500;
+}
+
+.ep-updates-badge--current    { background: var(--green-bg);  border-color: var(--green-border);  color: var(--green); }
+.ep-updates-badge--update     { background: var(--amber-bg);  border-color: var(--amber-border);  color: var(--amber); }
+.ep-updates-badge--error      { background: var(--red-bg);    border-color: var(--red-border);    color: var(--red); }
+.ep-updates-badge--info       { background: var(--blue-bg);   border-color: var(--blue-border);   color: var(--blue); }
+.ep-updates-badge--prerelease { background: var(--purple-bg); border-color: var(--purple-border); color: var(--purple); }
+
+/* Toast notice area (top of updates page) */
+.ep-updates-toast {
+  margin-bottom: var(--space-3);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent-ui);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  padding: var(--space-3) var(--space-4);
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+/* ── Apps → Troy connect info panel ──────────────────────────────── */
+
+.ep-apps-troy-info {
+  margin-bottom: var(--space-3);
+  border: 1px solid var(--purple-border);
+  border-radius: var(--radius-md);
+  background: var(--purple-bg);
+  padding: var(--space-3) var(--space-4);
+}
+
+.ep-apps-troy-info-label {
+  color: var(--purple);
+  font-weight: 600;
+  font-size: 0.82rem;
+}
+
+.ep-apps-troy-info-sub {
+  color: var(--text-light);
+  font-size: 0.75rem;
+}
+
+/* ── Source tag (ep-src) — used in nav/deps/blocks tables ───────── */
+
+.ep-src {
+  display: inline-block;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-alt);
+  padding: 0 6px;
+  color: var(--text-faint);
+  font-size: 0.7rem;
+  font-family: var(--mono);
+  text-transform: lowercase;
+}
+
+.ep-src.src-json { color: var(--accent-text); }
+.ep-src.src-php  { color: var(--purple); }
+
+/* ── Form extras (used by apps.php agent modals) ─────────────────── */
+
+.ep-form__required {
+  color: var(--red);
+  font-weight: 600;
+  margin-left: 2px;
+}
+
+.ep-form__label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: 4px;
+}
+
+.ep-form__row--inline {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+
+/* ── Simple utility classes used by generated markup ────────────── */
+
+.ep-link {
+  color: var(--accent-text);
+  text-decoration: none;
+}
+
+.ep-link:hover { text-decoration: underline; }
+
+.ep-list {
+  margin: 0 0 var(--space-3);
+  padding-left: var(--space-5);
+  color: var(--text-light);
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+
+/* ── Agent draft / chat / job list panels (Apps → Generate modal) ── */
+
+.ep-agent-draft-preview {
+  margin-top: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-alt);
+  padding: var(--space-4);
+}
+
+.ep-agent-draft-preview__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.ep-agent-draft-preview__title {
+  color: var(--text);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.ep-agent-draft-files {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: var(--space-2);
+  max-height: 240px;
+  overflow-y: auto;
+  color: var(--text-light);
+  font-size: 0.78rem;
+  font-family: var(--mono);
+}
+
+.ep-agent-file-viewer {
+  margin-top: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: var(--space-3);
+  max-height: 320px;
+  overflow: auto;
+  color: var(--text);
+  font-size: 0.78rem;
+  font-family: var(--mono);
+}
+
+.ep-agent-chat-thread {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 260px;
+  max-height: 420px;
+  overflow-y: auto;
+  padding: var(--space-4);
+}
+
+.ep-agent-composer {
+  border-top: 1px solid var(--border);
+  background: var(--surface-alt);
+  padding: var(--space-4);
+}
+
+.ep-agent-change-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.ep-agent-jobs-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+}
+
+.ep-agent-review-sidebar {
+  border-right: 1px solid var(--border);
+  background: var(--surface-alt);
+  padding: var(--space-3);
+  overflow-y: auto;
+}
+
+/* ── Apps codespace launch URL ──────────────────────────────────── */
+
+.ep-apps-codespace-url {
+  display: block;
+  margin-top: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-alt);
+  padding: var(--space-2) var(--space-3);
+  color: var(--text-faint);
+  font-size: 0.75rem;
+  font-family: var(--mono);
+  word-break: break-all;
+}
+
+/* ── Proposer tree expand markers (children toggle container) ───── */
+
+.ep-tree-children {
+  /* Toggled via JS display:none/''. No extra styling needed; leaving
+     a selector here keeps the linter aware the class is intentional. */
+}

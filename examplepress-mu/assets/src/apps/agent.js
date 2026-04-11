@@ -46,13 +46,20 @@ export function initAgent(data) {
 	const warningEl   = document.getElementById('ep-agent-runtime-warning');
 
 	if (enabledBtn && disabledBtn && jobsBtn) {
+		// IMPORTANT: the three buttons are rendered with the HTML `hidden`
+		// attribute by apps.php. Setting `style.display = ''` does NOT
+		// override the [hidden] UA rule — we have to flip `el.hidden`
+		// directly so the attribute is actually removed from the element.
 		if (agent.enabled && agent.ready && agent.configured) {
-			enabledBtn.style.display = '';
-			jobsBtn.style.display = '';
-		} else if (agent.enabled) {
-			// Feature is on but provider/key not configured — DISCOVERABILITY
-			// surface vs hiding entirely.
-			disabledBtn.style.display = '';
+			enabledBtn.hidden = false;
+			jobsBtn.hidden    = false;
+		} else if (agent.configured || agent.enabled) {
+			// DISCOVERABILITY: if the operator has either toggled the
+			// feature on OR saved an API key, show the "configure first"
+			// button as a nudge toward Settings → AI Agent. Hiding the
+			// surface entirely when one of the two knobs is set makes
+			// the feature feel broken rather than gated.
+			disabledBtn.hidden = false;
 			disabledBtn.addEventListener('click', () => {
 				if (data.adminUrl) {
 					window.location.href = data.adminUrl + 'admin.php?page=examplepress-settings#agent';

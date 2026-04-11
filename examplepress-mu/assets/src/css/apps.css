@@ -140,6 +140,30 @@
   min-width: 0;
 }
 
+/* Other row cells need min-width:0 so long strings don't force the
+ * grid column to overflow horizontally. Data is free to fill the
+ * cell via its own wrapping rules. */
+.ep-apps-col-status,
+.ep-apps-col-repo,
+.ep-apps-col-version,
+.ep-apps-col-desc {
+  min-width: 0;
+}
+
+.ep-apps-col-desc {
+  color: var(--text-light);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+/* Optional per-action hooks — mostly used for colour overrides in
+ * the row-action strip. The base .ep-apps-action a rule handles
+ * link styling; these are declared so the integrity linter can see
+ * them and so future tweaks have a clean anchor to hang from. */
+.ep-apps-action-manage,
+.ep-apps-action-edit,
+.ep-apps-action-repo   { /* no visual override yet */ }
+
 .ep-apps-plugin-name {
   color: var(--text);
   font-weight: 600;

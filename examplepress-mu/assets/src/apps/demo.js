@@ -42,13 +42,13 @@ export function renderDemo(data) {
 
 		let html = '';
 		if (status === 'not-installed') {
-			html += '<button class="ep-demo-btn ep-demo-btn-primary" id="ep-demo-install">Install &amp; Activate</button>';
+			html += '<button class="ep-btn ep-btn--primary" id="ep-demo-install">Install &amp; Activate</button>';
 		} else if (status === 'installed') {
-			html += '<button class="ep-demo-btn ep-demo-btn-primary" id="ep-demo-install">Activate</button>';
-			html += '<button class="ep-demo-btn ep-demo-btn-danger" id="ep-demo-uninstall">Remove</button>';
+			html += '<button class="ep-btn ep-btn--primary" id="ep-demo-install">Activate</button>';
+			html += '<button class="ep-btn ep-btn--danger" id="ep-demo-uninstall">Remove</button>';
 		} else if (status === 'active') {
-			html += `<a class="ep-demo-btn ep-demo-btn-primary" href="${esc(window.location.origin)}" target="_blank" rel="noopener">View Frontend &rarr;</a>`;
-			html += '<button class="ep-demo-btn ep-demo-btn-danger" id="ep-demo-uninstall">Remove Demo</button>';
+			html += `<a class="ep-btn ep-btn--primary" href="${esc(window.location.origin)}" target="_blank" rel="noopener">View Frontend &rarr;</a>`;
+			html += '<button class="ep-btn ep-btn--danger" id="ep-demo-uninstall">Remove Demo</button>';
 		}
 		actions.innerHTML = html;
 
