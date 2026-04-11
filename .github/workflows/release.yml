@@ -37,7 +37,7 @@ jobs:
       contents: read
 
     env:
-      APP_JSON_PATH: "${{ vars.APP_JSON_PATH || 'examplepress.json' }}"
+      APP_JSON_PATH: "${{ vars.APP_JSON_PATH || 'examplepress-mu/examplepress.json' }}"
       ENTRY_FILE:    "${{ vars.ENTRY_FILE || 'examplepress-mu.php' }}"
 
     steps:
@@ -114,7 +114,7 @@ jobs:
       contents: read
 
     env:
-      APP_JSON_PATH: "${{ vars.APP_JSON_PATH || 'examplepress.json' }}"
+      APP_JSON_PATH: "${{ vars.APP_JSON_PATH || 'examplepress-mu/examplepress.json' }}"
       ENTRY_FILE:    "${{ vars.ENTRY_FILE || 'examplepress-mu.php' }}"
 
     outputs:
