@@ -22,12 +22,6 @@ a.ep-card:hover {
   text-decoration: none;
 }
 
-.ep-card__icon {
-  margin-bottom: var(--space-3);
-  color: var(--accent-text);
-  font-size: 1.4rem;
-}
-
 .ep-card__title {
   margin-bottom: 0.3rem;
   color: var(--text);
@@ -46,9 +40,4 @@ a.ep-card:hover {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 1rem;
-}
-
-/* 4-column stat grid variant */
-.ep-card-grid--stats {
-  grid-template-columns: repeat(4, 1fr);
 }

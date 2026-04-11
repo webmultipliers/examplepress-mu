@@ -55,14 +55,14 @@ export function renderAppsTable() {
 		return;
 	}
 
-	let html = '<table class="ep-apps-list-table">';
-	html += '<thead><tr>';
-	html += '<th class="ep-apps-col-plugin">Plugin</th>';
-	html += '<th class="ep-apps-col-status">Status</th>';
-	html += '<th class="ep-apps-col-repo">Repository</th>';
-	html += '<th class="ep-apps-col-version">Version</th>';
-	html += '<th class="ep-apps-col-desc">Description</th>';
-	html += '</tr></thead><tbody>';
+	let html = '<div class="ep-table ep-apps-table">';
+	html += '<div class="ep-table__row ep-table__row--head ep-table--cols-5 ep-apps-table__row">';
+	html += '<div class="ep-table__th ep-apps-col-plugin">Plugin</div>';
+	html += '<div class="ep-table__th ep-apps-col-status">Status</div>';
+	html += '<div class="ep-table__th ep-apps-col-repo">Repository</div>';
+	html += '<div class="ep-table__th ep-apps-col-version">Version</div>';
+	html += '<div class="ep-table__th ep-apps-col-desc">Description</div>';
+	html += '</div>';
 
 	apps.forEach(app => {
 		const exists = app.exists || {};
@@ -168,25 +168,25 @@ export function renderAppsTable() {
 			? ` <span class="ep-apps-exists">(${existsParts.join(' + ')})</span>`
 			: '';
 
-		html += `<tr class="${isOrphan ? 'ep-apps-row-orphan' : ''}">
-			<td class="ep-apps-col-plugin">
-				<span class="ep-apps-plugin-name">${esc(app.name)}</span>
-				<span class="ep-apps-plugin-slug">${esc(app.slug)}</span>
-				<div class="ep-apps-row-actions">${actions}</div>
-			</td>
-			<td class="ep-apps-col-status">
-				<div class="ep-apps-health-cell">
-					${statusBadge}
-					<div class="ep-apps-health-panel" id="ep-health-panel-${esc(app.slug)}" style="display:none;"></div>
+		html += `<div class="ep-apps-row-wrap ${isOrphan ? 'ep-apps-row-orphan' : ''}">
+			<div class="ep-table__row ep-table--cols-5 ep-apps-table__row">
+				<div class="ep-apps-col-plugin">
+					<span class="ep-apps-plugin-name">${esc(app.name)}</span>
+					<span class="ep-apps-plugin-slug">${esc(app.slug)}</span>
+					<div class="ep-apps-row-actions">${actions}</div>
 				</div>
-			</td>
-			<td class="ep-apps-col-repo">${repoCell}</td>
-			<td class="ep-apps-col-version">${versionCell}</td>
-			<td class="ep-apps-col-desc">${esc(app.description)}${existsWhere}</td>
-		</tr>`;
+				<div class="ep-apps-col-status">
+					<div class="ep-apps-health-cell">${statusBadge}</div>
+				</div>
+				<div class="ep-apps-col-repo">${repoCell}</div>
+				<div class="ep-apps-col-version">${versionCell}</div>
+				<div class="ep-apps-col-desc">${esc(app.description)}${existsWhere}</div>
+			</div>
+			<div class="ep-apps-health-panel" id="ep-health-panel-${esc(app.slug)}" style="display:none;"></div>
+		</div>`;
 	});
 
-	html += '</tbody></table>';
+	html += '</div>';
 	appsTableEl.innerHTML = html;
 
 	// Bind row actions.
@@ -419,7 +419,10 @@ async function handleDestroy(slug, link) {
 
 export function initAppsOutsideClick() {
 	document.addEventListener('click', e => {
-		if (!e.target.closest('.ep-apps-health-cell')) {
+		// Keep panels open when the click is on the trigger badge (inside
+		// .ep-apps-health-cell) OR inside the panel body itself — the panel
+		// is now a sibling of the cell in the grid row, not a descendant.
+		if (!e.target.closest('.ep-apps-health-cell, .ep-apps-health-panel')) {
 			document.querySelectorAll('.ep-apps-health-panel').forEach(p => { p.style.display = 'none'; });
 		}
 	});

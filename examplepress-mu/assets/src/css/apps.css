@@ -1,0 +1,364 @@
+/*
+ * ExamplePress Design System — Apps page
+ *
+ * Page-specific layout for Build → Apps. Everything here is namespaced
+ * under .ep-apps-* to stay out of the generic component system.
+ * Workflow strip, stats bar, row actions, health panel, status badges.
+ */
+
+/* ── Workflow strip (4 numbered cards) ───────────────────────────── */
+.ep-apps-workflow {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-4);
+}
+
+.ep-apps-workflow-step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  padding: var(--space-4);
+  min-height: 140px;
+}
+
+.ep-apps-step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--accent-bg);
+  color: var(--accent-text);
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.ep-apps-step-title {
+  color: var(--text);
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.ep-apps-step-desc {
+  flex: 1;
+  margin: 0;
+  color: var(--text-faint);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.ep-apps-step-sys {
+  align-self: flex-start;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-alt);
+  padding: 2px 10px;
+  color: var(--text-light);
+  font-size: 0.7rem;
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ep-apps-sys-wp        { background: var(--blue-bg);   border-color: var(--blue-border);   color: var(--blue); }
+.ep-apps-sys-gh        { background: var(--surface-alt); color: var(--text); }
+.ep-apps-sys-codespace { background: var(--purple-bg); border-color: var(--purple-border); color: var(--purple); }
+
+/* ── Stats bar ───────────────────────────────────────────────────── */
+.ep-apps-stats {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  padding: var(--space-3) var(--space-5);
+}
+
+.ep-apps-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-light);
+  font-size: 0.85rem;
+}
+
+.ep-apps-stat-right {
+  margin-left: auto;
+  color: var(--text-faint);
+  font-size: 0.75rem;
+  font-family: var(--mono);
+}
+
+.ep-apps-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border-strong);
+}
+
+.ep-apps-dot-connected    { background: var(--green); }
+.ep-apps-dot-disconnected { background: var(--border-strong); }
+
+/* ── Apps grid table ─────────────────────────────────────────────── */
+.ep-apps-table {
+  /* .ep-table base already set. Apps are 5-col: plugin | status | repo | version | desc. */
+}
+
+.ep-apps-table__row {
+  gap: var(--space-3);
+}
+
+.ep-apps-row-wrap {
+  border-bottom: 1px solid var(--border);
+}
+
+.ep-apps-row-wrap:last-child {
+  border-bottom: none;
+}
+
+.ep-apps-row-wrap .ep-table__row {
+  border-bottom: none;
+}
+
+.ep-apps-row-orphan .ep-table__row {
+  background: var(--red-bg);
+}
+
+/* Plugin cell: name + slug + row actions stacked. */
+.ep-apps-col-plugin {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ep-apps-plugin-name {
+  color: var(--text);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.ep-apps-plugin-slug {
+  color: var(--text-faint);
+  font-size: 0.72rem;
+  font-family: var(--mono);
+}
+
+.ep-apps-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  align-items: center;
+  margin-top: var(--space-1);
+  font-size: 0.78rem;
+}
+
+.ep-apps-action a,
+.ep-apps-action-disabled {
+  color: var(--accent-text);
+  text-decoration: none;
+}
+
+.ep-apps-action a:hover {
+  color: var(--accent-hover-text);
+  text-decoration: underline;
+}
+
+.ep-apps-action-disabled {
+  color: var(--text-faint);
+  cursor: not-allowed;
+  text-decoration: line-through;
+}
+
+.ep-apps-action-destroy {
+  color: var(--red) !important;
+}
+
+.ep-apps-sep {
+  color: var(--text-faint);
+  font-size: 0.75rem;
+}
+
+.ep-apps-empty {
+  color: var(--text-faint);
+  font-size: 0.8rem;
+}
+
+.ep-apps-repo-link {
+  color: var(--accent-text);
+  font-size: 0.82rem;
+  font-family: var(--mono);
+  text-decoration: none;
+}
+
+.ep-apps-repo-link:hover {
+  text-decoration: underline;
+}
+
+.ep-apps-troy-chip {
+  display: inline-block;
+  margin-left: var(--space-2);
+  border: 1px solid var(--purple-border);
+  border-radius: 999px;
+  background: var(--purple-bg);
+  padding: 1px 8px;
+  color: var(--purple);
+  font-size: 0.65rem;
+  font-family: var(--mono);
+  letter-spacing: 0.04em;
+}
+
+.ep-apps-exists {
+  color: var(--text-faint);
+  font-size: 0.75rem;
+}
+
+/* ── Status badges ───────────────────────────────────────────────── */
+.ep-apps-health-cell {
+  display: flex;
+  align-items: center;
+}
+
+.ep-apps-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-alt);
+  padding: 3px 10px;
+  color: var(--text-light);
+  font-weight: 500;
+  font-size: 0.75rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.ep-apps-status-connected { background: var(--green-bg); border-color: var(--green-border); color: var(--green); }
+.ep-apps-status-healthy   { background: var(--green-bg); border-color: var(--green-border); color: var(--green); }
+.ep-apps-status-disconnected { background: var(--surface-alt); color: var(--text-light); }
+.ep-apps-status-degraded  { background: var(--amber-bg); border-color: var(--amber-border); color: var(--amber); }
+.ep-apps-status-orphan    { background: var(--red-bg); border-color: var(--red-border); color: var(--red); }
+
+/* ── Health panel (expands below the row, full width) ────────────── */
+.ep-apps-health-panel {
+  border-top: 1px solid var(--border);
+  background: var(--surface-alt);
+  padding: var(--space-3) var(--space-5);
+}
+
+.ep-health-panel-inner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.ep-health-panel-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: var(--text);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.ep-health-panel-close {
+  color: var(--text-faint);
+  font-size: 1.2rem;
+  line-height: 1;
+  text-decoration: none;
+}
+
+.ep-health-panel-loading,
+.ep-health-panel-error {
+  color: var(--text-faint);
+  font-size: 0.85rem;
+}
+
+.ep-health-panel-error { color: var(--red); }
+
+.ep-health-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-left: 2px solid var(--border);
+  padding-left: var(--space-3);
+}
+
+.ep-health-section-title {
+  color: var(--text-faint);
+  font-weight: 600;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.ep-health-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-light);
+  font-size: 0.82rem;
+}
+
+.ep-health-row-warn { color: var(--amber); }
+
+.ep-health-meta {
+  color: var(--text-faint);
+  font-size: 0.75rem;
+  font-family: var(--mono);
+}
+
+.ep-health-link {
+  color: var(--accent-text);
+  text-decoration: none;
+}
+
+.ep-health-link:hover { text-decoration: underline; }
+
+.ep-health-dot {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border-strong);
+}
+
+.ep-health-dot-ok   { background: var(--green); }
+.ep-health-dot-fail { background: var(--red); }
+.ep-health-dot-none { background: var(--border-strong); }
+
+/* ── Notice banner (transient row above the table) ───────────────── */
+.ep-apps-notice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent-ui);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  padding: var(--space-3) var(--space-4);
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+/* ── Responsive — collapse workflow to 2 cols then 1 ─────────────── */
+@media (max-width: 960px) {
+  .ep-apps-workflow { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 640px) {
+  .ep-apps-workflow { grid-template-columns: 1fr; }
+  .ep-apps-stats { flex-wrap: wrap; }
+  .ep-apps-stat-right { margin-left: 0; width: 100%; }
+}

@@ -58,7 +58,7 @@ export function showProgress(containerId, message) {
 	const el = document.getElementById(containerId);
 	if (!el) return;
 	el.hidden = false;
-	const msg = el.querySelector('.ep-updates-progress-message');
+	const msg = el.querySelector('.ep-progress__message');
 	if (msg) msg.textContent = message || '';
 }
 

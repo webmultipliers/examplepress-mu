@@ -3,3 +3,4 @@ examplepress-mu/dist/
 .vscode/
 .claude/
 vendor/
+tmp/

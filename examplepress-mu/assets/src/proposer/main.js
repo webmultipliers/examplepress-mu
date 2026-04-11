@@ -8,6 +8,7 @@
 import '../css/index.css';
 import { initLogger, log } from '../lib/logger.js';
 import { initApi, apiFetch } from '../lib/api.js';
+import { openAppModal, closeAppModal, initEscapeHandler } from '../lib/modal.js';
 
 /* ── State ─────────────────────────────────────────────────────────── */
 
@@ -60,6 +61,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 		renderTree();
 		updateDraftBadge();
 		bindToolbar();
+		bindSubmitModal();
+		initEscapeHandler(['ep-proposer-submit-modal', 'ep-proposer-success-modal']);
 
 		autoSaveTimer = setInterval(autoSaveDraft, 30000);
 
@@ -599,6 +602,36 @@ async function discardDraft() {
 
 /* ── Submit dialog ─────────────────────────────────────────────────── */
 
+/**
+ * Wire close buttons and overlay click handlers for both pre-built modals
+ * (#ep-proposer-submit-modal and #ep-proposer-success-modal). The modals
+ * are rendered by proposer.php — JS only toggles visibility and populates
+ * the dynamic bits (changeset summary, error line, success link).
+ */
+function bindSubmitModal() {
+	// Generic [data-modal="..."] close-button convention.
+	document.querySelectorAll('[data-modal]').forEach(btn => {
+		btn.addEventListener('click', () => {
+			const id = btn.getAttribute('data-modal');
+			if (id) closeAppModal(id);
+		});
+	});
+
+	// Click-outside-to-close for both modals.
+	['ep-proposer-submit-modal', 'ep-proposer-success-modal'].forEach(id => {
+		const overlay = document.getElementById(id);
+		if (overlay) {
+			overlay.addEventListener('click', e => {
+				if (e.target === overlay) closeAppModal(id);
+			});
+		}
+	});
+
+	// Wire the submit-confirm button once.
+	const confirmBtn = document.getElementById('ep-proposer-submit-confirm');
+	if (confirmBtn) confirmBtn.addEventListener('click', submitProposal);
+}
+
 function openSubmitDialog() {
 	const files = draft.files;
 	const paths = Object.keys(files);
@@ -611,89 +644,81 @@ function openSubmitDialog() {
 		return treeNode && files[p].base_blob_sha && treeNode.sha !== files[p].base_blob_sha;
 	});
 
-	// Build dialog.
-	const overlay = document.createElement('div');
-	overlay.id = 'ep-proposer-submit-overlay';
-	overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:100000;';
-
+	// Populate the changeset summary in the pre-built modal.
 	const opLabel = { modify: 'Modified', create: 'Added', delete: 'Deleted', rename: 'Renamed' };
-
-	overlay.innerHTML = `
-		<div style="background:#fff;border-radius:8px;width:520px;max-height:80vh;overflow-y:auto;padding:24px;">
-			<h2 style="margin:0 0 16px;">Submit Proposal</h2>
-			${conflicts.length ? `<div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:4px;padding:8px 12px;margin-bottom:12px;font-size:13px;color:#991b1b;">
-				<strong>Warning:</strong> ${conflicts.length} file(s) may have changed on the remote since your draft was started. Review carefully.
-			</div>` : ''}
-			<div style="margin-bottom:16px;">
-				<strong>Changeset (${paths.length} file${paths.length !== 1 ? 's' : ''}):</strong>
-				<ul style="margin:8px 0;padding-left:20px;font-size:13px;color:#374151;">
-					${paths.map(p => `<li><code>${esc(p)}</code> — ${opLabel[files[p].op] || files[p].op}</li>`).join('')}
-				</ul>
-			</div>
-			<div style="margin-bottom:12px;">
-				<label style="display:block;font-weight:600;margin-bottom:4px;">Title</label>
-				<input id="ep-proposal-title" type="text" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;" placeholder="Brief summary of changes" />
-			</div>
-			<div style="margin-bottom:16px;">
-				<label style="display:block;font-weight:600;margin-bottom:4px;">Description</label>
-				<textarea id="ep-proposal-body" rows="4" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;resize:vertical;" placeholder="Describe the proposed changes..."></textarea>
-			</div>
-			<div style="display:flex;gap:8px;justify-content:flex-end;">
-				<button id="ep-proposal-cancel" style="padding:6px 16px;cursor:pointer;">Cancel</button>
-				<button id="ep-proposal-send" style="padding:6px 16px;background:#2271b1;color:#fff;border:none;border-radius:4px;cursor:pointer;">Submit</button>
-			</div>
-			<div id="ep-proposal-status" style="margin-top:12px;font-size:13px;"></div>
-		</div>`;
-
-	document.body.appendChild(overlay);
-
-	overlay.querySelector('#ep-proposal-cancel').addEventListener('click', () => overlay.remove());
-	overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
-
-	overlay.querySelector('#ep-proposal-send').addEventListener('click', async () => {
-		const title = overlay.querySelector('#ep-proposal-title').value.trim();
-		const body = overlay.querySelector('#ep-proposal-body').value.trim();
-		const status = overlay.querySelector('#ep-proposal-status');
-		const sendBtn = overlay.querySelector('#ep-proposal-send');
-
-		if (!title) { status.textContent = 'Title is required.'; status.style.color = '#991b1b'; return; }
-
-		sendBtn.disabled = true;
-		sendBtn.textContent = 'Submitting...';
-		status.textContent = '';
-
-		try {
-			const result = await apiFetch(`${editorBaseUrl}/proposal`, {
-				method: 'POST',
-				body: { base_ref: draft.base_ref, files: draft.files, title, body },
-			});
-
-			// Success — clear draft and show result.
-			await apiFetch(`${editorBaseUrl}/draft`, { method: 'DELETE' }).catch(() => {});
-			draft = { base_ref: baseRef, files: {} };
-			draftDirty = false;
-			openTabs = [];
-			activeTab = null;
-
-			overlay.querySelector('div').innerHTML = `
-				<h2 style="margin:0 0 16px;color:#166534;">Proposal Submitted</h2>
-				<p>Proposal <strong>#${result.number}</strong> has been created.</p>
-				<p><a href="${esc(result.html_url)}" target="_blank" rel="noopener">View on GitHub &rarr;</a></p>
-				<div style="margin-top:16px;text-align:right;">
-					<button id="ep-proposal-done" style="padding:6px 16px;cursor:pointer;">Close</button>
-				</div>`;
-			overlay.querySelector('#ep-proposal-done').addEventListener('click', () => {
-				overlay.remove();
-				renderTree();
-				renderTabs();
-				updateDraftBadge();
-				clearEditor();
-			});
-		} catch (err) {
-			status.textContent = err.message || 'Submission failed.';
-			status.style.color = '#991b1b';
-			sendBtn.disabled = false;
-			sendBtn.textContent = 'Submit';
+	const summaryEl = document.getElementById('ep-proposer-changeset-summary');
+	if (summaryEl) {
+		let html = '';
+		if (conflicts.length) {
+			html += `<div class="ep-notice ep-notice--warning"><strong>Warning:</strong> ${conflicts.length} file(s) may have changed on the remote since your draft was started. Review carefully.</div>`;
 		}
-	});
+		html += `<div class="ep-proposer-changeset__header"><strong>Changeset (${paths.length} file${paths.length !== 1 ? 's' : ''}):</strong></div>`;
+		html += '<ul class="ep-proposer-changeset__list">';
+		html += paths.map(p => `<li><code>${esc(p)}</code> — ${opLabel[files[p].op] || files[p].op}</li>`).join('');
+		html += '</ul>';
+		summaryEl.innerHTML = html;
+	}
+
+	// Reset inputs and error state.
+	const titleInput = document.getElementById('ep-proposer-pr-title');
+	const bodyInput = document.getElementById('ep-proposer-pr-body');
+	const errorEl = document.getElementById('ep-proposer-submit-error');
+	const confirmBtn = document.getElementById('ep-proposer-submit-confirm');
+	if (titleInput) titleInput.value = '';
+	if (bodyInput) bodyInput.value = '';
+	if (errorEl) { errorEl.textContent = ''; errorEl.style.display = 'none'; }
+	if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = 'Create Pull Request'; }
+
+	openAppModal('ep-proposer-submit-modal');
+	if (titleInput) titleInput.focus();
+}
+
+async function submitProposal() {
+	const titleInput = document.getElementById('ep-proposer-pr-title');
+	const bodyInput = document.getElementById('ep-proposer-pr-body');
+	const errorEl = document.getElementById('ep-proposer-submit-error');
+	const confirmBtn = document.getElementById('ep-proposer-submit-confirm');
+
+	const title = (titleInput?.value || '').trim();
+	const body  = (bodyInput?.value || '').trim();
+
+	const showError = (msg) => {
+		if (errorEl) { errorEl.textContent = msg; errorEl.style.display = ''; }
+	};
+
+	if (!title) { showError('Title is required.'); return; }
+
+	if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = 'Submitting…'; }
+	if (errorEl) { errorEl.textContent = ''; errorEl.style.display = 'none'; }
+
+	try {
+		const result = await apiFetch(`${editorBaseUrl}/proposal`, {
+			method: 'POST',
+			body: { base_ref: draft.base_ref, files: draft.files, title, body },
+		});
+
+		// Success — clear draft state locally.
+		await apiFetch(`${editorBaseUrl}/draft`, { method: 'DELETE' }).catch(() => {});
+		draft = { base_ref: baseRef, files: {} };
+		draftDirty = false;
+		openTabs = [];
+		activeTab = null;
+
+		renderTree();
+		renderTabs();
+		updateDraftBadge();
+		clearEditor();
+
+		// Swap modals: submit → success.
+		closeAppModal('ep-proposer-submit-modal');
+
+		const msgEl  = document.getElementById('ep-proposer-success-msg');
+		const linkEl = document.getElementById('ep-proposer-success-link');
+		if (msgEl)  msgEl.textContent = `Proposal #${result.number} has been created.`;
+		if (linkEl) linkEl.href = result.html_url || '#';
+		openAppModal('ep-proposer-success-modal');
+	} catch (err) {
+		showError(err.message || 'Submission failed.');
+		if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = 'Create Pull Request'; }
+	}
 }

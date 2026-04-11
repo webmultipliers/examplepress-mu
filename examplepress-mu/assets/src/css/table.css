@@ -50,9 +50,13 @@
 }
 
 /* Column count modifiers */
-.ep-table--cols-2 { grid-template-columns: 1fr 1fr; }
 .ep-table--cols-3 { grid-template-columns: 1fr 130px 100px; }
 .ep-table--cols-4 { grid-template-columns: 1fr 100px 110px 100px; }
+.ep-table--cols-5 { grid-template-columns: 2fr 140px 1.3fr 90px 2fr; }
+
+/* Page-specific modifiers: the shape of the data decides the grid. */
+.ep-table--cols-blocks { grid-template-columns: 2fr 1fr 1fr 110px; }
+.ep-table--cols-nav    { grid-template-columns: 2fr 1.2fr 100px; }
 
 /* Common cell patterns */
 .ep-table__label {

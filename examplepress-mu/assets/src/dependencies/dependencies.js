@@ -112,14 +112,7 @@ export function renderDependencies(dependencies) {
 		log.warn('[ExamplePress] No dependencies declared');
 	}
 
-	// Dependency sub-tab switching.
-	document.querySelectorAll('#dep-subtabs .ep-notif-subtab').forEach(btn => {
-		btn.addEventListener('click', () => {
-			document.querySelectorAll('#dep-subtabs .ep-notif-subtab').forEach(b => b.classList.remove('active'));
-			btn.classList.add('active');
-			const target = btn.dataset.target;
-			document.getElementById('deps-required').style.display = target === 'deps-required' ? '' : 'none';
-			document.getElementById('deps-recommended').style.display = target === 'deps-recommended' ? '' : 'none';
-		});
-	});
+	// Tab switching for Required/Recommended is handled by lib/tabs.js
+	// via the `.ep-tabs` nav in dependencies.php — no custom subtab
+	// wiring needed here.
 }

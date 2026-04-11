@@ -58,22 +58,3 @@
 .ep-json__bracket {
   color: var(--text-faint);
 }
-
-.ep-json__toggle {
-  cursor: pointer;
-  color: var(--accent-text);
-  font-size: 0.7rem;
-}
-
-.ep-json__toggle:hover {
-  color: var(--accent-hover-text);
-}
-
-.ep-json__collapsible {
-  transition: max-height 0.2s var(--ease);
-  overflow: hidden;
-}
-
-.ep-json__collapsed {
-  display: none;
-}

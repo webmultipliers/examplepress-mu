@@ -10,10 +10,6 @@
   margin-bottom: var(--space-4);
 }
 
-.ep-toolbar--end {
-  justify-content: flex-end;
-}
-
 .ep-toolbar--between {
   justify-content: space-between;
 }

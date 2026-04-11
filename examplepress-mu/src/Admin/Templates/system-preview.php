@@ -8,29 +8,29 @@
  * No JS hydration. Pure HTML against the new ep-* classes.
  */
 ?>
-<div class="ep-tabs">
-    <button class="ep-tab" aria-selected="true" data-tab="tokens">Tokens</button>
-    <button class="ep-tab" data-tab="layout">Layout</button>
-    <button class="ep-tab" data-tab="tabs-demo">Tabs</button>
-    <button class="ep-tab" data-tab="sections">Sections</button>
-    <button class="ep-tab" data-tab="tables">Tables</button>
-    <button class="ep-tab" data-tab="forms">Forms</button>
-    <button class="ep-tab" data-tab="buttons">Buttons</button>
-    <button class="ep-tab" data-tab="badges">Badges</button>
-    <button class="ep-tab" data-tab="notices">Notices</button>
-    <button class="ep-tab" data-tab="modals">Modals</button>
-    <button class="ep-tab" data-tab="cards">Cards</button>
-    <button class="ep-tab" data-tab="stats">Stats</button>
-    <button class="ep-tab" data-tab="code">Code</button>
-    <button class="ep-tab" data-tab="search">Search</button>
-    <button class="ep-tab" data-tab="progress">Progress</button>
-    <button class="ep-tab" data-tab="empty">Empty States</button>
-</div>
+<nav class="ep-tabs" role="tablist">
+    <button class="ep-tab" role="tab" aria-selected="true"  aria-controls="p-tokens"    id="t-tokens"    data-tab-id="tokens">Tokens</button>
+    <button class="ep-tab" role="tab" aria-selected="false" aria-controls="p-layout"    id="t-layout"    data-tab-id="layout">Layout</button>
+    <button class="ep-tab" role="tab" aria-selected="false" aria-controls="p-tabs-demo" id="t-tabs-demo" data-tab-id="tabs-demo">Tabs</button>
+    <button class="ep-tab" role="tab" aria-selected="false" aria-controls="p-sections"  id="t-sections"  data-tab-id="sections">Sections</button>
+    <button class="ep-tab" role="tab" aria-selected="false" aria-controls="p-tables"    id="t-tables"    data-tab-id="tables">Tables</button>
+    <button class="ep-tab" role="tab" aria-selected="false" aria-controls="p-forms"     id="t-forms"     data-tab-id="forms">Forms</button>
+    <button class="ep-tab" role="tab" aria-selected="false" aria-controls="p-buttons"   id="t-buttons"   data-tab-id="buttons">Buttons</button>
+    <button class="ep-tab" role="tab" aria-selected="false" aria-controls="p-badges"    id="t-badges"    data-tab-id="badges">Badges</button>
+    <button class="ep-tab" role="tab" aria-selected="false" aria-controls="p-notices"   id="t-notices"   data-tab-id="notices">Notices</button>
+    <button class="ep-tab" role="tab" aria-selected="false" aria-controls="p-modals"    id="t-modals"    data-tab-id="modals">Modals</button>
+    <button class="ep-tab" role="tab" aria-selected="false" aria-controls="p-cards"     id="t-cards"     data-tab-id="cards">Cards</button>
+    <button class="ep-tab" role="tab" aria-selected="false" aria-controls="p-stats"     id="t-stats"     data-tab-id="stats">Stats</button>
+    <button class="ep-tab" role="tab" aria-selected="false" aria-controls="p-code"      id="t-code"      data-tab-id="code">Code</button>
+    <button class="ep-tab" role="tab" aria-selected="false" aria-controls="p-search"    id="t-search"    data-tab-id="search">Search</button>
+    <button class="ep-tab" role="tab" aria-selected="false" aria-controls="p-progress"  id="t-progress"  data-tab-id="progress">Progress</button>
+    <button class="ep-tab" role="tab" aria-selected="false" aria-controls="p-empty"     id="t-empty"     data-tab-id="empty">Empty States</button>
+</nav>
 
 <div class="ep-panels">
 
     <!-- ── Tokens ──────────────────────────────────────────────── -->
-    <div class="ep-panel" id="panel-tokens" aria-hidden="false">
+    <div class="ep-panel" id="p-tokens" role="tabpanel" aria-labelledby="t-tokens" aria-hidden="false">
         <div class="ep-section">
             <div class="ep-section__header">
                 <span class="ep-section__title">Surfaces</span>
@@ -88,7 +88,7 @@
     </div>
 
     <!-- ── Layout ──────────────────────────────────────────────── -->
-    <div class="ep-panel" id="panel-layout" aria-hidden="true">
+    <div class="ep-panel" id="p-layout" role="tabpanel" aria-labelledby="t-layout" aria-hidden="true">
         <div class="ep-section">
             <div class="ep-section__header">
                 <span class="ep-section__title">Page Shell</span>
@@ -112,7 +112,7 @@
     </div>
 
     <!-- ── Tabs Demo ───────────────────────────────────────────── -->
-    <div class="ep-panel" id="panel-tabs-demo" aria-hidden="true">
+    <div class="ep-panel" id="p-tabs-demo" role="tabpanel" aria-labelledby="t-tabs-demo" aria-hidden="true">
         <div class="ep-section">
             <div class="ep-section__header">
                 <span class="ep-section__title">Tab Structure</span>
@@ -130,7 +130,7 @@
     </div>
 
     <!-- ── Sections ────────────────────────────────────────────── -->
-    <div class="ep-panel" id="panel-sections" aria-hidden="true">
+    <div class="ep-panel" id="p-sections" role="tabpanel" aria-labelledby="t-sections" aria-hidden="true">
         <div class="ep-section">
             <div class="ep-section__header">
                 <span class="ep-section__title">Standard Section</span>
@@ -158,7 +158,7 @@
     </div>
 
     <!-- ── Tables ──────────────────────────────────────────────── -->
-    <div class="ep-panel" id="panel-tables" aria-hidden="true">
+    <div class="ep-panel" id="p-tables" role="tabpanel" aria-labelledby="t-tables" aria-hidden="true">
         <div class="ep-section">
             <div class="ep-section__header">
                 <span class="ep-section__title">Grid Table</span>
@@ -213,7 +213,7 @@
     </div>
 
     <!-- ── Forms ───────────────────────────────────────────────── -->
-    <div class="ep-panel" id="panel-forms" aria-hidden="true">
+    <div class="ep-panel" id="p-forms" role="tabpanel" aria-labelledby="t-forms" aria-hidden="true">
         <div class="ep-section">
             <div class="ep-section__header">
                 <span class="ep-section__title">Standard Form</span>
@@ -281,7 +281,7 @@
     </div>
 
     <!-- ── Buttons ─────────────────────────────────────────────── -->
-    <div class="ep-panel" id="panel-buttons" aria-hidden="true">
+    <div class="ep-panel" id="p-buttons" role="tabpanel" aria-labelledby="t-buttons" aria-hidden="true">
         <div class="ep-section">
             <div class="ep-section__header">
                 <span class="ep-section__title">Button Variants</span>
@@ -321,7 +321,7 @@
     </div>
 
     <!-- ── Badges ──────────────────────────────────────────────── -->
-    <div class="ep-panel" id="panel-badges" aria-hidden="true">
+    <div class="ep-panel" id="p-badges" role="tabpanel" aria-labelledby="t-badges" aria-hidden="true">
         <div class="ep-section">
             <div class="ep-section__header">
                 <span class="ep-section__title">Badge Variants</span>
@@ -366,7 +366,7 @@
     </div>
 
     <!-- ── Notices ─────────────────────────────────────────────── -->
-    <div class="ep-panel" id="panel-notices" aria-hidden="true">
+    <div class="ep-panel" id="p-notices" role="tabpanel" aria-labelledby="t-notices" aria-hidden="true">
         <div class="ep-section">
             <div class="ep-section__header">
                 <span class="ep-section__title">Notice Variants</span>
@@ -388,7 +388,7 @@
     </div>
 
     <!-- ── Modals ──────────────────────────────────────────────── -->
-    <div class="ep-panel" id="panel-modals" aria-hidden="true">
+    <div class="ep-panel" id="p-modals" role="tabpanel" aria-labelledby="t-modals" aria-hidden="true">
         <div class="ep-section">
             <div class="ep-section__header">
                 <span class="ep-section__title">Modal Structure (Inline Demo)</span>
@@ -432,7 +432,7 @@
     </div>
 
     <!-- ── Cards ───────────────────────────────────────────────── -->
-    <div class="ep-panel" id="panel-cards" aria-hidden="true">
+    <div class="ep-panel" id="p-cards" role="tabpanel" aria-labelledby="t-cards" aria-hidden="true">
         <div class="ep-section">
             <div class="ep-section__header">
                 <span class="ep-section__title">Card Grid</span>
@@ -456,7 +456,7 @@
     </div>
 
     <!-- ── Stats ───────────────────────────────────────────────── -->
-    <div class="ep-panel" id="panel-stats" aria-hidden="true">
+    <div class="ep-panel" id="p-stats" role="tabpanel" aria-labelledby="t-stats" aria-hidden="true">
         <div class="ep-section">
             <div class="ep-section__header">
                 <span class="ep-section__title">Stat Tiles</span>
@@ -484,7 +484,7 @@
     </div>
 
     <!-- ── Code ────────────────────────────────────────────────── -->
-    <div class="ep-panel" id="panel-code" aria-hidden="true">
+    <div class="ep-panel" id="p-code" role="tabpanel" aria-labelledby="t-code" aria-hidden="true">
         <div class="ep-section">
             <div class="ep-section__header">
                 <span class="ep-section__title">Inline Code</span>
@@ -528,7 +528,7 @@ function register_example_cpt(): void {
     </div>
 
     <!-- ── Search ──────────────────────────────────────────────── -->
-    <div class="ep-panel" id="panel-search" aria-hidden="true">
+    <div class="ep-panel" id="p-search" role="tabpanel" aria-labelledby="t-search" aria-hidden="true">
         <div class="ep-section">
             <div class="ep-section__header">
                 <span class="ep-section__title">Search Input</span>
@@ -543,7 +543,7 @@ function register_example_cpt(): void {
     </div>
 
     <!-- ── Progress ────────────────────────────────────────────── -->
-    <div class="ep-panel" id="panel-progress" aria-hidden="true">
+    <div class="ep-panel" id="p-progress" role="tabpanel" aria-labelledby="t-progress" aria-hidden="true">
         <div class="ep-section">
             <div class="ep-section__header">
                 <span class="ep-section__title">Progress Bar</span>
@@ -571,7 +571,7 @@ function register_example_cpt(): void {
     </div>
 
     <!-- ── Empty States ────────────────────────────────────────── -->
-    <div class="ep-panel" id="panel-empty" aria-hidden="true">
+    <div class="ep-panel" id="p-empty" role="tabpanel" aria-labelledby="t-empty" aria-hidden="true">
         <div class="ep-section">
             <div class="ep-section__header">
                 <span class="ep-section__title">Empty State</span>

@@ -24,7 +24,6 @@
 }
 
 .ep-progress__bar--success { background: var(--green); }
-.ep-progress__bar--warning { background: var(--amber); }
 .ep-progress__bar--danger  { background: var(--red); }
 
 .ep-progress__message {

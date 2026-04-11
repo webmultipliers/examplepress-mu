@@ -11,12 +11,6 @@
   text-align: center;
 }
 
-.ep-empty__icon {
-  margin-bottom: var(--space-3);
-  font-size: 2rem;
-  opacity: 0.5;
-}
-
 .ep-empty__title {
   margin-bottom: 0.3rem;
   color: var(--text-light);

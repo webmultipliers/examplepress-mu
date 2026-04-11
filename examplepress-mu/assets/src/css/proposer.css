@@ -1,0 +1,234 @@
+/*
+ * ExamplePress Design System — Proposer (Monaco editor for PRs)
+ *
+ * The proposer is a full-bleed page: toolbar, 3-column body (tree | tabs
+ * + editor), and two modals. Monaco binds into .ep-proposer-body__container
+ * and controls its own layout — CSS here only provides the frame.
+ */
+
+/* ── Root wrapper fills the admin page area ──────────────────────── */
+.ep-proposer-wrapper {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  height: calc(100vh - 140px);
+  min-height: 480px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+/* ── Error state (app not found / no repo) ───────────────────────── */
+.ep-proposer-error {
+  padding: var(--space-6);
+  color: var(--text);
+}
+
+.ep-proposer-error h2 {
+  margin: 0 0 var(--space-3);
+  font-size: 1.1rem;
+}
+
+.ep-proposer-error p {
+  margin: 0 0 var(--space-4);
+  color: var(--text-faint);
+  font-size: 0.9rem;
+}
+
+/* ── Toolbar (top bar) ───────────────────────────────────────────── */
+.ep-proposer-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-alt);
+  padding: var(--space-2) var(--space-4);
+  min-height: 44px;
+}
+
+.ep-proposer-toolbar__back {
+  color: var(--accent-text);
+  font-size: 0.85rem;
+  text-decoration: none;
+}
+
+.ep-proposer-toolbar__back:hover { text-decoration: underline; }
+
+.ep-proposer-toolbar__app-name {
+  color: var(--text);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.ep-proposer-toolbar__ref {
+  color: var(--text-faint);
+  font-size: 0.75rem;
+  font-family: var(--mono);
+}
+
+.ep-proposer-toolbar__spacer { flex: 1; }
+
+/* ── 3-column body: tree | editor panel ──────────────────────────── */
+.ep-proposer-body {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.ep-proposer-body__tree {
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+  overflow-y: auto;
+  font-size: 0.82rem;
+}
+
+.ep-proposer-body__editor {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.ep-proposer-body__container {
+  flex: 1 1 auto;
+  min-height: 0;
+  /* Monaco takes over from here. */
+}
+
+/* ── File tree ───────────────────────────────────────────────────── */
+.ep-proposer-tree-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-alt);
+  padding: var(--space-2) var(--space-3);
+}
+
+.ep-proposer-tree-toolbar button {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: 2px 8px;
+  color: var(--text);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.ep-tree-dir,
+.ep-tree-file {
+  font-family: var(--sans);
+  line-height: 1.6;
+}
+
+.ep-tree-dir:hover,
+.ep-tree-file:hover {
+  background: var(--surface-alt);
+}
+
+.ep-tree-active {
+  background: var(--accent-bg) !important;
+}
+
+.ep-tree-arrow {
+  color: var(--text-faint);
+}
+
+/* ── Tab bar (open files above the editor) ───────────────────────── */
+.ep-proposer-tabs {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-alt);
+  min-height: 32px;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.ep-proposer-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  border-right: 1px solid var(--border);
+  padding: 6px 12px;
+  color: var(--text);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.ep-proposer-tab-close {
+  color: var(--text-faint);
+  font-size: 0.9rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ep-proposer-tab-close:hover { color: var(--text); }
+
+/* ── Submit-proposal modal inputs ────────────────────────────────── */
+.ep-build-field {
+  margin-bottom: var(--space-3);
+}
+
+.ep-build-label {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--text);
+  font-weight: 600;
+  font-size: 0.8rem;
+}
+
+.ep-build-input {
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  padding: 6px 10px;
+  width: 100%;
+  color: var(--text);
+  font-size: 0.85rem;
+  font-family: var(--sans);
+}
+
+.ep-build-input:focus {
+  outline: none;
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 1px var(--border-focus);
+}
+
+.ep-build-error {
+  margin-top: var(--space-2);
+  color: var(--red);
+  font-size: 0.8rem;
+}
+
+/* ── Changeset summary (inside submit modal) ─────────────────────── */
+.ep-proposer-changeset {
+  margin: var(--space-3) 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-alt);
+  padding: var(--space-3);
+}
+
+.ep-proposer-changeset__header {
+  margin-bottom: var(--space-2);
+  color: var(--text);
+  font-size: 0.8rem;
+}
+
+.ep-proposer-changeset__list {
+  margin: 0;
+  padding-left: var(--space-5);
+  color: var(--text-light);
+  font-size: 0.78rem;
+}
+
+.ep-proposer-changeset__list li code {
+  color: var(--accent-text);
+  font-family: var(--mono);
+}

@@ -4,7 +4,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build"
+    "build": "vite build",
+    "lint:ui": "node scripts/lint-ui-integrity.js",
+    "prebuild": "node scripts/lint-ui-integrity.js || true"
   },
   "devDependencies": {
     "vite": "^6.3.5"

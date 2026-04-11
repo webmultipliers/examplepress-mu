@@ -57,7 +57,6 @@ final class DataProvider
             'system'         => array_merge($base, self::systemData()),
             'docs'           => array_merge($base, self::docsData()),
             'proposer'       => array_merge($base, self::proposerData()),
-            'skills'         => array_merge($base, self::skillsData()),
             default          => $base,
         };
     }
@@ -302,27 +301,28 @@ final class DataProvider
     }
 
     /**
-     * Docs page: guides, hook reference, support resources.
+     * Docs page: unified reference (hooks, resolution, support cards)
+     * plus the agent skill curriculum. The JS side flattens these into
+     * a single sidebar-driven doc browser.
      *
      * @return array<string, mixed>
      */
     private static function docsData(): array
     {
-        return [
-            'docs'  => self::getDocs(),
-            'hooks' => self::getHookReference(),
-        ];
+        return array_merge(
+            [
+                'docs'  => self::getDocs(),
+                'hooks' => self::getHookReference(),
+            ],
+            self::skillsData(),
+        );
     }
 
     /**
-     * Editor page: in-browser code editor for companion plugins.
-     *
-     * @return array<string, mixed>
-     */
-    /**
-     * Skills page: agent skill curriculum browser. Loads each skill
-     * file via SkillRegistry, applies merge tags, and ships the
-     * resolved markdown to the JS bundle for client-side rendering.
+     * Agent skill curriculum: loads each skill file via SkillRegistry,
+     * applies merge tags, and ships the resolved markdown to the JS
+     * bundle for client-side rendering. Called from docsData() — the
+     * former dedicated Skills page was merged into Docs.
      *
      * @return array<string, mixed>
      */

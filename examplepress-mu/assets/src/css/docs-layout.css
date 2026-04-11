@@ -1,37 +1,52 @@
 /*
  * ExamplePress Design System — Docs Layout
- * ep-docs-layout: 3-column layout (nav + content + TOC)
- * Shared by: docs page, skills page
+ *
+ * Three-column docs shell (sidebar nav + markdown content + TOC rail)
+ * shared with the unified Docs page. Class names match what
+ * docs/main.js actually emits — not BEM-style modifiers.
  */
 
+/* ── Root grid ───────────────────────────────────────────────────── */
 .ep-docs-layout {
   display: grid;
-  grid-template-columns: 220px 1fr 180px;
+  grid-template-columns: 240px 1fr 200px;
   gap: 0;
-  min-height: 100%;
+  min-height: 600px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  overflow: hidden;
 }
 
 .ep-docs-layout__nav {
   border-right: 1px solid var(--border);
   background: var(--surface-alt);
-  padding: 1.25rem;
+  padding: var(--space-4);
   overflow-y: auto;
+  max-height: 80vh;
 }
 
 .ep-docs-layout__content {
-  padding: 1.75rem 2rem;
+  padding: var(--space-6) var(--space-7);
   min-width: 0;
   overflow-y: auto;
+  max-height: 80vh;
 }
 
 .ep-docs-layout__toc {
   border-left: 1px solid var(--border);
-  padding: 1.25rem;
+  background: var(--surface);
+  padding: var(--space-4);
   overflow-y: auto;
+  max-height: 80vh;
+}
+
+.ep-docs-layout__toc.is-empty {
+  display: none;
 }
 
 .ep-docs-layout__toc-label {
-  margin-bottom: 0.75rem;
+  margin-bottom: var(--space-3);
   color: var(--text-faint);
   font-weight: 600;
   font-size: 0.7rem;
@@ -40,54 +55,286 @@
 }
 
 .ep-docs-layout__toc-list {
+  margin: 0;
+  padding: 0;
   list-style: none;
 }
 
-.ep-docs-layout__toc-list a {
-  display: block;
-  padding: 0.25rem 0;
-  color: var(--text-faint);
-  font-size: 0.8rem;
-  text-decoration: none;
+/* ── Sidebar search (reuses ep-search base) ──────────────────────── */
+.ep-docs-layout__nav .ep-search {
+  margin-bottom: var(--space-4);
 }
 
-.ep-docs-layout__toc-list a:hover,
-.ep-docs-layout__toc-list a.active {
-  color: var(--accent-text);
+/* ── Sidebar nav groups ──────────────────────────────────────────── */
+.ep-docs-nav-group {
+  margin-bottom: var(--space-4);
 }
 
-/* Nav groups */
-.ep-docs-layout__nav-group {
-  margin-bottom: 1.25rem;
-}
-
-.ep-docs-layout__nav-group-title {
-  margin-bottom: 0.5rem;
+.ep-docs-nav-group-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
   color: var(--text-faint);
   font-weight: 600;
   font-size: 0.7rem;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
-.ep-docs-layout__nav-item {
+.ep-docs-nav-group-icon {
+  font-size: 0.9rem;
+}
+
+.ep-docs-nav-item {
   display: block;
-  padding: 0.3rem 0.5rem;
+  width: 100%;
+  margin: 0;
+  border: none;
   border-radius: var(--radius-sm);
+  background: none;
+  padding: 4px 8px;
   color: var(--text-light);
-  font-size: 0.85rem;
-  text-decoration: none;
+  text-align: left;
+  font-size: 0.82rem;
+  font-family: var(--sans);
   cursor: pointer;
 }
 
-.ep-docs-layout__nav-item:hover {
+.ep-docs-nav-item:hover {
   background: rgba(0, 0, 0, 0.03);
   color: var(--text);
-  text-decoration: none;
 }
 
-.ep-docs-layout__nav-item.active {
+.ep-docs-nav-item.is-active {
   background: var(--accent-bg);
   color: var(--accent-text);
-  font-weight: 500;
+  font-weight: 600;
+}
+
+.ep-docs-nav-title {
+  display: block;
+}
+
+/* ── Breadcrumb (group › title above the article) ────────────────── */
+.ep-docs-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+  color: var(--text-faint);
+  font-size: 0.75rem;
+  font-family: var(--mono);
+}
+
+.ep-docs-breadcrumb-sep {
+  color: var(--text-faint);
+}
+
+.ep-docs-breadcrumb-skill {
+  color: var(--text);
+}
+
+/* ── Rendered markdown article ───────────────────────────────────── */
+.ep-docs-article {
+  color: var(--text);
+  font-size: 0.9rem;
+  line-height: 1.65;
+}
+
+.ep-docs-article h1,
+.ep-docs-article h2,
+.ep-docs-article h3,
+.ep-docs-article h4 {
+  margin: 1.5em 0 0.5em;
+  color: var(--text);
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.ep-docs-article h1 { font-size: 1.65rem; margin-top: 0; }
+.ep-docs-article h2 { font-size: 1.25rem; }
+.ep-docs-article h3 { font-size: 1.05rem; }
+.ep-docs-article h4 { font-size: 0.95rem; }
+
+.ep-docs-article p,
+.ep-docs-article ul,
+.ep-docs-article ol {
+  margin: 0 0 1em;
+}
+
+.ep-docs-article ul,
+.ep-docs-article ol {
+  padding-left: 1.4em;
+}
+
+.ep-docs-article li + li {
+  margin-top: 0.25em;
+}
+
+.ep-docs-article a {
+  color: var(--accent-text);
+  text-decoration: underline;
+}
+
+.ep-docs-article code {
+  border-radius: var(--radius-sm);
+  background: var(--surface-alt);
+  padding: 1px 5px;
+  font-size: 0.85em;
+  font-family: var(--mono);
+}
+
+.ep-docs-article pre code {
+  border-radius: 0;
+  background: none;
+  padding: 0;
+}
+
+.ep-docs-article table {
+  display: block;
+  border-collapse: collapse;
+  margin: 0 0 1em;
+  width: 100%;
+  font-size: 0.85rem;
+  overflow-x: auto;
+}
+
+.ep-docs-article th,
+.ep-docs-article td {
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  text-align: left;
+}
+
+.ep-docs-article th {
+  background: var(--surface-alt);
+  font-weight: 600;
+}
+
+.ep-docs-article blockquote {
+  margin: 0 0 1em;
+  border-left: 3px solid var(--border);
+  padding: 0.25em 1em;
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+/* ── Heading anchors (#) ─────────────────────────────────────────── */
+.ep-heading-anchor {
+  margin-left: 6px;
+  opacity: 0;
+  color: var(--text-faint);
+  text-decoration: none;
+  transition: opacity 120ms var(--ease);
+}
+
+.ep-docs-article h1:hover .ep-heading-anchor,
+.ep-docs-article h2:hover .ep-heading-anchor,
+.ep-docs-article h3:hover .ep-heading-anchor,
+.ep-docs-article h4:hover .ep-heading-anchor {
+  opacity: 1;
+}
+
+/* ── Code block chrome (lang label + copy button) ───────────────── */
+.ep-docs-article .ep-code-block {
+  margin: 0 0 1em;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-alt);
+  overflow: hidden;
+}
+
+.ep-code-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  padding: 4px 10px;
+}
+
+.ep-code-lang {
+  color: var(--text-faint);
+  font-size: 0.7rem;
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.ep-code-copy {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: 2px 8px;
+  color: var(--text-light);
+  font-size: 0.7rem;
+  font-family: var(--sans);
+  cursor: pointer;
+}
+
+.ep-code-copy:hover { color: var(--text); }
+.ep-code-copy.is-copied { color: var(--green); }
+
+.ep-docs-article .ep-code-block pre {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  overflow-x: auto;
+  font-size: 0.8rem;
+  font-family: var(--mono);
+  line-height: 1.5;
+}
+
+/* ── Table of contents rail ──────────────────────────────────────── */
+.ep-docs-toc-item {
+  list-style: none;
+  margin: 0;
+}
+
+.ep-docs-toc-item.is-h1 .ep-docs-toc-link,
+.ep-docs-toc-item.is-h2 .ep-docs-toc-link {
+  padding-left: 0;
+}
+.ep-docs-toc-item.is-h3 .ep-docs-toc-link { padding-left: 12px; }
+.ep-docs-toc-item.is-h4 .ep-docs-toc-link { padding-left: 24px; }
+
+.ep-docs-toc-link {
+  display: block;
+  padding: 3px 0;
+  color: var(--text-faint);
+  font-size: 0.78rem;
+  text-decoration: none;
+  line-height: 1.35;
+}
+
+.ep-docs-toc-link:hover,
+.ep-docs-toc-link.is-active {
+  color: var(--accent-text);
+}
+
+.ep-docs-toc-link.is-active {
+  font-weight: 600;
+}
+
+/* ── Empty state ─────────────────────────────────────────────────── */
+.ep-docs-empty {
+  padding: var(--space-6);
+  color: var(--text-faint);
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+/* ── Responsive collapse ─────────────────────────────────────────── */
+@media (max-width: 1100px) {
+  .ep-docs-layout { grid-template-columns: 220px 1fr; }
+  .ep-docs-layout__toc { display: none; }
+}
+
+@media (max-width: 780px) {
+  .ep-docs-layout { grid-template-columns: 1fr; }
+  .ep-docs-layout__nav {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    max-height: 260px;
+  }
 }

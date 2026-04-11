@@ -24,8 +24,11 @@ if (!defined('ABSPATH')) exit;
 				<div class="ep-stat-grid" id="health-summary"></div>
 			</section>
 			<section class="ep-section">
-				<div class="ep-datatable__search">
-					<input type="text" id="ep-health-search" placeholder="Search health checks..." aria-label="Search health checks" />
+				<div class="ep-toolbar ep-toolbar--between">
+					<div class="ep-datatable__search">
+						<input type="text" id="ep-health-search" placeholder="Search health checks..." aria-label="Search health checks" />
+					</div>
+					<button type="button" class="ep-btn ep-btn--secondary" id="ep-copy-report" title="Copy the full ExamplePress data payload as JSON for support diagnostics">Copy System Report</button>
 				</div>
 			</section>
 			<section class="ep-section ep-section--collapsible" data-health-section="env">
