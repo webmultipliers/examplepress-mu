@@ -98,12 +98,24 @@ final class DataProvider
         foreach ($apps as &$app) {
             $destroyNonces[$app['slug']] = wp_create_nonce('ep_destroy_' . $app['slug']);
 
-            $manifestPath = WP_PLUGIN_DIR . '/' . $app['slug'] . '/examplepress.json';
-            $supports = false;
-            if (is_readable($manifestPath)) {
-                $manifest = json_decode((string) file_get_contents($manifestPath), true);
-                if (is_array($manifest) && !empty($manifest['supports_ai_iteration'])) {
-                    $supports = true;
+            // Use the on-disk directory name ($app['id']), NOT the
+            // manifest-declared slug. An app whose manifest slug differs
+            // from its directory name would otherwise silently fail the
+            // is_readable() check and flip supports_ai_iteration to
+            // false for no reason. Same correctness bug we fixed in
+            // DependencyManager.
+            $pluginDirName = (string) ($app['id'] ?? '');
+            $supports      = false;
+            if ($pluginDirName !== ''
+                && \ExamplePress\MU\Infrastructure\Helpers::isSafeRelativePath($pluginDirName)
+                && !str_contains($pluginDirName, '/')
+            ) {
+                $manifestPath = WP_PLUGIN_DIR . '/' . $pluginDirName . '/examplepress.json';
+                if (is_readable($manifestPath)) {
+                    $manifest = json_decode((string) file_get_contents($manifestPath), true);
+                    if (is_array($manifest) && !empty($manifest['supports_ai_iteration'])) {
+                        $supports = true;
+                    }
                 }
             }
             $app['supports_ai_iteration'] = $supports;

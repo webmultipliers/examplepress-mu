@@ -40,7 +40,7 @@ final class CliCommand
      */
     public function init(array $args, array $assocArgs): void
     {
-        // CRITICAL FIX: Write to CWD, not the theme folder.
+        // Write to CWD, not the theme folder.
         $cwd = getcwd();
         if (!$cwd) {
             \WP_CLI::error('Could not determine the current working directory.');
@@ -54,18 +54,36 @@ final class CliCommand
             return;
         }
 
+        // Derive name + slug from the directory name. The slug must match
+        // AppValidator's /^[a-z0-9-]+$/ pattern — route it through
+        // sanitize_title so an uppercase or spaced directory name
+        // ("My App") doesn't produce a manifest that fails validation
+        // on the first scan.
+        $dirName = basename($cwd);
+        $slug    = function_exists('sanitize_title') ? sanitize_title($dirName) : strtolower(preg_replace('/[^a-z0-9-]+/i', '-', $dirName));
+        if ($slug === '') {
+            \WP_CLI::error('Could not derive a valid slug from the directory name. Pass an explicit --slug or rename the directory.');
+            return;
+        }
+
         // App-specific boilerplate only — no design/feature boilerplate.
+        // The $schema key points at the app manifest schema shipped by
+        // the kernel. The relative path is resolved by IDEs that load
+        // json-schema references from the containing file's directory
+        // (VS Code, PhpStorm) — for apps installed under wp-content/plugins
+        // it won't actually resolve, but it's the canonical URL to migrate
+        // to once the schema is published publicly.
         $config = [
-            '$schema'  => 'https://www.examplepress.com/schema/app',
-            'name'     => basename($cwd),
-            'slug'     => basename($cwd),
-            'description' => 'An ExamplePress companion plugin.',
-            'version'  => '0.1.0',
-            'routing'  => [
+            '$schema'      => 'https://www.examplepress.com/schema/examplepress-app',
+            'name'         => $dirName,
+            'slug'         => $slug,
+            'description'  => 'An ExamplePress companion plugin.',
+            'version'      => '0.1.0',
+            'routing'      => [
                 'priority' => 10,
                 'routes'   => [],
             ],
-            'troy'     => [
+            'troy'         => [
                 'server_url' => '',
                 'repo'       => '',
                 'repo_id'    => '',
@@ -73,10 +91,17 @@ final class CliCommand
             'dependencies' => [],
         ];
 
-        file_put_contents(
-            $path,
-            wp_json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n"
-        );
+        $json = wp_json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        if ($json === false) {
+            \WP_CLI::error('Could not encode the manifest as JSON: ' . json_last_error_msg());
+            return;
+        }
+
+        $bytes = @file_put_contents($path, $json . "\n");
+        if ($bytes === false) {
+            \WP_CLI::error("Could not write examplepress.json to {$path}. Check directory permissions.");
+            return;
+        }
 
         \WP_CLI::success("Generated examplepress.json at {$path}");
     }

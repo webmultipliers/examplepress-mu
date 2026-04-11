@@ -997,27 +997,45 @@ final class GitHub
 
     /**
      * Merge Troy registration data into the plugin's examplepress.json.
+     *
+     * This is a write primitive — it overwrites an existing JSON file
+     * under WP_PLUGIN_DIR using $slug as a path segment. Callers that
+     * reach this method via the REST layer have their slug validated
+     * up front, but the method is public and could be called from
+     * WP-CLI or other trusted-but-unvalidating contexts, so we gate
+     * here as defense in depth.
      */
     public static function updateAppTroyData(string $slug, array $troyData): bool
     {
+        if (!Helpers::isSafeRelativePath($slug) || str_contains($slug, '/')) {
+            return false;
+        }
+
         $json_path = WP_PLUGIN_DIR . '/' . $slug . '/examplepress.json';
 
         if (!file_exists($json_path)) {
             return false;
         }
 
-        $config = json_decode(file_get_contents($json_path), true);
+        $raw = @file_get_contents($json_path);
+        if (!is_string($raw)) {
+            return false;
+        }
+        $config = json_decode($raw, true);
 
         if (!is_array($config)) {
             return false;
         }
 
-        $config['troy'] = array_merge($config['troy'] ?? [], $troyData);
+        $existingTroy    = is_array($config['troy'] ?? null) ? $config['troy'] : [];
+        $config['troy']  = array_merge($existingTroy, $troyData);
 
-        return (bool) file_put_contents(
-            $json_path,
-            wp_json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n"
-        );
+        $encoded = wp_json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        if ($encoded === false) {
+            return false;
+        }
+
+        return (bool) @file_put_contents($json_path, $encoded . "\n");
     }
 
     // ── File Collection ────────────────────────────────────────────

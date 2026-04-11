@@ -32,9 +32,15 @@ final class PageController
      */
     public static function render(): void
     {
-        $isDev = defined('EP_DEV_MODE') && EP_DEV_MODE;
+        $isDev  = defined('EP_DEV_MODE') && EP_DEV_MODE;
         $pageId = self::resolveCurrentPageId();
-        $template = __DIR__ . '/Templates/' . $pageId . '.php';
+
+        // Resolve the template path through a whitelist + realpath check.
+        // Without this, a crafted ?page= value could walk out of the
+        // Templates directory ("examplepress-../../../../wp-config") and
+        // include() arbitrary PHP files. Admin precondition required but
+        // still a capability-escalation footgun.
+        $template = self::resolveTemplatePath($pageId);
 
         ?>
         <div class="ep-page">
@@ -44,7 +50,7 @@ final class PageController
 
                 <div class="ep-page__body">
                     <?php
-                    if (file_exists($template)) {
+                    if ($template !== null) {
                         include $template;
                     } else {
                         echo '<div id="examplepress-app" data-page="' . esc_attr($pageId) . '"></div>';
@@ -58,6 +64,48 @@ final class PageController
 
         </div>
         <?php
+    }
+
+    /**
+     * Resolve the safe absolute path to a page template, or null if
+     * none exists OR the request is trying to escape the Templates
+     * directory. Three guards:
+     *
+     *   1. Format check — page ID must match /^[a-z0-9-]+$/. This is
+     *      the same shape admin slugs already use, so legitimate pages
+     *      always pass.
+     *   2. Directory containment — the realpath of the resolved file
+     *      must start with the realpath of the Templates directory.
+     *      Closes any edge case the format check misses (e.g. symlinks).
+     *   3. File existence check.
+     */
+    private static function resolveTemplatePath(string $pageId): ?string
+    {
+        if ($pageId === '' || !preg_match('/^[a-z0-9-]+$/', $pageId)) {
+            return null;
+        }
+
+        $templatesDir = __DIR__ . '/Templates';
+        $candidate    = $templatesDir . '/' . $pageId . '.php';
+
+        if (!file_exists($candidate)) {
+            return null;
+        }
+
+        $realBase = realpath($templatesDir);
+        $realFile = realpath($candidate);
+        if ($realBase === false || $realFile === false) {
+            return null;
+        }
+
+        // The candidate MUST be inside the templates directory. The
+        // trailing separator prevents a prefix-only match (e.g. a
+        // sibling directory that happens to start with the same path).
+        if (!str_starts_with($realFile, $realBase . DIRECTORY_SEPARATOR)) {
+            return null;
+        }
+
+        return $realFile;
     }
 
     /**
