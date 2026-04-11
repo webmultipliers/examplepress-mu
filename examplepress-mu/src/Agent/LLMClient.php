@@ -45,10 +45,7 @@ final class LLMClient
     {
         $system = self::systemPrompt(['mode' => 'iterate', 'manifest' => $manifest]);
 
-        $tree = '';
-        foreach ($repoFiles as $f) {
-            $tree .= "\n\n--- FILE: {$f['path']} ---\n{$f['contents']}";
-        }
+        $tree = self::buildFileTreeString($repoFiles);
 
         $user = "Here is the current app codebase:\n{$tree}\n\nApply the following change and return the COMPLETE updated file tree:\n\n{$prompt}";
 
@@ -77,10 +74,7 @@ final class LLMClient
             'error_context' => $errorContext,
         ]);
 
-        $tree = '';
-        foreach ($repoFiles as $f) {
-            $tree .= "\n\n--- FILE: {$f['path']} ---\n{$f['contents']}";
-        }
+        $tree = self::buildFileTreeString($repoFiles);
 
         // Build a structured error block. Optional fields (file, line,
         // stack trace) are only included when present so the LLM
@@ -125,6 +119,32 @@ final class LLMClient
             return 'No API key configured.';
         }
         return null;
+    }
+
+    /**
+     * Build a newline-delimited file-tree string for the iterate/repair
+     * prompt. Guards each entry so a malformed file record (e.g. from a
+     * hostile `examplepress_mu_discovered_apps` filter or a drifted
+     * GitHub::fetchRepoTree response) can't trigger PHP 8 warnings on
+     * array offset access.
+     *
+     * @param array<int,array{path:string,contents:string}> $repoFiles
+     */
+    private static function buildFileTreeString(array $repoFiles): string
+    {
+        $tree = '';
+        foreach ($repoFiles as $f) {
+            if (!is_array($f)) {
+                continue;
+            }
+            $path     = (string) ($f['path'] ?? '');
+            $contents = (string) ($f['contents'] ?? '');
+            if ($path === '') {
+                continue;
+            }
+            $tree .= "\n\n--- FILE: {$path} ---\n{$contents}";
+        }
+        return $tree;
     }
 
     /**

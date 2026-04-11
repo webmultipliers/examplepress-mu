@@ -133,7 +133,7 @@ final class RepoController
     public static function tree(\WP_REST_Request $request): \WP_REST_Response|\WP_Error
     {
         $slug = $request->get_param('slug');
-        $ref  = $request->get_param('ref');
+        $ref  = (string) $request->get_param('ref');
 
         $resolved = self::resolveRepo($slug);
 
@@ -148,8 +148,12 @@ final class RepoController
             return new \WP_Error('no_token', 'No GitHub read token available.', ['status' => 500]);
         }
 
+        // Encode the ref segment. sanitize_text_field permits characters
+        // that would corrupt the URL if interpolated raw (`?`, `#`, `&`).
+        $encodedRef = rawurlencode($ref);
+
         $response = wp_remote_get(
-            "https://api.github.com/repos/{$ownerRepo}/git/trees/{$ref}?recursive=1",
+            "https://api.github.com/repos/{$ownerRepo}/git/trees/{$encodedRef}?recursive=1",
             [
                 'headers' => [
                     'Authorization' => "Bearer {$token}",
@@ -180,8 +184,16 @@ final class RepoController
     public static function file(\WP_REST_Request $request): \WP_REST_Response|\WP_Error
     {
         $slug = $request->get_param('slug');
-        $ref  = $request->get_param('ref');
-        $path = $request->get_param('path');
+        $ref  = (string) $request->get_param('ref');
+        $path = (string) $request->get_param('path');
+
+        // Reject obvious path traversal. GitHub's Contents API will
+        // happily serve the same file via a relative path, but allowing
+        // `..` lets a caller side-step intent — e.g. reading a file
+        // that the proposer UI wasn't meant to show.
+        if (!\ExamplePress\MU\Infrastructure\Helpers::isSafeRelativePath($path)) {
+            return new \WP_Error('unsafe_path', 'Path must be a repository-relative path without traversal.', ['status' => 400]);
+        }
 
         $resolved = self::resolveRepo($slug);
 
@@ -196,8 +208,15 @@ final class RepoController
             return new \WP_Error('no_token', 'No GitHub read token available.', ['status' => 500]);
         }
 
+        // URL-encode each path segment AND the ref. sanitize_text_field
+        // permits characters that would corrupt the URL if interpolated
+        // raw (`?`, `#`, `&`). Encoding per-segment preserves `/` as a
+        // path delimiter, which the Contents API expects.
+        $encodedPath = implode('/', array_map('rawurlencode', explode('/', $path)));
+        $encodedRef  = rawurlencode($ref);
+
         $response = wp_remote_get(
-            "https://api.github.com/repos/{$ownerRepo}/contents/{$path}?ref={$ref}",
+            "https://api.github.com/repos/{$ownerRepo}/contents/{$encodedPath}?ref={$encodedRef}",
             [
                 'headers' => [
                     'Authorization' => "Bearer {$token}",
@@ -369,6 +388,13 @@ final class RepoController
      */
     private static function resolveRepo(string $slug): array|\WP_Error
     {
+        // Defense in depth: the REST layer validates slug against
+        // /^[a-z0-9-]+$/ but this method is private, could be reached
+        // from a non-REST caller in the future.
+        if (!\ExamplePress\MU\Infrastructure\Helpers::isSafeRelativePath($slug) || str_contains($slug, '/')) {
+            return new \WP_Error('unsafe_slug', 'Slug is not a safe directory name.', ['status' => 400]);
+        }
+
         $json_path = WP_PLUGIN_DIR . '/' . $slug . '/examplepress.json';
 
         if (!file_exists($json_path)) {

@@ -10,9 +10,85 @@ namespace ExamplePress\MU\Infrastructure;
  */
 final class AppRegistry
 {
+    // ── Per-post advisory lock ─────────────────────────────────────
+    //
+    // Several methods in this class do read-modify-write cycles on a
+    // single post's meta (history append, log append, stash+history).
+    // Two concurrent Action Scheduler workers, or a cron tick racing
+    // a user-initiated commit, can interleave between the read and the
+    // write and silently lose one side's update.
+    //
+    // We close the window with an advisory lock keyed per-post so
+    // writes to different posts don't serialise unnecessarily. The
+    // lock is backed by add_option()'s atomic compare-and-swap (via
+    // the UNIQUE index on wp_options.option_name) and recovers from
+    // stale locks older than POST_META_LOCK_MAX_AGE seconds. Nested
+    // calls within the same process are re-entrant via the static
+    // $heldPostMetaLocks map.
+
+    private const POST_META_LOCK_PREFIX   = 'ep_app_post_meta_lock_';
+    private const POST_META_LOCK_MAX_AGE  = 15;
+    private const POST_META_LOCK_ATTEMPTS = 5;
+
+    /** @var array<int,bool> Per-post re-entrance flags. */
+    private static array $heldPostMetaLocks = [];
+
     public static function init(): void
     {
         add_action('init', [self::class, 'registerCpt']);
+    }
+
+    /**
+     * Run a callable while holding the per-post meta lock. Callers that
+     * need to atomically read-modify-write meta on a single post should
+     * wrap the whole sequence in this helper.
+     *
+     * @template T
+     * @param int          $postId
+     * @param callable():T $fn
+     * @return T
+     */
+    private static function withPostMetaLock(int $postId, callable $fn): mixed
+    {
+        if ($postId <= 0) {
+            return $fn();
+        }
+        if (isset(self::$heldPostMetaLocks[$postId])) {
+            // Re-entrant call from the same process — proceed directly.
+            return $fn();
+        }
+
+        $lockKey = self::POST_META_LOCK_PREFIX . $postId;
+
+        for ($attempt = 0; $attempt < self::POST_META_LOCK_ATTEMPTS; $attempt++) {
+            $now = time();
+
+            if (add_option($lockKey, (string) $now, '', 'no')) {
+                self::$heldPostMetaLocks[$postId] = true;
+                try {
+                    return $fn();
+                } finally {
+                    unset(self::$heldPostMetaLocks[$postId]);
+                    delete_option($lockKey);
+                }
+            }
+
+            // Existing lock — check for staleness (orphaned from a dead process).
+            $existing = (int) get_option($lockKey, 0);
+            if ($existing > 0 && ($now - $existing) > self::POST_META_LOCK_MAX_AGE) {
+                delete_option($lockKey);
+                continue;
+            }
+
+            usleep(20000 * ($attempt + 1));
+        }
+
+        error_log(sprintf(
+            '[ExamplePress AppRegistry] Could not acquire post meta lock for post %d after %d attempts — proceeding unlocked.',
+            $postId,
+            self::POST_META_LOCK_ATTEMPTS
+        ));
+        return $fn();
     }
 
     public static function registerCpt(): void
@@ -329,29 +405,31 @@ final class AppRegistry
         $manifest = is_array($payload['manifest'] ?? null) ? $payload['manifest'] : [];
         $name = (string) ($manifest['name'] ?? $realSlug);
 
-        wp_update_post([
-            'ID'         => $post->ID,
-            'post_title' => $name,
-            'post_name'  => $realSlug,
-        ]);
+        return self::withPostMetaLock((int) $post->ID, static function () use ($post, $realSlug, $name, $manifest, $payload, $jobMeta, $jobId): bool {
+            wp_update_post([
+                'ID'         => $post->ID,
+                'post_title' => $name,
+                'post_name'  => $realSlug,
+            ]);
 
-        update_post_meta($post->ID, '_ep_plugin_slug', $realSlug);
-        update_post_meta($post->ID, '_ep_description', (string) ($manifest['description'] ?? ''));
-        update_post_meta($post->ID, '_ep_version', (string) ($manifest['version'] ?? '1.0.0'));
+            update_post_meta($post->ID, '_ep_plugin_slug', $realSlug);
+            update_post_meta($post->ID, '_ep_description', (string) ($manifest['description'] ?? ''));
+            update_post_meta($post->ID, '_ep_version', (string) ($manifest['version'] ?? '1.0.0'));
 
-        $ok = self::writePayloadMeta($post->ID, $payload);
-        if (!$ok) {
-            return false;
-        }
+            $ok = self::writePayloadMeta($post->ID, $payload);
+            if (!$ok) {
+                return false;
+            }
 
-        update_post_meta($post->ID, self::META_DRAFT_STATUS, 'review');
-        update_post_meta($post->ID, self::META_DRAFT_UPDATED_AT, (int) time());
+            update_post_meta($post->ID, self::META_DRAFT_STATUS, 'review');
+            update_post_meta($post->ID, self::META_DRAFT_UPDATED_AT, (int) time());
 
-        $history = self::getDraftHistory($realSlug);
-        $history[] = self::buildHistoryEntry(array_merge($jobMeta, ['job_id' => $jobId]), 'drafted');
-        update_post_meta($post->ID, self::META_DRAFT_HISTORY, wp_json_encode($history));
+            $history = self::getDraftHistory($realSlug);
+            $history[] = self::buildHistoryEntry(array_merge($jobMeta, ['job_id' => $jobId]), 'drafted');
+            update_post_meta($post->ID, self::META_DRAFT_HISTORY, wp_json_encode($history));
 
-        return true;
+            return true;
+        });
     }
 
     /**
@@ -365,17 +443,19 @@ final class AppRegistry
         if (!$post) {
             return false;
         }
-        update_post_meta($post->ID, self::META_DRAFT_STATUS, $status);
-        update_post_meta($post->ID, self::META_DRAFT_UPDATED_AT, (int) time());
-        $prompt = (string) ($jobMeta['prompt'] ?? '');
-        if ($prompt !== '') {
-            update_post_meta($post->ID, self::META_DRAFT_PROMPT, $prompt);
-        }
+        return self::withPostMetaLock((int) $post->ID, static function () use ($post, $slug, $status, $jobMeta): bool {
+            update_post_meta($post->ID, self::META_DRAFT_STATUS, $status);
+            update_post_meta($post->ID, self::META_DRAFT_UPDATED_AT, (int) time());
+            $prompt = (string) ($jobMeta['prompt'] ?? '');
+            if ($prompt !== '') {
+                update_post_meta($post->ID, self::META_DRAFT_PROMPT, $prompt);
+            }
 
-        $history = self::getDraftHistory($slug);
-        $history[] = self::buildHistoryEntry($jobMeta, $status);
-        update_post_meta($post->ID, self::META_DRAFT_HISTORY, wp_json_encode($history));
-        return true;
+            $history = self::getDraftHistory($slug);
+            $history[] = self::buildHistoryEntry($jobMeta, $status);
+            update_post_meta($post->ID, self::META_DRAFT_HISTORY, wp_json_encode($history));
+            return true;
+        });
     }
 
     /**
@@ -442,19 +522,21 @@ final class AppRegistry
             return false;
         }
 
-        $ok = self::writePayloadMeta($post->ID, $payload);
-        if (!$ok) {
-            return false;
-        }
+        return self::withPostMetaLock((int) $post->ID, static function () use ($post, $slug, $payload, $jobMeta): bool {
+            $ok = self::writePayloadMeta($post->ID, $payload);
+            if (!$ok) {
+                return false;
+            }
 
-        update_post_meta($post->ID, self::META_DRAFT_STATUS, 'review');
-        update_post_meta($post->ID, self::META_DRAFT_UPDATED_AT, (int) time());
+            update_post_meta($post->ID, self::META_DRAFT_STATUS, 'review');
+            update_post_meta($post->ID, self::META_DRAFT_UPDATED_AT, (int) time());
 
-        $history = self::getDraftHistory($slug);
-        $history[] = self::buildHistoryEntry($jobMeta, 'drafted');
-        update_post_meta($post->ID, self::META_DRAFT_HISTORY, wp_json_encode($history));
+            $history = self::getDraftHistory($slug);
+            $history[] = self::buildHistoryEntry($jobMeta, 'drafted');
+            update_post_meta($post->ID, self::META_DRAFT_HISTORY, wp_json_encode($history));
 
-        return true;
+            return true;
+        });
     }
 
     /**
@@ -534,38 +616,40 @@ final class AppRegistry
             return false;
         }
 
-        $updateArgs = ['ID' => $post->ID];
-        if ($post->post_status !== 'publish') {
-            $updateArgs['post_status'] = 'publish';
-        }
-        if (count($updateArgs) > 1) {
-            wp_update_post($updateArgs);
-        }
+        return self::withPostMetaLock((int) $post->ID, static function () use ($post, $slug, $githubData, $jobMeta): bool {
+            $updateArgs = ['ID' => $post->ID];
+            if ($post->post_status !== 'publish') {
+                $updateArgs['post_status'] = 'publish';
+            }
+            if (count($updateArgs) > 1) {
+                wp_update_post($updateArgs);
+            }
 
-        // Pull the version from the stashed payload before clearing it.
-        $payload = self::getDraftPayload($slug) ?? [];
-        if (!empty($payload['manifest']['version'])) {
-            update_post_meta($post->ID, '_ep_version', (string) $payload['manifest']['version']);
-        }
+            // Pull the version from the stashed payload before clearing it.
+            $payload = self::getDraftPayload($slug) ?? [];
+            if (!empty($payload['manifest']['version'])) {
+                update_post_meta($post->ID, '_ep_version', (string) $payload['manifest']['version']);
+            }
 
-        // Stamp GitHub coords.
-        if (!empty($githubData['owner_repo'])) {
-            update_post_meta($post->ID, '_ep_github_owner_repo', (string) $githubData['owner_repo']);
-        }
-        if (isset($githubData['repo_id'])) {
-            update_post_meta($post->ID, '_ep_github_repo_id', (string) $githubData['repo_id']);
-        }
-        if (!empty($githubData['html_url'])) {
-            update_post_meta($post->ID, '_ep_github_html_url', (string) $githubData['html_url']);
-        }
+            // Stamp GitHub coords.
+            if (!empty($githubData['owner_repo'])) {
+                update_post_meta($post->ID, '_ep_github_owner_repo', (string) $githubData['owner_repo']);
+            }
+            if (isset($githubData['repo_id'])) {
+                update_post_meta($post->ID, '_ep_github_repo_id', (string) $githubData['repo_id']);
+            }
+            if (!empty($githubData['html_url'])) {
+                update_post_meta($post->ID, '_ep_github_html_url', (string) $githubData['html_url']);
+            }
 
-        // Append a history entry recording the push BEFORE we clear the payload.
-        $history = self::getDraftHistory($slug);
-        $history[] = self::buildHistoryEntry($jobMeta, 'pushed');
-        update_post_meta($post->ID, self::META_DRAFT_HISTORY, wp_json_encode($history));
+            // Append a history entry recording the push BEFORE we clear the payload.
+            $history = self::getDraftHistory($slug);
+            $history[] = self::buildHistoryEntry($jobMeta, 'pushed');
+            update_post_meta($post->ID, self::META_DRAFT_HISTORY, wp_json_encode($history));
 
-        self::clearDraftPayload($slug);
-        return true;
+            self::clearDraftPayload($slug);
+            return true;
+        });
     }
 
     /**
@@ -602,17 +686,19 @@ final class AppRegistry
         if (!$post) {
             return false;
         }
-        update_post_meta($post->ID, self::META_DRAFT_STATUS, 'failed');
-        update_post_meta($post->ID, self::META_DRAFT_ERRORS, wp_json_encode(array_values($errors)));
-        update_post_meta($post->ID, self::META_DRAFT_UPDATED_AT, (int) time());
+        return self::withPostMetaLock((int) $post->ID, static function () use ($post, $slug, $errors, $jobMeta): bool {
+            update_post_meta($post->ID, self::META_DRAFT_STATUS, 'failed');
+            update_post_meta($post->ID, self::META_DRAFT_ERRORS, wp_json_encode(array_values($errors)));
+            update_post_meta($post->ID, self::META_DRAFT_UPDATED_AT, (int) time());
 
-        $history = self::getDraftHistory($slug);
-        $entry = self::buildHistoryEntry($jobMeta, 'failed');
-        $entry['errors'] = array_values($errors);
-        $history[] = $entry;
-        update_post_meta($post->ID, self::META_DRAFT_HISTORY, wp_json_encode($history));
+            $history = self::getDraftHistory($slug);
+            $entry = self::buildHistoryEntry($jobMeta, 'failed');
+            $entry['errors'] = array_values($errors);
+            $history[] = $entry;
+            update_post_meta($post->ID, self::META_DRAFT_HISTORY, wp_json_encode($history));
 
-        return true;
+            return true;
+        });
     }
 
     /**
@@ -626,17 +712,22 @@ final class AppRegistry
         if (!$post) {
             return;
         }
-        $raw = (string) get_post_meta($post->ID, self::META_DRAFT_LOG, true);
-        $log = $raw !== '' ? (json_decode($raw, true) ?: []) : [];
-        $log[] = [
-            'ts'  => time(),
-            'msg' => $message,
-        ];
-        // Cap at 50 entries so the meta doesn't bloat.
-        if (count($log) > 50) {
-            $log = array_slice($log, -50);
-        }
-        update_post_meta($post->ID, self::META_DRAFT_LOG, wp_json_encode($log));
+        self::withPostMetaLock((int) $post->ID, static function () use ($post, $message): void {
+            $raw = (string) get_post_meta($post->ID, self::META_DRAFT_LOG, true);
+            $log = $raw !== '' ? (json_decode($raw, true) ?: []) : [];
+            if (!is_array($log)) {
+                $log = [];
+            }
+            $log[] = [
+                'ts'  => time(),
+                'msg' => $message,
+            ];
+            // Cap at 50 entries so the meta doesn't bloat.
+            if (count($log) > 50) {
+                $log = array_slice($log, -50);
+            }
+            update_post_meta($post->ID, self::META_DRAFT_LOG, wp_json_encode($log));
+        });
     }
 
     /**
@@ -909,10 +1000,26 @@ final class AppRegistry
      */
     public static function destroy(string $slug): array
     {
-        $record = self::get($slug);
         $deleted = [];
         $failed = [];
         $warnings = [];
+
+        // Defense in depth: the REST layer validates slug against
+        // /^[a-z0-9-]+$/ before we get here, but AppRegistry::destroy
+        // is a public API that could be called from WP-CLI, a test, or
+        // a future admin handler that forgets to validate. A traversal
+        // in $slug would mean the filesystem deletion below wipes out
+        // a neighboring plugin directory. Refuse the call on anything
+        // that fails Helpers::isSafeRelativePath.
+        if (!Helpers::isSafeRelativePath($slug) || str_contains($slug, '/')) {
+            return [
+                'deleted'  => [],
+                'failed'   => ['local', 'github', 'troy'],
+                'warnings' => ['Refused: slug "' . $slug . '" is not a safe directory name.'],
+            ];
+        }
+
+        $record = self::get($slug);
 
         $pluginDir = WP_PLUGIN_DIR . '/' . $slug;
 
