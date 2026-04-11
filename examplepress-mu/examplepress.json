@@ -32,43 +32,5 @@
         "theme-shadows": false,
         "theme-global-styles": false
     },
-    "dependencies": [],
-    "docs": [
-        {
-            "title": "Companion Plugin Guide",
-            "description": "Build your first companion plugin: hook the router, register blocks, and take ownership of the frontend.",
-            "url": "https://github.com/webmultipliers/examplepress-theme/blob/development/docs/companion-plugin.md",
-            "category": "Start Here"
-        },
-        {
-            "title": "Router & Routing",
-            "description": "How the single-entry-point router works, the filter chain, and routing cascade.",
-            "url": "https://github.com/webmultipliers/examplepress-theme/blob/development/docs/routing.md",
-            "category": "Architecture"
-        },
-        {
-            "title": "Guard System",
-            "description": "Template lockdown layers and how to disable guards for development.",
-            "url": "https://github.com/webmultipliers/examplepress-theme/blob/development/docs/guards.md",
-            "category": "Architecture"
-        },
-        {
-            "title": "Configuration Guide",
-            "description": "JSON files, design tokens, strict mode, and the config loading pipeline.",
-            "url": "https://github.com/webmultipliers/examplepress-theme/blob/development/docs/configuration.md",
-            "category": "Configuration"
-        },
-        {
-            "title": "Feature Registry API",
-            "description": "Register features, check state, read options, and the filterable flag system.",
-            "url": "https://github.com/webmultipliers/examplepress-theme/blob/development/docs/feature-registry.md",
-            "category": "Configuration"
-        },
-        {
-            "title": "Blockstudio",
-            "description": "Block registration, fields, rendering, and hooks.",
-            "url": "https://blockstudio.dev/documentation/",
-            "category": "Blockstudio"
-        }
-    ]
+    "dependencies": []
 }

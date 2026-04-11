@@ -54,6 +54,29 @@ final class Updater
     }
 
     /**
+     * Where the effective repo string came from: 'filter' when the
+     * examplepress_mu_kernel_repo filter returned a valid override,
+     * 'default' otherwise. Mirrors ThemeUpdateProvider::channelSource()
+     * so the admin UI can explain to operators why they see a
+     * non-default repo (useful when debugging fleet mirrors).
+     *
+     * @return string One of: filter, default.
+     */
+    public static function repoSource(): string
+    {
+        $default  = self::$repoOwner . '/' . self::$repoName;
+        $filtered = (string) apply_filters('examplepress_mu_kernel_repo', $default);
+
+        if ($filtered === $default) {
+            return 'default';
+        }
+        if ($filtered === '' || !preg_match('#^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$#', $filtered)) {
+            return 'default';
+        }
+        return 'filter';
+    }
+
+    /**
      * Register the WP-Cron event (if not already scheduled) and hook the
      * cron action callback.
      */
@@ -282,6 +305,7 @@ final class Updater
             'check_interval'    => self::CHECK_INTERVAL,
             'cron_hook'         => self::CRON_HOOK,
             'repo'              => self::repo(),
+            'repo_source'       => self::repoSource(),
             'previous_version_available' => $previousExists,
             'quarantined'       => is_array($quarantine) ? $quarantine : null,
             'boot_attempts'     => $bootAttempts,

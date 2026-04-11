@@ -217,23 +217,35 @@ final class GitHub
         $code = wp_remote_retrieve_response_code($response);
         $body = json_decode(wp_remote_retrieve_body($response), true);
 
-        if ($code === 422 && !empty($body['errors'])) {
+        if ($code === 422 && is_array($body) && !empty($body['errors']) && is_array($body['errors'])) {
             foreach ($body['errors'] as $err) {
-                if (($err['message'] ?? '') === 'name already exists on this account') {
+                if (is_array($err) && ($err['message'] ?? '') === 'name already exists on this account') {
                     return new \WP_Error('repo_exists', "GitHub repo \"{$org}/{$slug}\" already exists.");
                 }
             }
         }
 
         if ($code !== 201) {
-            $msg = $body['message'] ?? "GitHub API returned HTTP {$code}.";
+            $msg = (is_array($body) && isset($body['message']) && is_string($body['message']))
+                ? $body['message']
+                : "GitHub API returned HTTP {$code}.";
             return new \WP_Error('github_api_error', $msg);
         }
 
+        // 201 is not sufficient — GitHub could return 201 with a malformed
+        // body if the request was proxied through a broken intermediary.
+        // Verify the fields this method is contractually obligated to return.
+        if (!is_array($body) || empty($body['full_name']) || empty($body['id']) || empty($body['html_url'])) {
+            return new \WP_Error(
+                'github_api_error',
+                'GitHub returned HTTP 201 but the response body is missing required fields (full_name, id, html_url).'
+            );
+        }
+
         return [
-            'owner_repo' => $body['full_name'],
+            'owner_repo' => (string) $body['full_name'],
             'repo_id'    => (int) $body['id'],
-            'html_url'   => $body['html_url'],
+            'html_url'   => (string) $body['html_url'],
         ];
     }
 
@@ -537,10 +549,20 @@ final class GitHub
         $code = wp_remote_retrieve_response_code($resp);
         $body = json_decode(wp_remote_retrieve_body($resp), true);
         if ($code !== 201) {
-            return new \WP_Error('branch_failed', $body['message'] ?? "Failed to create branch (HTTP {$code}).");
+            $msg = (is_array($body) && isset($body['message']) && is_string($body['message']))
+                ? $body['message']
+                : "Failed to create branch (HTTP {$code}).";
+            return new \WP_Error('branch_failed', $msg);
         }
 
-        return ['ref' => $body['ref'], 'sha' => $fromSha];
+        if (!is_array($body) || empty($body['ref'])) {
+            return new \WP_Error(
+                'branch_failed',
+                'GitHub returned HTTP 201 but the response body is missing the ref field.'
+            );
+        }
+
+        return ['ref' => (string) $body['ref'], 'sha' => $fromSha];
     }
 
     /**
@@ -731,10 +753,23 @@ final class GitHub
         $code    = wp_remote_retrieve_response_code($resp);
         $respBody = json_decode(wp_remote_retrieve_body($resp), true);
         if ($code !== 201) {
-            return new \WP_Error('pr_failed', $respBody['message'] ?? "Failed to create pull request (HTTP {$code}).");
+            $msg = (is_array($respBody) && isset($respBody['message']) && is_string($respBody['message']))
+                ? $respBody['message']
+                : "Failed to create pull request (HTTP {$code}).";
+            return new \WP_Error('pr_failed', $msg);
         }
 
-        return ['number' => (int) $respBody['number'], 'html_url' => (string) $respBody['html_url']];
+        if (!is_array($respBody) || !isset($respBody['number'], $respBody['html_url'])) {
+            return new \WP_Error(
+                'pr_failed',
+                'GitHub returned HTTP 201 but the response body is missing required fields (number, html_url).'
+            );
+        }
+
+        return [
+            'number'   => (int) $respBody['number'],
+            'html_url' => (string) $respBody['html_url'],
+        ];
     }
 
     // ── Releases ───────────────────────────────────────────────────
@@ -924,13 +959,29 @@ final class GitHub
         $body = json_decode(wp_remote_retrieve_body($response), true);
 
         if ($code === 409) {
-            $msg = $body['message'] ?? 'Slug already registered on Troy.';
+            $msg = (is_array($body) && isset($body['message']) && is_string($body['message']))
+                ? $body['message']
+                : 'Slug already registered on Troy.';
             return new \WP_Error('troy_slug_exists', $msg);
         }
 
         if ($code < 200 || $code >= 300) {
-            $msg = $body['message'] ?? "Troy API returned HTTP {$code}.";
+            $msg = (is_array($body) && isset($body['message']) && is_string($body['message']))
+                ? $body['message']
+                : "Troy API returned HTTP {$code}.";
             return new \WP_Error('troy_api_error', $msg);
+        }
+
+        // Contract: the method declares array|\WP_Error, so callers expect
+        // an array on success. A 2xx response with a non-array body (e.g.
+        // Troy behind a misconfigured proxy that returns an empty string)
+        // would otherwise satisfy PHP's return type coercion and silently
+        // hand back null, breaking downstream array access.
+        if (!is_array($body)) {
+            return new \WP_Error(
+                'troy_api_error',
+                sprintf('Troy returned HTTP %d but the response body was not a JSON object.', $code)
+            );
         }
 
         return $body;

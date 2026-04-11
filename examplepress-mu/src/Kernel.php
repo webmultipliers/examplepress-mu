@@ -23,6 +23,7 @@ use ExamplePress\MU\API\AgentController;
 use ExamplePress\MU\API\AppsController;
 use ExamplePress\MU\API\ConnectionsController;
 use ExamplePress\MU\API\DemoController;
+use ExamplePress\MU\API\HealthController;
 use ExamplePress\MU\API\ThemeUpdateController;
 use ExamplePress\MU\API\UpdatesController;
 use ExamplePress\MU\Editor\RepoController;
@@ -86,6 +87,7 @@ final class Kernel
         add_action('rest_api_init', [RepoController::class, 'register']);
         add_action('rest_api_init', [Notifications::class, 'registerRoutes']);
         add_action('rest_api_init', [AgentController::class, 'register']);
+        add_action('rest_api_init', [HealthController::class, 'register']);
 
         // ── Features ────────────────────────────────────────────
         add_action('after_setup_theme', [FeatureRegistry::class, 'bootAll']);

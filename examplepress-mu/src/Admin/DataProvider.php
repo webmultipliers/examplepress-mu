@@ -610,6 +610,19 @@ final class DataProvider
                 ];
             }
 
+            // Drift: manifest routing.routes vs actually-registered slugs.
+            // An entry that appears in the manifest but not in the registry
+            // is a "declared but not wired" drift; the reverse is
+            // "registered but undeclared" drift. Both are non-blocking
+            // warnings but worth surfacing because they usually indicate
+            // stale metadata or a forgotten register_route_origin call.
+            $drift = ['declared_but_unregistered' => [], 'registered_but_undeclared' => []];
+            if ($matchedApp) {
+                $manifestSlugs = is_array($routeMeta) ? array_keys($routeMeta) : [];
+                $drift['declared_but_unregistered'] = array_values(array_diff($manifestSlugs, $slugs));
+                $drift['registered_but_undeclared'] = array_values(array_diff($slugs, $manifestSlugs));
+            }
+
             $origins[] = [
                 'id'        => $matchedApp ? $matchedApp['slug'] : sanitize_title($ns),
                 'name'      => $matchedApp ? $matchedApp['name'] : $ns,
@@ -617,6 +630,7 @@ final class DataProvider
                 'priority'  => $priority,
                 'active'    => $matchedApp ? $matchedApp['active'] : true,
                 'routes'    => $routes,
+                'drift'     => $drift,
             ];
         }
 
@@ -916,14 +930,16 @@ final class DataProvider
     // ── Docs & Hooks ─────────────────────────────────────────────
 
     /**
-     * Documentation links -- read from examplepress.json docs section.
+     * Documentation links for the admin Docs tab.
+     *
+     * Delegates the data layer to DocsProvider (kernel defaults + config
+     * overrides + filter) so this method only shapes the UI payload.
      *
      * @return array<int, array<string, string>>
      */
     private static function getDocs(): array
     {
-        $config = ConfigManager::get();
-        $docs   = $config['docs'] ?? [];
+        $docs = \ExamplePress\MU\Infrastructure\DocsProvider::get();
 
         if (empty($docs)) {
             return [];
