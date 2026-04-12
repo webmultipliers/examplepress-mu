@@ -74,7 +74,7 @@ wp_interactivity_state( '{slug}/components-todo', [
         type="text"
         data-wp-bind--value="context.newText"
         data-wp-on--input="actions.updateNewText"
-    />
+    >
     <button data-wp-on--click="actions.addTodo">
         <?php esc_html_e( 'Add', '{slug}' ); ?>
     </button>
@@ -86,7 +86,7 @@ wp_interactivity_state( '{slug}/components-todo', [
                     type="checkbox"
                     data-wp-bind--checked="context.todo.done"
                     data-wp-on--change="actions.toggle"
-                />
+                >
                 <span data-wp-text="context.todo.text"></span>
             </li>
         </template>
@@ -196,6 +196,27 @@ yield bs.mutate( {
 
 In both forms, `bs.mutate` rolls back the local change automatically
 if the RPC fails. You do not need to write try/catch around it.
+
+## JS style rules
+
+`script.inline.js` is plain ES6+ with no transpiler. Follow these
+conventions:
+
+- **`const` over `let`** when the value is never reassigned. Never
+  use `var`.
+- **Omit parentheses** for lone arrow function parameters:
+  `t => t.id === targetId`, not `(t) => t.id === targetId`.
+- **Chained method calls** each on their own line:
+  ```js
+  items
+      .filter( item => item.active )
+      .map( item => item.name );
+  ```
+- **Arrow functions over `function` expressions** where either works.
+  Generator actions (`*addTodo()`) are the exception — they must use
+  the method shorthand syntax shown in the store examples above.
+- **No unnecessary intermediate variables.** Same rule as PHP
+  (skill 35) — if a value is used once, inline it.
 
 ## Hard rules
 

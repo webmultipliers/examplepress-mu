@@ -164,6 +164,31 @@ export function initAgent(data) {
 			}
 			return;
 		}
+		const install = e.target.closest('[data-agent-install-draft]');
+		if (install) {
+			e.preventDefault();
+			const slug = install.dataset.agentInstallDraft;
+			if (!confirm(`Install "${slug}" directly to wp-content/plugins/${slug}/?`)) return;
+			install.textContent = 'Installing…';
+			install.style.pointerEvents = 'none';
+			try {
+				const url = appData.agentDraftInstallUrl.replace('__SLUG__', encodeURIComponent(slug));
+				const res = await apiFetch(url, { method: 'POST' });
+				if (res.success) {
+					await refreshDrafts();
+					refreshAppsTable();
+				} else {
+					alert('Install failed: ' + (res.message || 'Unknown error'));
+					install.textContent = 'Install locally';
+					install.style.pointerEvents = '';
+				}
+			} catch (err) {
+				alert('Install failed: ' + (err.message || err));
+				install.textContent = 'Install locally';
+				install.style.pointerEvents = '';
+			}
+			return;
+		}
 		const copyBtn = e.target.closest('[data-copy-prompt]');
 		if (copyBtn) {
 			e.preventDefault();
@@ -1200,14 +1225,20 @@ function renderDraftsFromData(drafts) {
 		// - failed without payload → Retry Generate
 		const canAct = status === 'drafted' || status === 'failed';
 		const hasPayload = !!d.has_payload;
-		let resumeAction, repairAction, pushAction;
+		let resumeAction, repairAction, pushAction, installAction;
 		pushAction = '';
+		installAction = '';
 		const isOrphan = !status && !inFlight && d.post_status === 'draft';
 		if (isOrphan) {
 			resumeAction = `<span style="font-size:12px;color:#6b7280;">Orphaned draft — discard to free the slug.</span>`;
 			repairAction = '';
+		} else if (isStalled && hasPayload) {
+			resumeAction = `<a href="#" data-agent-resume-draft="${escapeHtml(d.slug)}" style="font-size:12px;color:#7c3aed;text-decoration:underline;">Review Files</a>`;
+			pushAction = `<a href="#" data-agent-push-draft="${escapeHtml(d.slug)}" style="font-size:12px;color:#16a34a;font-weight:600;text-decoration:underline;">Push to GitHub</a>`;
+			installAction = `<a href="#" data-agent-install-draft="${escapeHtml(d.slug)}" style="font-size:12px;color:#2563eb;text-decoration:underline;">Install locally</a>`;
+			repairAction = '';
 		} else if (isStalled) {
-			resumeAction = `<span style="font-size:12px;color:#ca8a04;font-weight:600;">⚠ Appears stalled — the background job may not have run. Discard and retry.</span>`;
+			resumeAction = `<span style="font-size:12px;color:#ca8a04;font-weight:600;">⚠ Appears stalled — the background job may not have run.</span>`;
 			repairAction = '';
 		} else if (!canAct) {
 			resumeAction = `<span style="font-size:12px;color:#9ca3af;">Working… (you can leave this page)</span>`;
@@ -1215,10 +1246,13 @@ function renderDraftsFromData(drafts) {
 		} else if (status === 'drafted') {
 			resumeAction = `<a href="#" data-agent-resume-draft="${escapeHtml(d.slug)}" style="font-size:12px;color:#7c3aed;text-decoration:underline;">Review Files</a>`;
 			pushAction = `<a href="#" data-agent-push-draft="${escapeHtml(d.slug)}" style="font-size:12px;color:#16a34a;font-weight:600;text-decoration:underline;">Push to GitHub</a>`;
+			installAction = `<a href="#" data-agent-install-draft="${escapeHtml(d.slug)}" style="font-size:12px;color:#2563eb;text-decoration:underline;">Install locally</a>`;
 			repairAction = `<a href="#" data-agent-iterate-draft="${escapeHtml(d.slug)}" style="font-size:12px;color:#2563eb;text-decoration:underline;">Iterate</a>`;
 		} else if (hasPayload) {
-			resumeAction = `<a href="#" data-agent-resume-draft="${escapeHtml(d.slug)}" style="font-size:12px;color:#7c3aed;text-decoration:underline;">Resume / Iterate</a>`;
-			repairAction = `<a href="#" data-agent-repair="${escapeHtml(d.slug)}" data-agent-repair-error="${escapeAttr((d.errors || []).join(' '))}" style="font-size:12px;color:#ca8a04;text-decoration:underline;">🛠 Repair</a>`;
+			resumeAction = `<a href="#" data-agent-resume-draft="${escapeHtml(d.slug)}" style="font-size:12px;color:#7c3aed;text-decoration:underline;">Review Files</a>`;
+			pushAction = `<a href="#" data-agent-push-draft="${escapeHtml(d.slug)}" style="font-size:12px;color:#16a34a;font-weight:600;text-decoration:underline;">Push to GitHub</a>`;
+			installAction = `<a href="#" data-agent-install-draft="${escapeHtml(d.slug)}" style="font-size:12px;color:#2563eb;text-decoration:underline;">Install locally</a>`;
+			repairAction = `<a href="#" data-agent-repair="${escapeHtml(d.slug)}" data-agent-repair-error="${escapeAttr((d.errors || []).join(' '))}" style="font-size:12px;color:#ca8a04;text-decoration:underline;">Repair</a>`;
 		} else {
 			resumeAction = `<a href="#" data-agent-retry-generate="${escapeHtml(d.slug)}" data-agent-retry-prompt="${escapeAttr(d.prompt || '')}" data-agent-retry-name="${escapeAttr(d.name || '')}" data-agent-retry-slug="${escapeAttr(d.slug || '')}" data-agent-retry-desc="" style="font-size:12px;color:#7c3aed;text-decoration:underline;">Retry Generate</a>`;
 			repairAction = '';
@@ -1247,6 +1281,7 @@ function renderDraftsFromData(drafts) {
 					${resumeAction}
 					${repairAction}
 					${pushAction}
+					${installAction}
 					<a href="#" data-agent-discard-draft="${escapeHtml(d.slug)}" style="font-size:12px;color:#9b2c2c;text-decoration:underline;margin-left:auto;">Discard draft</a>
 				</div>
 			</div>
@@ -1262,6 +1297,7 @@ async function openReviewModal(slug) {
 	const contentsEl  = document.getElementById('ep-agent-review-file-contents');
 	const summaryEl   = document.getElementById('ep-agent-review-summary');
 	const pushBtn     = document.getElementById('ep-agent-review-push-btn');
+	const installBtn  = document.getElementById('ep-agent-review-install-btn');
 
 	slugEl.textContent = slug;
 	fileListEl.innerHTML = '<div style="padding:8px 12px;color:#9ca3af;">Loading…</div>';
@@ -1270,6 +1306,11 @@ async function openReviewModal(slug) {
 	pushBtn.disabled = false;
 	pushBtn.textContent = 'Push to GitHub';
 	pushBtn.onclick = null;
+	if (installBtn) {
+		installBtn.disabled = false;
+		installBtn.textContent = 'Install locally';
+		installBtn.onclick = null;
+	}
 
 	openAppModal('ep-agent-review-modal');
 
@@ -1333,6 +1374,32 @@ async function openReviewModal(slug) {
 				pushBtn.textContent = 'Push to GitHub';
 			}
 		};
+
+		// Install locally button
+		if (installBtn) {
+			installBtn.onclick = async () => {
+				if (!confirm(`Install "${slug}" directly to wp-content/plugins/${slug}/?`)) return;
+				installBtn.disabled = true;
+				installBtn.textContent = 'Installing…';
+				try {
+					const installUrl = appData.agentDraftInstallUrl.replace('__SLUG__', encodeURIComponent(slug));
+					const res = await apiFetch(installUrl, { method: 'POST' });
+					if (res.success) {
+						closeAppModal('ep-agent-review-modal');
+						await refreshDrafts();
+						refreshAppsTable();
+					} else {
+						alert('Install failed: ' + (res.message || 'Unknown error'));
+						installBtn.disabled = false;
+						installBtn.textContent = 'Install locally';
+					}
+				} catch (err) {
+					alert('Install failed: ' + (err.message || err));
+					installBtn.disabled = false;
+					installBtn.textContent = 'Install locally';
+				}
+			};
+		}
 	} catch (err) {
 		fileListEl.innerHTML = `<div style="padding:8px 12px;color:#9b2c2c;">Failed to load draft: ${escapeHtml(err.message || '')}</div>`;
 	}

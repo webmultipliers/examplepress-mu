@@ -24,13 +24,13 @@ discipline forces you to keep markup separate from copy.
 Wrong:
 ```php
 <button>Read more</button>
-<input type="text" placeholder="Email address" />
+<input type="text" placeholder="Email address">
 ```
 
 Right:
 ```php
 <button><?php esc_html_e( 'Read more', '{slug}' ); ?></button>
-<input type="text" placeholder="<?php esc_attr_e( 'Email address', '{slug}' ); ?>" />
+<input type="text" placeholder="<?php esc_attr_e( 'Email address', '{slug}' ); ?>">
 ```
 
 The text domain MUST be the manifest slug. The kernel uses this to
@@ -71,8 +71,7 @@ images — never omit the attribute:
     src="<?php echo esc_url( $attributes['image']['url'] ); ?>"
     alt="<?php echo esc_attr( $attributes['image']['alt'] ?? '' ); ?>"
     width="<?php echo (int) ( $attributes['image']['width'] ?? 0 ); ?>"
-    height="<?php echo (int) ( $attributes['image']['height'] ?? 0 ); ?>"
-/>
+    height="<?php echo (int) ( $attributes['image']['height'] ?? 0 ); ?>">
 ```
 
 ### Buttons and links
@@ -94,7 +93,7 @@ Every `<input>`, `<select>`, `<textarea>` must have a corresponding
 ```php
 <label>
     <span><?php esc_html_e( 'Email', '{slug}' ); ?></span>
-    <input type="email" name="email" required />
+    <input type="email" name="email" required>
 </label>
 ```
 
@@ -102,7 +101,7 @@ Or with `for`:
 
 ```php
 <label for="email-field"><?php esc_html_e( 'Email', '{slug}' ); ?></label>
-<input id="email-field" type="email" name="email" required />
+<input id="email-field" type="email" name="email" required>
 ```
 
 ### ARIA — only when semantic HTML can't express the intent
@@ -141,6 +140,24 @@ the role:
 
 Components should use `<section>`, `<article>`, `<div>`, or whatever
 matches their semantic role — never `<main>`.
+
+### Void elements — never self-close
+
+HTML5 void elements (`<img>`, `<input>`, `<br>`, `<hr>`, `<meta>`,
+`<link>`) must NOT have a self-closing slash. The trailing ` />` is
+XHTML legacy and wastes bytes in the JSON output:
+
+```php
+<!-- WRONG -->
+<img src="..." alt="" />
+<input type="text" name="email" />
+<br />
+
+<!-- RIGHT -->
+<img src="..." alt="">
+<input type="text" name="email">
+<br>
+```
 
 ### Heading hierarchy
 

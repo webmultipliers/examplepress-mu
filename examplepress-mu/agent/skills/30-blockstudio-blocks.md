@@ -131,7 +131,7 @@ A minimal template:
             <img
                 src="<?php echo esc_url( $attributes['image']['url'] ); ?>"
                 alt="<?php echo esc_attr( $attributes['image']['alt'] ?? '' ); ?>"
-                class="hero-image" />
+                class="hero-image">
         <?php endif; ?>
     </div>
 </section>

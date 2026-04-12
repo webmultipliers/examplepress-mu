@@ -148,6 +148,38 @@ Use, in this order:
 4. **Inline `style="..."` attributes** only when the value is computed
    from a block attribute and there is no static CSS path.
 
+## Comment discipline
+
+Generated code must be lean. Every comment inside a JSON string value
+costs output tokens and increases the chance of hitting output limits.
+
+- **File-level docblock required** — every `.php` file starts with a
+  `@package {slug}` block comment.
+- **Function docblocks** with `@param` and `@return` when generating
+  helper functions in `rpc.php` or `cron.php` callbacks.
+- **No obvious comments** that restate what the code does:
+  ```php
+  // WRONG
+  $count++; // Increment the counter
+
+  // WRONG
+  // Get the posts
+  $posts = get_posts( $args );
+  ```
+- **No TODO / FIXME / HACK** in generated output. Generated code
+  ships immediately — there is no backlog to track.
+- **No flattery or filler** (`// Beautiful responsive layout`,
+  `// Clean and elegant solution`, `// This is a great pattern`).
+- **Comments only for "why"** — when the logic is non-obvious, a
+  brief comment explaining the reason (not the mechanism) is welcome:
+  ```php
+  // Guard: Blockstudio re-includes this file per render, so
+  // the hook must be idempotent.
+  if ( did_action( 'wp_enqueue_scripts' ) ) {
+      return;
+  }
+  ```
+
 ## Never use inline `<script>` or `<style>` tags
 
 If a block needs interactivity, use Blockstudio's `script.inline.js`
@@ -167,6 +199,12 @@ the top of a block's `index.php`, OUTSIDE the template body, OR in
 the plugin bootstrap. Never inside the rendered HTML — the file is
 re-included on every block render and you would register the same
 hook multiple times per request.
+
+- **Never register hooks inside a class constructor.** If you find
+  yourself writing a class, stop — skill 35 requires procedural code.
+- **Multi-line formatting** when passing an anonymous function to
+  `add_action` / `add_filter` and the call exceeds ~80 characters —
+  put each argument on its own line:
 
 ```php
 <?php

@@ -431,6 +431,7 @@ if (!defined('ABSPATH')) exit;
 			<div class="ep-modal__footer">
 				<span id="ep-agent-review-summary" class="ep-modal__footer-note"></span>
 				<button class="ep-btn ep-btn--secondary" data-modal="ep-agent-review-modal">Close</button>
+				<button class="ep-btn ep-btn--primary" id="ep-agent-review-install-btn">Install locally</button>
 				<button class="ep-btn ep-btn--primary ep-btn--success" id="ep-agent-review-push-btn">Push to GitHub</button>
 			</div>
 		</div>

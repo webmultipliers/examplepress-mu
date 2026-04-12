@@ -123,6 +123,22 @@ install.
 - [ ] Every `foreach` over a `repeater` or `query` field has an empty
   state branch.
 
+## Code simplicity
+
+- [ ] No unnecessary intermediate variables. If a value is used once,
+  inline it.
+- [ ] No class definitions. Closures and procedural code only
+  (skill 35).
+- [ ] Every function and conditional earns its place. If removing it
+  doesn't change behavior, remove it.
+- [ ] No obvious comments restating what the code does. Comments
+  explain "why," not "what." No TODO/FIXME/HACK. No flattery.
+- [ ] Simplest possible implementation: `match` over `if/elseif`
+  chains, ternary over 4-line conditionals, `??` over null-check
+  blocks, `sprintf` over concatenation chains.
+- [ ] Single quotes unless interpolating. Short array syntax.
+  Trailing commas on multiline constructs.
+
 If every box is checked, emit the JSON. If any box is not checked,
 fix the payload first. **Do not emit a partially-correct generation
 hoping the validator will catch the rest.**

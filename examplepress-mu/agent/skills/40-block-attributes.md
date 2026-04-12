@@ -134,7 +134,7 @@ In template:
         src="<?php echo esc_url( $attributes['image']['url'] ); ?>"
         alt="<?php echo esc_attr( $attributes['image']['alt'] ?? '' ); ?>"
         width="<?php echo (int) ( $attributes['image']['width'] ?? 0 ); ?>"
-        height="<?php echo (int) ( $attributes['image']['height'] ?? 0 ); ?>" />
+        height="<?php echo (int) ( $attributes['image']['height'] ?? 0 ); ?>">
 <?php endif; ?>
 ```
 
