@@ -438,21 +438,38 @@ async function onGenerateCommit() {
 async function pollDraftUntilDone(slug, stepsEl) {
 	const start = Date.now();
 	const url = appData.agentDraftUrl.replace('__SLUG__', encodeURIComponent(slug));
+
+	// Same resilience as pollJob — tolerate transient proxy errors.
+	// 404/no_draft is the SUCCESS signal here (stash cleared after
+	// a successful push), so that one still terminates the loop.
+	let consecutiveErrors = 0;
+	const MAX_CONSECUTIVE_ERRORS = 10;
+
 	while (Date.now() - start < POLL_TIMEOUT_MS) {
 		await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
 		try {
 			const draft = await apiFetch(url);
+			consecutiveErrors = 0;
 			if (draft && draft.draft_status === 'failed') {
 				throw new Error((draft.errors || []).join(' ') || 'Push failed.');
 			}
 			if (stepsEl) renderStep(stepsEl, draft.draft_step || 'pushing');
 		} catch (err) {
-			// 404 on the draft endpoint means the stash was cleared
-			// after a successful push — we're done.
-			if ((err.code || err.message || '').toString().match(/no_draft|404/)) {
+			const msg = String((err && (err.code || err.message)) || '');
+			// Stash cleared → push succeeded → we're done.
+			if (/no_draft|404/.test(msg)) {
 				return;
 			}
-			throw err;
+			// Terminal failures thrown above (draft_status===failed)
+			// should propagate immediately.
+			if (/Push failed/.test(msg)) {
+				throw err;
+			}
+			consecutiveErrors++;
+			log.warn('[agent] draft poll tick failed (' + consecutiveErrors + '/' + MAX_CONSECUTIVE_ERRORS + '), retrying…', err);
+			if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+				throw new Error('Polling failed after ' + MAX_CONSECUTIVE_ERRORS + ' consecutive errors: ' + (err.message || 'unknown'));
+			}
 		}
 	}
 	throw new Error('Push timed out.');
@@ -1341,13 +1358,34 @@ function renderDraftLog(log) {
 async function pollJob(jobId, onTick) {
 	const start = Date.now();
 	const url = appData.agentJobUrl.replace('__ID__', encodeURIComponent(jobId));
+
+	// Tolerate transient network errors — 502/503/504 from a reverse
+	// proxy, dropped connections, etc. The Action Scheduler job is
+	// still running in the background; dropping the user out of the
+	// polling state on the first blip is worse than retrying. Only
+	// a hard 404 (job is genuinely gone) or timeout terminates.
+	let consecutiveErrors = 0;
+	const MAX_CONSECUTIVE_ERRORS = 10;
+
 	while (Date.now() - start < POLL_TIMEOUT_MS) {
 		await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
-		const job = await apiFetch(url);
-		onTick(job);
-		// Drafted = phase 1 done, awaiting user. Success/failed = terminal.
-		if (job.status === 'drafted' || job.status === 'success' || job.status === 'failed') {
-			return job;
+		try {
+			const job = await apiFetch(url);
+			consecutiveErrors = 0;
+			onTick(job);
+			if (job.status === 'drafted' || job.status === 'success' || job.status === 'failed') {
+				return job;
+			}
+		} catch (err) {
+			const msg = String((err && (err.code || err.message)) || '');
+			if (/job_not_found|404/.test(msg)) {
+				throw err;
+			}
+			consecutiveErrors++;
+			log.warn('[agent] poll tick failed (' + consecutiveErrors + '/' + MAX_CONSECUTIVE_ERRORS + '), retrying…', err);
+			if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+				throw new Error('Polling failed after ' + MAX_CONSECUTIVE_ERRORS + ' consecutive errors: ' + (err.message || 'unknown'));
+			}
 		}
 	}
 	throw new Error('Job timed out.');

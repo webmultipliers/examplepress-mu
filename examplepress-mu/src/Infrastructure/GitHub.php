@@ -402,7 +402,14 @@ final class GitHub
      * (parentSha = null, creates main branch) and iteration
      * (parentSha = current HEAD, advances main).
      *
+     * Deletion semantics: when parentSha is set, any path in
+     * $filesDeleted is sent to GitHub's tree API with sha=null,
+     * which is how the tree API encodes "remove this file from
+     * the base tree." Omitting a path is NOT deletion — with a
+     * base_tree, omitted paths are preserved byte-identical.
+     *
      * @param array<int,array{path:string,contents:string}> $files
+     * @param array<int,string>                              $filesDeleted
      * @return array{commit_sha:string}|\WP_Error
      */
     public static function pushFiles(
@@ -410,7 +417,8 @@ final class GitHub
         array $files,
         string $message,
         ?string $parentSha = null,
-        string $branch = 'main'
+        string $branch = 'main',
+        array $filesDeleted = []
     ): array|\WP_Error {
         $pat = self::writeToken();
         if (!$pat) {
@@ -438,6 +446,24 @@ final class GitHub
                 'type'    => 'blob',
                 'content' => $contents,
             ];
+        }
+
+        // Explicit deletions. Only meaningful when a base_tree is in
+        // play — on an empty/first-commit repo there is nothing to
+        // delete, and GitHub rejects null-sha tree entries without a
+        // base_tree anyway.
+        if ($parentSha && !empty($filesDeleted)) {
+            foreach ($filesDeleted as $deletedPath) {
+                if (!is_string($deletedPath) || $deletedPath === '') {
+                    continue;
+                }
+                $tree[] = [
+                    'path' => $deletedPath,
+                    'mode' => '100644',
+                    'type' => 'blob',
+                    'sha'  => null,
+                ];
+            }
         }
 
         $treePayload = ['tree' => $tree];

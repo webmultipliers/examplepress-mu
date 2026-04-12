@@ -561,20 +561,28 @@ final class AppRegistry
             'meta_value'     => $jobId,
             'no_found_rows'  => true,
         ]);
-        return $posts[0] ?? null;
+        if (empty($posts)) {
+            error_log("[AppRegistry::getPostByJobId] No post found for jobId={$jobId} via get_posts.");
+            // Optionally, add a direct DB query fallback here if needed
+            return null;
+        }
+        return $posts[0];
     }
 
     /**
-     * Return a synthesised job-shape array for a given UUID, combining
-     * the history entry with the current draft payload when that entry
-     * is the active one.
+     * Return a synthesised job-shape array for a given UUID.
      *
-     * Two lookup paths:
-     *   1. Fast: the job id still matches a post's META_DRAFT_ORIGIN_JOB.
-     *   2. Slow: scan every agent post's history for the entry. Used
-     *      when the user is polling a job that's since been superseded
-     *      by a retry (the current-job meta points elsewhere but the
-     *      history entry is still there).
+     * Fast path only: the job id must match a post's current
+     * META_DRAFT_ORIGIN_JOB. Superseded jobs (retry replaced the
+     * active id) resolve to null — the UI should switch to polling
+     * the new job id returned by retryJob, not keep polling the old
+     * one. This is intentional: the alternative is scanning every
+     * agent post's history JSON on every poll tick, which hammers
+     * the database on a hot path.
+     *
+     * For rendering historical jobs in the chat thread or jobs
+     * modal, callers should use jobSnapshotsForSlug() or
+     * recentJobSnapshots() which read history directly.
      *
      * @return array<string,mixed>|null
      */
@@ -585,28 +593,11 @@ final class AppRegistry
         }
 
         $post = self::getPostByJobId($jobId);
-        if ($post) {
-            $entry = self::findHistoryEntry((int) $post->ID, $jobId);
-            return $entry ? self::synthesiseJob($post, $entry) : null;
+        if (!$post) {
+            return null;
         }
-
-        // Fallback: scan every post. Bounded by ep_app count.
-        $posts = get_posts([
-            'post_type'      => 'ep_app',
-            'post_status'    => 'any',
-            'posts_per_page' => 500,
-            'no_found_rows'  => true,
-        ]);
-        foreach ($posts as $p) {
-            if (!$p instanceof \WP_Post) {
-                continue;
-            }
-            $entry = self::findHistoryEntry((int) $p->ID, $jobId);
-            if ($entry) {
-                return self::synthesiseJob($p, $entry);
-            }
-        }
-        return null;
+        $entry = self::findHistoryEntry((int) $post->ID, $jobId);
+        return $entry ? self::synthesiseJob($post, $entry) : null;
     }
 
     /**
@@ -663,6 +654,8 @@ final class AppRegistry
     {
         $post = self::getPostByJobId($jobId);
         if (!$post) {
+            error_log("[AppRegistry::failJob] Could not find post for jobId={$jobId}. Forcing status and error update in post meta if possible.");
+            // Could optionally scan all posts or add a direct DB query here if needed
             return false;
         }
         $postId = (int) $post->ID;
@@ -670,6 +663,7 @@ final class AppRegistry
         return self::withPostMetaLock($postId, static function () use ($postId, $jobId, $error): bool {
             $history = self::readHistory($postId);
             $finalErrors = [];
+            $found = false;
             foreach ($history as &$entry) {
                 if (!is_array($entry) || ($entry['id'] ?? '') !== $jobId) {
                     continue;
@@ -680,10 +674,17 @@ final class AppRegistry
                 $entry['errors']     = array_merge($existing, [$error]);
                 $entry['updated_at'] = time();
                 $finalErrors = $entry['errors'];
+                $found = true;
                 break;
             }
             unset($entry);
-            self::writeHistory($postId, $history);
+            if (!$found) {
+                // If job is missing from history, log and still update post meta for UI
+                error_log("[AppRegistry::failJob] JobId={$jobId} not found in history for postId={$postId}. Forcing status and error update in post meta.");
+                $finalErrors = [$error];
+            } else {
+                self::writeHistory($postId, $history);
+            }
 
             update_post_meta($postId, self::META_DRAFT_STATUS, self::STATUS_FAILED);
             update_post_meta($postId, self::META_DRAFT_STEP, self::STEP_FAILED);
@@ -891,27 +892,48 @@ final class AppRegistry
         return null;
     }
 
+    /** @var string|null Specific reason the last stashDraftPayload() call returned false. */
+    private static ?string $lastStashError = null;
+
+    /**
+     * Return the reason the most recent stashDraftPayload() call
+     * returned false, or null if the last call succeeded. Callers
+     * should grab this immediately after a false return so the
+     * activity log can surface the specific cause instead of a
+     * generic "persistence failed" message.
+     */
+    public static function lastStashError(): ?string
+    {
+        return self::$lastStashError;
+    }
+
     /**
      * Stash a generated payload on the app post and mark the current
      * job's history entry as status=drafted, step=awaiting_review.
      * Works on both draft (never-pushed) AND publish (already-pushed)
      * posts — the payload meta is independent of post status.
      *
-     * Returns false if the payload write fails (e.g. exceeds MySQL
-     * max_allowed_packet).
+     * Returns false if the payload write fails. When it does, the
+     * caller can read lastStashError() for the specific reason
+     * (JSON encode fail, size cap, MySQL silent drop, missing post).
      *
      * @param array<string,mixed> $payload
      */
     public static function stashDraftPayload(string $slug, array $payload): bool
     {
+        self::$lastStashError = null;
+
         $post = self::getPost($slug);
         if (!$post) {
+            self::$lastStashError = "No post exists for slug \"{$slug}\".";
             return false;
         }
         $postId = (int) $post->ID;
 
         return self::withPostMetaLock($postId, static function () use ($postId, $payload): bool {
-            if (!self::writePayloadMeta($postId, $payload)) {
+            $writeResult = self::writePayloadMeta($postId, $payload);
+            if ($writeResult !== true) {
+                self::$lastStashError = $writeResult;
                 return false;
             }
 
@@ -941,35 +963,45 @@ final class AppRegistry
     }
 
     /**
-     * Encode and persist the draft payload to post meta. Verifies the
-     * write actually persisted — wp_json_encode can fail on non-UTF-8
-     * data, and update_post_meta can fail silently if the value exceeds
-     * MySQL's max_allowed_packet.
+     * Encode and persist the draft payload to post meta. Verifies
+     * the write actually persisted. Returns true on success, or a
+     * human-readable error string on failure.
+     *
+     * Failure modes:
+     *   - wp_json_encode fails (non-UTF-8 bytes, cycles, etc.)
+     *   - payload exceeds 10 MB sanity cap
+     *   - MySQL silently drops the write (max_allowed_packet)
+     *
+     * @return true|string
      */
-    private static function writePayloadMeta(int $postId, array $payload): bool
+    private static function writePayloadMeta(int $postId, array $payload): true|string
     {
         $json = wp_json_encode($payload);
         if ($json === false) {
-            error_log('ExamplePress agent: wp_json_encode failed for draft payload (post ' . $postId . '). JSON error: ' . json_last_error_msg());
-            return false;
+            $reason = 'wp_json_encode failed: ' . json_last_error_msg();
+            error_log("ExamplePress agent: {$reason} (post {$postId})");
+            return $reason;
         }
 
         $bytes = strlen($json);
-        if ($bytes > 10 * 1024 * 1024) { // 10 MB sanity cap
-            error_log('ExamplePress agent: draft payload too large (' . number_format($bytes) . ' bytes) for post ' . $postId);
-            return false;
+        $human = number_format($bytes / 1024, 1) . ' KB';
+        if ($bytes > 10 * 1024 * 1024) {
+            $reason = "Draft payload is {$human} — exceeds the 10 MB sanity cap. Simplify the app or split it into smaller blocks.";
+            error_log("ExamplePress agent: {$reason} (post {$postId})");
+            return $reason;
         }
 
         update_post_meta($postId, self::META_DRAFT_PAYLOAD, $json);
 
-        // Verify the write persisted. WordPress can fail silently on
-        // large values or DB packet limits.
+        // Verify the write persisted. WordPress can silently drop the
+        // write when the serialized value exceeds MySQL's
+        // max_allowed_packet (default 1–16 MB depending on host).
         $verify = (string) get_post_meta($postId, self::META_DRAFT_PAYLOAD, true);
         if ($verify === '' || $verify !== $json) {
-            error_log('ExamplePress agent: draft payload write failed to persist for post ' . $postId . ' (' . number_format($bytes) . ' bytes). Check MySQL max_allowed_packet.');
-            // Clean up the partial/empty meta.
+            $reason = "Draft payload ({$human}) did not persist to the database. Check MySQL max_allowed_packet — it may be lower than the payload size.";
+            error_log("ExamplePress agent: {$reason} (post {$postId})");
             delete_post_meta($postId, self::META_DRAFT_PAYLOAD);
-            return false;
+            return $reason;
         }
 
         return true;

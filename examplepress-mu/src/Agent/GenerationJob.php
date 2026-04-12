@@ -106,6 +106,19 @@ final class GenerationJob
             return;
         }
 
+        $shutdownHandler = function () use ($jobId) {
+            $error = error_get_last();
+            if ($error && in_array($error['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR], true)) {
+                // Only mark as failed if not already failed
+                $job = AppRegistry::getJobSnapshot($jobId);
+                if ($job && $job['status'] !== AppRegistry::STATUS_FAILED) {
+                    AppRegistry::failJob($jobId, 'Job terminated by fatal error or timeout: ' . $error['message']);
+                    error_log("ExamplePress agent job {$jobId} failed due to fatal error or timeout: " . $error['message']);
+                }
+            }
+        };
+        register_shutdown_function($shutdownHandler);
+
         try {
             AppRegistry::updateJob($jobId, [
                 'status' => AppRegistry::STATUS_RUNNING,
@@ -204,7 +217,8 @@ final class GenerationJob
             $manifest['description'] = $job['app_description'];
         }
 
-        // Generate mode: files_changed IS the full tree. No merge needed.
+        // Generate mode: files_changed IS the full tree. No merge
+        // needed, and files_deleted has no meaning (empty repo).
         $merged = $generated->filesChanged;
 
         $result = self::validateAndRepair($manifest, $merged, $job);
@@ -216,6 +230,7 @@ final class GenerationJob
         self::stashDraft($jobId, $slug, [
             'manifest'       => $result['manifest'],
             'files'          => $result['files'],
+            'files_deleted'  => [],
             'commit_message' => $generated->commitMessage,
             'version'        => $generated->version,
         ]);
@@ -267,6 +282,7 @@ final class GenerationJob
         self::stashDraft($jobId, $slug, [
             'manifest'       => $result['manifest'],
             'files'          => $result['files'],
+            'files_deleted'  => $generated->filesDeleted,
             'commit_message' => $generated->commitMessage,
             'version'        => $newVersion,
             'parent_sha'     => $context['parent_sha'],
@@ -327,6 +343,7 @@ final class GenerationJob
         self::stashDraft($jobId, $slug, [
             'manifest'       => $result['manifest'],
             'files'          => $result['files'],
+            'files_deleted'  => $generated->filesDeleted,
             'commit_message' => $generated->commitMessage,
             'version'        => $newVersion,
             'parent_sha'     => $context['parent_sha'],
@@ -481,22 +498,51 @@ final class GenerationJob
         // Tag each file with its size so the preview can render without
         // loading the full contents for every row.
         $files = [];
-        foreach ($payload['files'] as $f) {
-            if (!is_array($f)) continue;
-            $files[] = [
-                'path'     => (string) ($f['path'] ?? ''),
-                'contents' => (string) ($f['contents'] ?? ''),
-                'bytes'    => strlen((string) ($f['contents'] ?? '')),
-            ];
+        if (isset($payload['files']) && is_array($payload['files'])) {
+            foreach ($payload['files'] as $f) {
+                if (!is_array($f)) continue;
+                $files[] = [
+                    'path'     => (string) ($f['path'] ?? ''),
+                    'contents' => (string) ($f['contents'] ?? ''),
+                    'bytes'    => strlen((string) ($f['contents'] ?? '')),
+                ];
+            }
         }
         $payload['files'] = $files;
 
-        if (!AppRegistry::stashDraftPayload($slug, $payload)) {
-            self::fail($jobId, "Failed to persist draft payload for \"{$slug}\". The output may be too large for MySQL max_allowed_packet.");
+        // Normalize files_deleted to a string list so commitIterate can pass it straight to GitHub::pushFiles.
+        $deleted = [];
+        if (isset($payload['files_deleted']) && is_array($payload['files_deleted'])) {
+            foreach ($payload['files_deleted'] as $p) {
+                if (is_string($p) && $p !== '') {
+                    $deleted[] = $p;
+                }
+            }
+        }
+        $payload['files_deleted'] = $deleted;
+
+        // Defensive sanity check: generate/iterate should never stash an empty file tree.
+        if (empty($files)) {
+            self::fail($jobId, "Draft payload contains 0 files — the LLM or merge layer produced an empty tree. Try again or rephrase the prompt.");
             return;
         }
 
-        self::logForJob($jobId, '✓ Draft ready for review — ' . count($files) . ' files');
+        // Breadcrumb BEFORE the persistence attempt so the activity log always shows "we tried to stash N files, X KB".
+        $totalBytes = 0;
+        foreach ($files as $f) {
+            $totalBytes += (int) ($f['bytes'] ?? 0);
+        }
+        $humanSize = number_format($totalBytes / 1024, 1) . ' KB';
+        self::logForJob($jobId, 'Persisting draft (' . count($files) . ' files, ' . $humanSize . ')…');
+
+        if (!AppRegistry::stashDraftPayload($slug, $payload)) {
+            $reason = AppRegistry::lastStashError() ?? 'unknown persistence failure';
+            self::fail($jobId, 'Failed to persist draft: ' . $reason);
+            return;
+        }
+
+        $deletedSuffix = !empty($deleted) ? (' (' . count($deleted) . ' deletion' . (count($deleted) === 1 ? '' : 's') . ')') : '';
+        self::logForJob($jobId, '\u2713 Draft ready for review — ' . count($files) . ' files' . $deletedSuffix);
     }
 
     /**
@@ -528,30 +574,53 @@ final class GenerationJob
                 'bytes'    => strlen((string) ($f['contents'] ?? '')),
             ];
         }
+        // Always normalize files_deleted
+        $filesDeleted = [];
+        if (isset($extra['files_deleted']) && is_array($extra['files_deleted'])) {
+            foreach ($extra['files_deleted'] as $p) {
+                if (is_string($p) && $p !== '') {
+                    $filesDeleted[] = $p;
+                }
+            }
+        }
         $payload = array_merge([
             'manifest'       => $manifest,
             'files'          => $taggedFiles,
+            'files_deleted'  => $filesDeleted,
             'commit_message' => $commitMessage,
             'version'        => $version,
         ], $extra);
-        AppRegistry::stashDraftPayload($slug, $payload);
-
+        $ok = AppRegistry::stashDraftPayload($slug, $payload);
+        if (!$ok) {
+            $reason = AppRegistry::lastStashError() ?? 'unknown persistence failure';
+            self::fail($jobId, 'Failed to persist failed draft: ' . $reason . ' (original validation errors: ' . implode(' ', $errors) . ')');
+            return;
+        }
         self::fail($jobId, 'Validation failed: ' . implode(' ', $errors));
     }
 
     // ── Phase 2: commit ───────────────────────────────────────────
 
     /**
-     * @param array<string,mixed> $job
-     */
-    private static function commitGenerate(string $jobId, array $job): void
-    {
-        $draft = $job['draft'];
-        if (!is_array($draft)) {
-            self::fail($jobId, 'Internal error: draft payload is missing.');
-            return;
+        // Always normalize files_deleted
+        $filesDeleted = [];
+        if (is_array($generated->filesDeleted)) {
+            foreach ($generated->filesDeleted as $p) {
+                if (is_string($p) && $p !== '') {
+                    $filesDeleted[] = $p;
+                }
+            }
         }
-
+        self::stashDraft($jobId, $slug, [
+            'manifest'       => $result['manifest'],
+            'files'          => $result['files'],
+            'files_deleted'  => $filesDeleted,
+            'commit_message' => $generated->commitMessage,
+            'version'        => $newVersion,
+            'parent_sha'     => $context['parent_sha'],
+            'owner_repo'     => $context['owner_repo'],
+            'change_summary' => self::computeChangeSummary($context['files'], $result['files']),
+        ]);
         $manifest = is_array($draft['manifest'] ?? null) ? $draft['manifest'] : [];
         $slug     = (string) ($manifest['slug'] ?? '');
         $name     = (string) ($manifest['name'] ?? '');
@@ -597,16 +666,25 @@ final class GenerationJob
         ], [
             'commit_sha' => (string) ($push['commit_sha'] ?? ''),
         ]);
-        AppUpdateProvider::flush();
-
-        self::logForJob($jobId, '✓ Pushed and released ' . $slug . ' v' . $version);
-    }
-
-    /**
-     * @param array<string,mixed> $job
-     */
-    private static function commitIterate(string $jobId, array $job): void
-    {
+        // Always normalize files_deleted
+        $filesDeleted = [];
+        if (is_array($generated->filesDeleted)) {
+            foreach ($generated->filesDeleted as $p) {
+                if (is_string($p) && $p !== '') {
+                    $filesDeleted[] = $p;
+                }
+            }
+        }
+        self::stashDraft($jobId, $slug, [
+            'manifest'       => $result['manifest'],
+            'files'          => $result['files'],
+            'files_deleted'  => $filesDeleted,
+            'commit_message' => $generated->commitMessage,
+            'version'        => $newVersion,
+            'parent_sha'     => $context['parent_sha'],
+            'owner_repo'     => $context['owner_repo'],
+            'change_summary' => self::computeChangeSummary($context['files'], $result['files']),
+        ]);
         $slug  = (string) ($job['target_slug'] ?? '');
         $draft = $job['draft'];
         if ($slug === '' || !is_array($draft)) {
@@ -619,6 +697,14 @@ final class GenerationJob
         $commitMessage = (string) ($draft['commit_message'] ?? '');
         $parentSha     = (string) ($draft['parent_sha'] ?? '');
         $files         = self::draftFilesForPush(is_array($draft['files'] ?? null) ? $draft['files'] : []);
+        $filesDeleted  = [];
+        if (isset($draft['files_deleted']) && is_array($draft['files_deleted'])) {
+            foreach ($draft['files_deleted'] as $p) {
+                if (is_string($p) && $p !== '') {
+                    $filesDeleted[] = $p;
+                }
+            }
+        }
 
         if ($version === '') {
             self::fail($jobId, 'Internal error: draft payload missing version.');
@@ -673,12 +759,16 @@ final class GenerationJob
         }
 
         // Standard path: chain commit onto parent SHA, tag release,
-        // record push on the existing post.
+        // record push on the existing post. filesDeleted is
+        // propagated here so GitHub actually removes the paths the
+        // LLM marked as deletions — without this, base_tree would
+        // preserve them byte-identical.
         $push = GitHub::pushFiles(
             ownerRepo: $ownerRepo,
             files: $files,
             message: $commitMessage,
             parentSha: $parentSha,
+            filesDeleted: $filesDeleted,
         );
         if (is_wp_error($push)) {
             self::fail($jobId, 'GitHub push: ' . $push->get_error_message());
