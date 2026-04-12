@@ -34,8 +34,8 @@ document.addEventListener('DOMContentLoaded', () => {
 	initModal();
 	initEscapeHandler([
 		'ep-apps-scaffold-modal', 'ep-apps-troy-modal', 'ep-apps-codespace-modal',
-		'ep-agent-modal', 'ep-agent-iterate-modal', 'ep-agent-eject-modal',
-		'ep-agent-jobs-modal', 'ep-agent-repair-modal',
+		'ep-agent-modal', 'ep-agent-iterate-modal',
+		'ep-agent-jobs-modal', 'ep-agent-repair-modal', 'ep-agent-review-modal',
 	]);
 	initTabs('apps');
 

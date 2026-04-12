@@ -92,7 +92,7 @@ final class Kernel
         // ── Features ────────────────────────────────────────────
         add_action('after_setup_theme', [FeatureRegistry::class, 'bootAll']);
 
-        // ── Generative UI Agent feature toggle ─────────────────
+        // ── Agent feature toggle ─────────────────
         // Surface the ep_agent_enabled option through the feature
         // filter so the settings UI can flip the flag without a
         // code deploy. Site-level filters can still override.
@@ -112,7 +112,7 @@ final class Kernel
             return $opt === null ? $enabled : (bool) $opt;
         }, 5);
 
-        // ── Generative UI Agent runtime ────────────────────────
+        // ── Agent runtime ────────────────────────
         // PrismContainer must boot AFTER FeatureRegistry::bootAll() so the
         // 'agent' feature flag is registered. Action Scheduler hook
         // is registered unconditionally — the handler short-circuits
@@ -141,11 +141,19 @@ final class Kernel
             }
         }, 20);
 
-        add_action(GenerationJob::HOOK, static function (string $jobId): void {
+        add_action(GenerationJob::HOOK_GENERATE, static function (string $jobId): void {
             try {
-                GenerationJob::handle($jobId);
+                GenerationJob::handleGenerate($jobId);
             } catch (\Throwable $e) {
-                error_log('ExamplePress: GenerationJob handler failed (caught): ' . $e->getMessage());
+                error_log('ExamplePress: GenerationJob::handleGenerate failed (caught): ' . $e->getMessage());
+            }
+        });
+
+        add_action(GenerationJob::HOOK_COMMIT, static function (string $jobId): void {
+            try {
+                GenerationJob::handleCommit($jobId);
+            } catch (\Throwable $e) {
+                error_log('ExamplePress: GenerationJob::handleCommit failed (caught): ' . $e->getMessage());
             }
         });
 

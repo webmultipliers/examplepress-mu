@@ -34,9 +34,9 @@ final class LLMClient
     }
 
     /**
-     * Iterate on an existing app — the LLM receives the full current
-     * file tree plus a follow-up prompt and must return the FULL new
-     * file tree (not a diff).
+     * Iterate on an existing app. The LLM receives the current file
+     * tree as context and returns ONLY the files it touched. The
+     * GenerationJob merges the result against the parent tree.
      *
      * @param array<int,array{path:string,contents:string}> $repoFiles
      * @param array<string,mixed>                            $manifest
@@ -47,7 +47,13 @@ final class LLMClient
 
         $tree = self::buildFileTreeString($repoFiles);
 
-        $user = "Here is the current app codebase:\n{$tree}\n\nApply the following change and return the COMPLETE updated file tree:\n\n{$prompt}";
+        $user = "Here is the current app codebase:\n{$tree}\n\n"
+            . "Apply the following change.\n\n"
+            . "OUTPUT CONTRACT: Return ONLY the files you actually modified "
+            . "in `files_changed`. Do NOT return files you did not change. "
+            . "If a file should be removed, add its path to `files_deleted`. "
+            . "Everything else is preserved byte-identical by the merge layer.\n\n"
+            . "CHANGE REQUEST:\n\n{$prompt}";
 
         $payload = self::callStructured($system, $user);
 
@@ -94,12 +100,14 @@ final class LLMClient
         }
 
         $user = "Here is the current app codebase:\n{$tree}\n\n{$errorBlock}\n\n"
-            . "Produce a SURGICAL fix for the reported error. Return the COMPLETE "
-            . "updated file tree. Modify only the files necessary to resolve the "
-            . "error. Every other file MUST be returned byte-identical to its "
-            . "current contents. Do not refactor, do not 'improve' unrelated code, "
-            . "do not rename anything. Bump the patch version in examplepress.json "
-            . "and the bootstrap header.";
+            . "OUTPUT CONTRACT: Return ONLY the files you actually modified in "
+            . "`files_changed`. Do NOT return files you did not change — the "
+            . "merge layer preserves them byte-identical. `files_deleted` must "
+            . "be empty unless the user explicitly asked you to delete a file.\n\n"
+            . "Produce a SURGICAL fix for the reported error. Modify only the "
+            . "files necessary to resolve it. Do not refactor, do not 'improve' "
+            . "unrelated code, do not rename anything. Bump the patch version in "
+            . "examplepress.json and the bootstrap header.";
 
         $payload = self::callStructured($system, $user);
 
@@ -287,6 +295,11 @@ final class LLMClient
      * Returns a Prism\Schema object via factory calls so we never have
      * to import the class names — keeps this file safe to load even
      * when Prism isn't installed yet.
+     *
+     * Shape: partial-tree output. The LLM returns only the files it
+     * touched (`files_changed`) plus explicit deletions (`files_deleted`).
+     * The GenerationJob merges these onto the parent tree so we never
+     * ask the model to re-emit 40 unchanged files just to keep one.
      */
     private static function responseSchema(): mixed
     {
@@ -320,14 +333,15 @@ final class LLMClient
 
         return new $objectSchema(
             name: 'generated_app',
-            description: 'Complete ExamplePress companion app payload.',
+            description: 'Partial file tree for an ExamplePress companion app. In generate mode files_changed IS the full tree and files_deleted MUST be empty. In iterate/repair mode files_changed contains only the files you touched and files_deleted lists explicit removals; everything else is preserved byte-identical from the parent tree.',
             properties: [
                 $manifestObject,
-                new $arraySchema('files', 'Full list of files comprising the app.', $fileObject),
-                new $stringSchema('commit_message', 'Conventional commit message.'),
+                new $arraySchema('files_changed', 'Files to create or replace. In iterate/repair mode, include ONLY files you actually modified. Return no more than 50 entries — exceeding the cap rejects the output.', $fileObject),
+                new $arraySchema('files_deleted', 'Paths to remove from the app. Empty for generate mode. Empty for iterate/repair unless the user explicitly asked you to delete files.', new $stringSchema('path', 'Path to delete, relative to plugin root.')),
+                new $stringSchema('commit_message', 'Conventional commit message (feat:/fix:/chore:/refactor: prefix + one-line summary).'),
                 new $stringSchema('version', 'Semver tag for this generation, e.g. 1.0.0.'),
             ],
-            requiredFields: ['manifest', 'files', 'commit_message', 'version'],
+            requiredFields: ['manifest', 'files_changed', 'files_deleted', 'commit_message', 'version'],
         );
     }
 
@@ -347,9 +361,13 @@ final class LLMClient
         $slug = (string) ($context['manifest']['slug'] ?? '');
 
         if ($mode === 'iterate' && $slug !== '') {
-            $base .= "\n\n## ITERATION MODE\n\n- You are editing the existing app \"{$slug}\".";
-            $base .= "\n- Preserve the slug. Bump the version (patch level by default).";
-            $base .= "\n- Return the COMPLETE new file tree, not a diff.";
+            $base .= "\n\n## ITERATION MODE\n\n";
+            $base .= "- You are editing the existing app \"{$slug}\".\n";
+            $base .= "- Preserve the slug and the bootstrap filename.\n";
+            $base .= "- Bump the version (patch level by default).\n";
+            $base .= "- Return ONLY files you actually modified in `files_changed`.\n";
+            $base .= "- Put explicit removals in `files_deleted`. Omission is NOT deletion.\n";
+            $base .= "- Files not mentioned are preserved byte-identical by the merge layer.\n";
         }
 
         if ($mode === 'repair' && $slug !== '') {
@@ -357,8 +375,8 @@ final class LLMClient
             $base .= "- You are repairing the existing app \"{$slug}\".\n";
             $base .= "- A specific error has been reported (provided in the user message).\n";
             $base .= "- Your job is to fix THAT error and ONLY that error.\n";
-            $base .= "- Modify the **minimum number of files** required.\n";
-            $base .= "- Every file you do NOT need to change MUST be returned byte-identical.\n";
+            $base .= "- Return ONLY the files you touched in `files_changed`.\n";
+            $base .= "- `files_deleted` must be empty unless the user explicitly asked.\n";
             $base .= "- Do not refactor, rename, restyle, reformat, or 'improve' anything.\n";
             $base .= "- Do not add new features. Do not add new dependencies.\n";
             $base .= "- If the fix is unclear or the error is ambiguous, prefer a small,\n";
@@ -366,7 +384,6 @@ final class LLMClient
             $base .= "  over a large speculative rewrite.\n";
             $base .= "- Bump the patch version in examplepress.json and the bootstrap header.\n";
             $base .= "- Use the commit message to explain what was fixed in one sentence.\n";
-            $base .= "- Return the COMPLETE file tree. Omitting a file deletes it.\n";
         }
 
         return $base;

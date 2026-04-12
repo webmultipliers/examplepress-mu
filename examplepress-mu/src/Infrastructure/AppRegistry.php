@@ -28,7 +28,14 @@ final class AppRegistry
 
     private const POST_META_LOCK_PREFIX   = 'ep_app_post_meta_lock_';
     private const POST_META_LOCK_MAX_AGE  = 15;
-    private const POST_META_LOCK_ATTEMPTS = 5;
+    // Exponential backoff sized so total wall-clock wait exceeds
+    // POST_META_LOCK_MAX_AGE before we fall through unlocked. First
+    // few attempts are fast (10/20/40/80/160/320ms) then the backoff
+    // caps at 500ms per attempt. Running totals: 6 attempts = 630ms,
+    // 40 attempts ≈ 17.6s, which exceeds the stale-lock threshold so
+    // a living holder always resolves before we give up.
+    private const POST_META_LOCK_ATTEMPTS     = 40;
+    private const POST_META_LOCK_BACKOFF_CAP  = 500000; // microseconds
 
     /** @var array<int,bool> Per-post re-entrance flags. */
     private static array $heldPostMetaLocks = [];
@@ -80,7 +87,10 @@ final class AppRegistry
                 continue;
             }
 
-            usleep(20000 * ($attempt + 1));
+            // Exponential backoff capped at POST_META_LOCK_BACKOFF_CAP
+            // microseconds. 10ms → 20 → 40 → ... → 500ms ceiling.
+            $delay = min(self::POST_META_LOCK_BACKOFF_CAP, 10000 << min($attempt, 16));
+            usleep($delay);
         }
 
         error_log(sprintf(
@@ -313,7 +323,7 @@ final class AppRegistry
             // Apps created via the legacy scaffold/connect path are
             // immediately considered "live" — they have a plugin
             // directory on disk and (usually) a GitHub repo. The agent
-            // path uses createDraft() / promoteToPublished() instead.
+            // path uses openJob() / promoteToPublished() instead.
             'post_status' => 'publish',
         ]);
 
@@ -337,21 +347,39 @@ final class AppRegistry
         return array_merge(['slug' => $slug], $data);
     }
 
-    // ── Draft-stash API ─────────────────────────────────────────────
+    // ── Agent job state (single source of truth) ────────────────────
     //
-    // The agent flow uses these methods to persist generated payloads
-    // as ep_app posts BEFORE they're pushed to GitHub. Lifecycle:
+    // The ep_app post is the canonical store for every agent job. A
+    // job is a history entry on the post: its UUID lives in the
+    // _ep_draft_history meta alongside prompt, mode, status, step,
+    // errors, result, provider, model, and timestamps. There is no
+    // separate wp_options table — the post IS the job record, so the
+    // UI and the server cannot drift.
     //
-    //   createDraft         → wp_insert_post(status=draft) + payload meta
-    //   stashDraftPayload   → updateDraftPayload + history append
-    //   promoteToPublished  → status=publish + clear payload + write github
-    //   clearDraftPayload   → drop the payload meta after a successful push
-    //                          (used on iteration/repair pushes where the
-    //                          post is already publish)
+    // History entry schema (one element of _ep_draft_history):
+    //   id            string  UUID, matches _ep_draft_current_job_id
+    //                         while the job is active.
+    //   mode          string  generate | iterate | repair
+    //   prompt        string  user prompt
+    //   target_slug   string  app slug
+    //   status        string  pending | running | drafted | success | failed
+    //   step          string  queued | drafting | writing_code |
+    //                         awaiting_review | pushing | done | failed
+    //   errors        list<string> terminal error messages
+    //   result        ?array  populated on status=success
+    //   provider      string  anthropic | openai
+    //   model         string  model id at time of enqueue
+    //   user_id       int     originating WP user id
+    //   auto_commit   bool    commit without review pause
+    //   error_context ?array  repair-mode reported error
+    //   created_at    int     unix timestamp
+    //   updated_at    int     unix timestamp
     //
-    // The post is the canonical audit trail. The Action Scheduler job
-    // record (ep_agent_jobs) is just transient worker state — if you
-    // lose it, the draft is still recoverable from the post meta.
+    // History is FIFO-capped at HISTORY_CAP entries per post so a
+    // long-lived app that has been iterated hundreds of times doesn't
+    // bloat wp_postmeta. Separate per-post cap is better than a global
+    // one because one app's iteration history never evicts another
+    // app's jobs.
 
     /**
      * Meta keys used by the draft-stash layer. Centralised so the JS
@@ -359,6 +387,7 @@ final class AppRegistry
      */
     public const META_DRAFT_PAYLOAD     = '_ep_draft_payload';
     public const META_DRAFT_STATUS      = '_ep_draft_status';
+    public const META_DRAFT_STEP        = '_ep_draft_step';
     public const META_DRAFT_ERRORS      = '_ep_draft_errors';
     public const META_DRAFT_ORIGIN_JOB  = '_ep_draft_origin_job_id';
     public const META_DRAFT_HISTORY     = '_ep_draft_history';
@@ -366,66 +395,158 @@ final class AppRegistry
     public const META_DRAFT_PROMPT      = '_ep_draft_prompt';
     public const META_DRAFT_LOG         = '_ep_draft_log';
 
+    public const HISTORY_CAP = 25;
+
+    // Job status values.
+    public const STATUS_PENDING  = 'pending';
+    public const STATUS_RUNNING  = 'running';
+    public const STATUS_DRAFTED  = 'drafted';
+    public const STATUS_SUCCESS  = 'success';
+    public const STATUS_FAILED   = 'failed';
+
+    // Job step values (UI progress pill).
+    public const STEP_QUEUED   = 'queued';
+    public const STEP_DRAFTING = 'drafting';
+    public const STEP_WRITING  = 'writing_code';
+    public const STEP_REVIEW   = 'awaiting_review';
+    public const STEP_PUSHING  = 'pushing';
+    public const STEP_DONE     = 'done';
+    public const STEP_FAILED   = 'failed';
+
     /**
-     * Create a placeholder draft post the MOMENT the user clicks
-     * Generate, BEFORE the LLM call runs. The post exists immediately
-     * so the user can navigate away, see it in the drafts panel, and
-     * come back later — no more "trapped in the modal" experience.
+     * Open a new agent job on the CPT. Creates the post if necessary
+     * (generate mode, brand-new slug) or reuses it (retry on a failed
+     * generate, iterate/repair on an existing app). Returns the post
+     * id, the new job UUID, and a flag indicating whether an existing
+     * post was reused.
      *
-     * The slug, name, and description are provided by the user at
-     * generation time so the placeholder immediately reflects the
-     * intended app identity.
+     * Critically, this method handles the "retry after failure" path
+     * without ever calling wp_insert_post on an existing slug — so WP
+     * never auto-suffixes the post_name, and subsequent UUID lookups
+     * keep resolving to the same post.
      *
-     * @param array<string,mixed> $jobMeta { mode, prompt }
-     * @param array<string,mixed> $appIdentity { slug, name, description }
+     * @param array{
+     *   mode:string,
+     *   prompt:string,
+     *   target_slug:string,
+     *   app_name?:string,
+     *   app_description?:string,
+     *   user_id?:int,
+     *   auto_commit?:bool,
+     *   error_context?:array<string,mixed>,
+     *   provider?:string,
+     *   model?:string,
+     * } $args
+     * @return array{post_id:int, job_id:string, reused:bool}|null
      */
-    public static function createPlaceholderDraft(string $jobId, array $jobMeta = [], array $appIdentity = []): int
+    public static function openJob(array $args): ?array
     {
-        $slug  = (string) ($appIdentity['slug'] ?? '');
-        $name  = (string) ($appIdentity['name'] ?? '');
-        $desc  = (string) ($appIdentity['description'] ?? '');
-        $prompt = (string) ($jobMeta['prompt'] ?? '');
+        $mode        = (string) ($args['mode'] ?? 'generate');
+        $prompt      = (string) ($args['prompt'] ?? '');
+        $slug        = (string) ($args['target_slug'] ?? '');
+        $appName     = (string) ($args['app_name'] ?? '');
+        $appDesc     = (string) ($args['app_description'] ?? '');
+        $userId      = (int) ($args['user_id'] ?? 0);
+        $autoCommit  = (bool) ($args['auto_commit'] ?? false);
+        $errorCtx    = is_array($args['error_context'] ?? null) ? $args['error_context'] : null;
+        $provider    = (string) ($args['provider'] ?? '');
+        $model       = (string) ($args['model'] ?? '');
 
-        // Fall back to prompt-based title if no name given.
         if ($slug === '') {
-            $shortId = substr(preg_replace('/[^a-z0-9]/i', '', $jobId) ?? '', 0, 8);
-            $slug = 'agent-draft-' . $shortId;
-        }
-        if ($name === '') {
-            $name = $prompt !== '' ? mb_substr($prompt, 0, 80) : 'Agent draft (in progress)';
+            return null;
         }
 
-        $postId = wp_insert_post([
-            'post_type'   => 'ep_app',
-            'post_title'  => $name,
-            'post_name'   => $slug,
-            'post_status' => 'draft',
-        ]);
+        $existing = self::getPost($slug);
+        $reused = false;
+        $postId = 0;
 
-        if (is_wp_error($postId) || !$postId) {
-            return 0;
+        if ($existing) {
+            $reused = true;
+            $postId = (int) $existing->ID;
+
+            // A published app cannot be generated "again" — iterate or
+            // repair against it instead.
+            if ($mode === 'generate' && $existing->post_status === 'publish') {
+                return null;
+            }
+        } else {
+            if ($mode !== 'generate') {
+                // iterate/repair against a non-existent slug is a no-op
+                return null;
+            }
+
+            $name = $appName !== '' ? $appName : ($prompt !== '' ? mb_substr($prompt, 0, 80) : $slug);
+            $inserted = wp_insert_post([
+                'post_type'   => 'ep_app',
+                'post_title'  => $name,
+                'post_name'   => $slug,
+                'post_status' => 'draft',
+            ]);
+            if (is_wp_error($inserted) || !$inserted) {
+                return null;
+            }
+            $postId = (int) $inserted;
+
+            update_post_meta($postId, '_ep_plugin_slug', $slug);
+            update_post_meta($postId, '_ep_source', 'agent');
+            if ($appDesc !== '') {
+                update_post_meta($postId, '_ep_description', $appDesc);
+            }
         }
 
-        update_post_meta($postId, '_ep_plugin_slug', $slug);
-        if ($desc !== '') {
-            update_post_meta($postId, '_ep_description', $desc);
-        }
-        update_post_meta($postId, '_ep_source', 'agent');
-        update_post_meta($postId, self::META_DRAFT_STATUS, 'drafting');
-        update_post_meta($postId, self::META_DRAFT_ORIGIN_JOB, $jobId);
-        update_post_meta($postId, self::META_DRAFT_PROMPT, $prompt);
-        update_post_meta($postId, self::META_DRAFT_UPDATED_AT, (int) time());
-        update_post_meta($postId, self::META_DRAFT_HISTORY, wp_json_encode([
-            self::buildHistoryEntry(array_merge($jobMeta, ['job_id' => $jobId]), 'queued'),
-        ]));
+        $jobId = wp_generate_uuid4();
+        $now   = time();
 
-        return (int) $postId;
+        self::withPostMetaLock($postId, static function () use (
+            $postId, $jobId, $mode, $prompt, $slug, $appName, $appDesc,
+            $userId, $autoCommit, $errorCtx, $provider, $model, $now
+        ): void {
+            // Clear transient per-job state so we start clean. History
+            // is preserved — it's the chat thread / audit trail.
+            delete_post_meta($postId, self::META_DRAFT_ERRORS);
+            delete_post_meta($postId, self::META_DRAFT_LOG);
+
+            update_post_meta($postId, self::META_DRAFT_STATUS, self::STATUS_PENDING);
+            update_post_meta($postId, self::META_DRAFT_STEP, self::STEP_QUEUED);
+            update_post_meta($postId, self::META_DRAFT_ORIGIN_JOB, $jobId);
+            update_post_meta($postId, self::META_DRAFT_PROMPT, $prompt);
+            update_post_meta($postId, self::META_DRAFT_UPDATED_AT, $now);
+
+            $history   = self::readHistory($postId);
+            $history[] = [
+                'id'              => $jobId,
+                'mode'            => $mode,
+                'prompt'          => $prompt,
+                'target_slug'     => $slug,
+                'app_name'        => $appName,
+                'app_description' => $appDesc,
+                'status'          => self::STATUS_PENDING,
+                'step'            => self::STEP_QUEUED,
+                'errors'          => [],
+                'result'          => null,
+                'provider'        => $provider,
+                'model'           => $model,
+                'user_id'         => $userId,
+                'auto_commit'     => $autoCommit,
+                'error_context'   => $errorCtx,
+                'created_at'      => $now,
+                'updated_at'      => $now,
+            ];
+            self::writeHistory($postId, $history);
+        });
+
+        return [
+            'post_id' => $postId,
+            'job_id'  => $jobId,
+            'reused'  => $reused,
+        ];
     }
 
     /**
-     * Look up a draft post by its originating job ID. Used during the
-     * placeholder → finalized handoff: the job runner calls this to
-     * find the draft it should populate.
+     * Look up a draft post by its current origin_job_id meta. Returns
+     * null if the job id doesn't match any post's *current* job — if
+     * you need to find an older entry, use getJobSnapshot() which
+     * scans history.
      */
     public static function getPostByJobId(string $jobId): ?\WP_Post
     {
@@ -444,162 +565,376 @@ final class AppRegistry
     }
 
     /**
-     * Finalize a placeholder draft once the LLM returns the real
-     * payload. Renames the post (post_name + meta) to the manifest
-     * slug, populates the payload, and updates the title to the
-     * manifest name.
+     * Return a synthesised job-shape array for a given UUID, combining
+     * the history entry with the current draft payload when that entry
+     * is the active one.
      *
-     * Returns false if no placeholder exists for this job ID, OR if
-     * the target slug collides with a different existing app.
+     * Two lookup paths:
+     *   1. Fast: the job id still matches a post's META_DRAFT_ORIGIN_JOB.
+     *   2. Slow: scan every agent post's history for the entry. Used
+     *      when the user is polling a job that's since been superseded
+     *      by a retry (the current-job meta points elsewhere but the
+     *      history entry is still there).
      *
-     * @param array<string,mixed> $payload
-     * @param array<string,mixed> $jobMeta
+     * @return array<string,mixed>|null
      */
-    public static function finalizePlaceholderDraft(string $jobId, string $realSlug, array $payload, array $jobMeta = []): bool
+    public static function getJobSnapshot(string $jobId): ?array
+    {
+        if ($jobId === '') {
+            return null;
+        }
+
+        $post = self::getPostByJobId($jobId);
+        if ($post) {
+            $entry = self::findHistoryEntry((int) $post->ID, $jobId);
+            return $entry ? self::synthesiseJob($post, $entry) : null;
+        }
+
+        // Fallback: scan every post. Bounded by ep_app count.
+        $posts = get_posts([
+            'post_type'      => 'ep_app',
+            'post_status'    => 'any',
+            'posts_per_page' => 500,
+            'no_found_rows'  => true,
+        ]);
+        foreach ($posts as $p) {
+            if (!$p instanceof \WP_Post) {
+                continue;
+            }
+            $entry = self::findHistoryEntry((int) $p->ID, $jobId);
+            if ($entry) {
+                return self::synthesiseJob($p, $entry);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Apply a patch to the history entry identified by $jobId and
+     * mirror status/step/updated_at into post meta for polling.
+     *
+     * @param array<string,mixed> $patch
+     */
+    public static function updateJob(string $jobId, array $patch): bool
     {
         $post = self::getPostByJobId($jobId);
         if (!$post) {
             return false;
         }
+        $postId = (int) $post->ID;
 
-        // Reject if a DIFFERENT post already owns the real slug.
-        $conflict = self::getPost($realSlug);
-        if ($conflict && (int) $conflict->ID !== (int) $post->ID) {
-            return false;
-        }
-
-        $manifest = is_array($payload['manifest'] ?? null) ? $payload['manifest'] : [];
-        $name = (string) ($manifest['name'] ?? $realSlug);
-
-        return self::withPostMetaLock((int) $post->ID, static function () use ($post, $realSlug, $name, $manifest, $payload, $jobMeta, $jobId): bool {
-            wp_update_post([
-                'ID'         => $post->ID,
-                'post_title' => $name,
-                'post_name'  => $realSlug,
-            ]);
-
-            update_post_meta($post->ID, '_ep_plugin_slug', $realSlug);
-            update_post_meta($post->ID, '_ep_description', (string) ($manifest['description'] ?? ''));
-            update_post_meta($post->ID, '_ep_version', (string) ($manifest['version'] ?? '1.0.0'));
-
-            $ok = self::writePayloadMeta($post->ID, $payload);
-            if (!$ok) {
+        return self::withPostMetaLock($postId, static function () use ($postId, $jobId, $patch): bool {
+            $history = self::readHistory($postId);
+            $found = false;
+            foreach ($history as &$entry) {
+                if (!is_array($entry) || ($entry['id'] ?? '') !== $jobId) {
+                    continue;
+                }
+                $entry = array_merge($entry, $patch);
+                $entry['updated_at'] = time();
+                $found = true;
+                break;
+            }
+            unset($entry);
+            if (!$found) {
                 return false;
             }
+            self::writeHistory($postId, $history);
 
-            update_post_meta($post->ID, self::META_DRAFT_STATUS, 'review');
-            update_post_meta($post->ID, self::META_DRAFT_UPDATED_AT, (int) time());
-
-            $history = self::getDraftHistory($realSlug);
-            $history[] = self::buildHistoryEntry(array_merge($jobMeta, ['job_id' => $jobId]), 'drafted');
-            update_post_meta($post->ID, self::META_DRAFT_HISTORY, wp_json_encode($history));
-
+            if (isset($patch['status'])) {
+                update_post_meta($postId, self::META_DRAFT_STATUS, (string) $patch['status']);
+            }
+            if (isset($patch['step'])) {
+                update_post_meta($postId, self::META_DRAFT_STEP, (string) $patch['step']);
+            }
+            if (isset($patch['errors']) && is_array($patch['errors'])) {
+                update_post_meta($postId, self::META_DRAFT_ERRORS, wp_json_encode(array_values($patch['errors'])));
+            }
+            update_post_meta($postId, self::META_DRAFT_UPDATED_AT, time());
             return true;
         });
     }
 
     /**
-     * Set the in-flight status on an existing draft post. Used by
-     * iterate/repair to mark "LLM call started" without yet having
-     * a payload to stash.
+     * Mark a job as terminally failed. Appends the error to the
+     * entry's errors array and mirrors status=failed to post meta.
      */
-    public static function markDraftRunning(string $slug, string $status, array $jobMeta = []): bool
+    public static function failJob(string $jobId, string $error): bool
     {
-        $post = self::getPost($slug);
+        $post = self::getPostByJobId($jobId);
         if (!$post) {
             return false;
         }
-        return self::withPostMetaLock((int) $post->ID, static function () use ($post, $slug, $status, $jobMeta): bool {
-            update_post_meta($post->ID, self::META_DRAFT_STATUS, $status);
-            update_post_meta($post->ID, self::META_DRAFT_UPDATED_AT, (int) time());
-            $prompt = (string) ($jobMeta['prompt'] ?? '');
-            if ($prompt !== '') {
-                update_post_meta($post->ID, self::META_DRAFT_PROMPT, $prompt);
-            }
+        $postId = (int) $post->ID;
 
-            $history = self::getDraftHistory($slug);
-            $history[] = self::buildHistoryEntry($jobMeta, $status);
-            update_post_meta($post->ID, self::META_DRAFT_HISTORY, wp_json_encode($history));
+        return self::withPostMetaLock($postId, static function () use ($postId, $jobId, $error): bool {
+            $history = self::readHistory($postId);
+            $finalErrors = [];
+            foreach ($history as &$entry) {
+                if (!is_array($entry) || ($entry['id'] ?? '') !== $jobId) {
+                    continue;
+                }
+                $existing = is_array($entry['errors'] ?? null) ? $entry['errors'] : [];
+                $entry['status']     = self::STATUS_FAILED;
+                $entry['step']       = self::STEP_FAILED;
+                $entry['errors']     = array_merge($existing, [$error]);
+                $entry['updated_at'] = time();
+                $finalErrors = $entry['errors'];
+                break;
+            }
+            unset($entry);
+            self::writeHistory($postId, $history);
+
+            update_post_meta($postId, self::META_DRAFT_STATUS, self::STATUS_FAILED);
+            update_post_meta($postId, self::META_DRAFT_STEP, self::STEP_FAILED);
+            update_post_meta($postId, self::META_DRAFT_ERRORS, wp_json_encode($finalErrors));
+            update_post_meta($postId, self::META_DRAFT_UPDATED_AT, time());
             return true;
         });
     }
 
     /**
-     * Create a new draft app post with a stashed payload. Used by the
-     * agent on initial generation, BEFORE the LLM payload has been
-     * pushed to GitHub. Returns the post ID, or 0 on failure.
+     * Record a job as terminally succeeded. Stores the result payload
+     * on the history entry.
      *
-     * @param array<string,mixed> $payload The {manifest,files,...} payload from GenerationJob::draftPayload().
-     * @param array<string,mixed> $jobMeta Optional context: { job_id, mode, prompt }.
+     * @param array<string,mixed> $result
      */
-    public static function createDraft(string $slug, array $payload, array $jobMeta = []): int
+    public static function succeedJob(string $jobId, array $result): bool
     {
-        // If a post already exists for this slug, refuse — the caller
-        // should detect the conflict and either iterate (against an
-        // existing draft) or fail (against a published app).
-        if (self::getPost($slug)) {
-            return 0;
-        }
+        return self::updateJob($jobId, [
+            'status' => self::STATUS_SUCCESS,
+            'step'   => self::STEP_DONE,
+            'result' => $result,
+        ]);
+    }
 
-        $manifest = is_array($payload['manifest'] ?? null) ? $payload['manifest'] : [];
-        $name = (string) ($manifest['name'] ?? $slug);
-
-        $postId = wp_insert_post([
-            'post_type'   => 'ep_app',
-            'post_title'  => $name,
-            'post_name'   => $slug,
-            'post_status' => 'draft',
+    /**
+     * Every job across all apps, newest-first. Used by the recent
+     * jobs view.
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    public static function recentJobSnapshots(int $limit = 20): array
+    {
+        $posts = get_posts([
+            'post_type'      => 'ep_app',
+            'post_status'    => 'any',
+            'posts_per_page' => 100,
+            'orderby'        => 'modified',
+            'order'          => 'DESC',
+            'no_found_rows'  => true,
         ]);
 
-        if (is_wp_error($postId) || !$postId) {
-            return 0;
+        $snapshots = [];
+        foreach ($posts as $post) {
+            if (!$post instanceof \WP_Post) {
+                continue;
+            }
+            foreach (self::readHistory((int) $post->ID) as $entry) {
+                $snapshots[] = self::synthesiseJob($post, $entry);
+            }
         }
-
-        update_post_meta($postId, '_ep_plugin_slug', $slug);
-        update_post_meta($postId, '_ep_description', (string) ($manifest['description'] ?? ''));
-        update_post_meta($postId, '_ep_version', (string) ($manifest['version'] ?? '1.0.0'));
-        update_post_meta($postId, '_ep_source', 'agent');
-
-        // Payload + origin job + history seed.
-        update_post_meta($postId, self::META_DRAFT_PAYLOAD, wp_json_encode($payload));
-        update_post_meta($postId, self::META_DRAFT_STATUS, 'review');
-        update_post_meta($postId, self::META_DRAFT_ORIGIN_JOB, (string) ($jobMeta['job_id'] ?? ''));
-        update_post_meta($postId, self::META_DRAFT_UPDATED_AT, (int) time());
-        update_post_meta($postId, self::META_DRAFT_HISTORY, wp_json_encode([
-            self::buildHistoryEntry($jobMeta, 'drafted'),
-        ]));
-
-        return (int) $postId;
+        usort($snapshots, static fn($a, $b) => ($b['created_at'] ?? 0) <=> ($a['created_at'] ?? 0));
+        return array_slice($snapshots, 0, $limit);
     }
 
     /**
-     * Stash a new payload on an existing app post. Used by iteration
-     * and repair flows. Works on both draft (never-pushed) AND publish
-     * (already-pushed) posts — the payload meta is independent of
-     * post status.
+     * All history entries for a specific app slug, newest-first. Used
+     * by the iterate modal's chat thread.
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    public static function jobSnapshotsForSlug(string $slug, int $limit = 20): array
+    {
+        $post = self::getPost($slug);
+        if (!$post) {
+            return [];
+        }
+        $snapshots = [];
+        foreach (self::readHistory((int) $post->ID) as $entry) {
+            $snapshots[] = self::synthesiseJob($post, $entry);
+        }
+        usort($snapshots, static fn($a, $b) => ($b['created_at'] ?? 0) <=> ($a['created_at'] ?? 0));
+        return array_slice($snapshots, 0, $limit);
+    }
+
+    /**
+     * Synthesise a job-shape array from a post + history entry.
+     * Attaches the current draft payload when this entry is the
+     * active one.
+     *
+     * @param array<string,mixed> $entry
+     * @return array<string,mixed>
+     */
+    private static function synthesiseJob(\WP_Post $post, array $entry): array
+    {
+        $slug         = (string) get_post_meta($post->ID, '_ep_plugin_slug', true);
+        $currentJobId = (string) get_post_meta($post->ID, self::META_DRAFT_ORIGIN_JOB, true);
+
+        $draft = null;
+        if (($entry['id'] ?? '') === $currentJobId && $currentJobId !== '') {
+            $raw = (string) get_post_meta($post->ID, self::META_DRAFT_PAYLOAD, true);
+            if ($raw !== '') {
+                $decoded = json_decode($raw, true);
+                if (is_array($decoded)) {
+                    $draft = $decoded;
+                }
+            }
+        }
+
+        return [
+            'id'              => (string) ($entry['id'] ?? ''),
+            'mode'            => (string) ($entry['mode'] ?? 'generate'),
+            'prompt'          => (string) ($entry['prompt'] ?? ''),
+            'target_slug'     => $slug,
+            'app_name'        => (string) ($entry['app_name'] ?? $post->post_title),
+            'app_description' => (string) ($entry['app_description'] ?? ''),
+            'status'          => (string) ($entry['status'] ?? self::STATUS_PENDING),
+            'step'            => (string) ($entry['step'] ?? self::STEP_QUEUED),
+            'errors'          => is_array($entry['errors'] ?? null) ? array_values($entry['errors']) : [],
+            'draft'           => $draft,
+            'result'          => is_array($entry['result'] ?? null) ? $entry['result'] : null,
+            'provider'        => (string) ($entry['provider'] ?? ''),
+            'model'           => (string) ($entry['model'] ?? ''),
+            'user_id'         => (int) ($entry['user_id'] ?? 0),
+            'auto_commit'     => (bool) ($entry['auto_commit'] ?? false),
+            'error_context'   => is_array($entry['error_context'] ?? null) ? $entry['error_context'] : null,
+            'created_at'      => (int) ($entry['created_at'] ?? 0),
+            'updated_at'      => (int) ($entry['updated_at'] ?? 0),
+        ];
+    }
+
+    /**
+     * Read the history array off a post.
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    private static function readHistory(int $postId): array
+    {
+        $raw = (string) get_post_meta($postId, self::META_DRAFT_HISTORY, true);
+        if ($raw === '') {
+            return [];
+        }
+        $decoded = json_decode($raw, true);
+        if (!is_array($decoded)) {
+            return [];
+        }
+        return array_values(array_filter($decoded, 'is_array'));
+    }
+
+    /**
+     * Write history back, FIFO-capped at HISTORY_CAP. The current
+     * running/drafted job (pointed to by META_DRAFT_ORIGIN_JOB) is
+     * always preserved even if it would otherwise be the oldest
+     * entry to evict — otherwise an app iterated rapidly past the
+     * cap could lose its own in-flight job and leave the origin
+     * meta pointing at nothing.
+     *
+     * @param array<int,array<string,mixed>> $history
+     */
+    private static function writeHistory(int $postId, array $history): void
+    {
+        if (count($history) > self::HISTORY_CAP) {
+            $currentJobId = (string) get_post_meta($postId, self::META_DRAFT_ORIGIN_JOB, true);
+
+            // Fast path: no current job, or current job is already
+            // in the last HISTORY_CAP entries. Simple tail slice.
+            $tail = array_slice($history, -self::HISTORY_CAP);
+            $tailHasCurrent = $currentJobId === '' || self::historyContains($tail, $currentJobId);
+
+            if ($tailHasCurrent) {
+                $history = $tail;
+            } else {
+                // Slow path: the current job would be evicted by a
+                // naive tail slice. Keep it by pinning it to the
+                // front of the retained window.
+                $currentEntry = null;
+                foreach ($history as $entry) {
+                    if (is_array($entry) && ($entry['id'] ?? '') === $currentJobId) {
+                        $currentEntry = $entry;
+                        break;
+                    }
+                }
+                $tailCap = self::HISTORY_CAP - 1;
+                $history = $tailCap > 0 ? array_slice($history, -$tailCap) : [];
+                if ($currentEntry !== null) {
+                    array_unshift($history, $currentEntry);
+                }
+            }
+        }
+        update_post_meta($postId, self::META_DRAFT_HISTORY, wp_json_encode(array_values($history)));
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $history
+     */
+    private static function historyContains(array $history, string $jobId): bool
+    {
+        foreach ($history as $entry) {
+            if (is_array($entry) && ($entry['id'] ?? '') === $jobId) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * @return array<string,mixed>|null
+     */
+    private static function findHistoryEntry(int $postId, string $jobId): ?array
+    {
+        foreach (self::readHistory($postId) as $entry) {
+            if (($entry['id'] ?? '') === $jobId) {
+                return $entry;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Stash a generated payload on the app post and mark the current
+     * job's history entry as status=drafted, step=awaiting_review.
+     * Works on both draft (never-pushed) AND publish (already-pushed)
+     * posts — the payload meta is independent of post status.
+     *
+     * Returns false if the payload write fails (e.g. exceeds MySQL
+     * max_allowed_packet).
      *
      * @param array<string,mixed> $payload
-     * @param array<string,mixed> $jobMeta
      */
-    public static function stashDraftPayload(string $slug, array $payload, array $jobMeta = []): bool
+    public static function stashDraftPayload(string $slug, array $payload): bool
     {
         $post = self::getPost($slug);
         if (!$post) {
             return false;
         }
+        $postId = (int) $post->ID;
 
-        return self::withPostMetaLock((int) $post->ID, static function () use ($post, $slug, $payload, $jobMeta): bool {
-            $ok = self::writePayloadMeta($post->ID, $payload);
-            if (!$ok) {
+        return self::withPostMetaLock($postId, static function () use ($postId, $payload): bool {
+            if (!self::writePayloadMeta($postId, $payload)) {
                 return false;
             }
 
-            update_post_meta($post->ID, self::META_DRAFT_STATUS, 'review');
-            update_post_meta($post->ID, self::META_DRAFT_UPDATED_AT, (int) time());
+            update_post_meta($postId, self::META_DRAFT_STATUS, self::STATUS_DRAFTED);
+            update_post_meta($postId, self::META_DRAFT_STEP, self::STEP_REVIEW);
+            update_post_meta($postId, self::META_DRAFT_UPDATED_AT, time());
 
-            $history = self::getDraftHistory($slug);
-            $history[] = self::buildHistoryEntry($jobMeta, 'drafted');
-            update_post_meta($post->ID, self::META_DRAFT_HISTORY, wp_json_encode($history));
+            // Mirror into the current job's history entry.
+            $currentJobId = (string) get_post_meta($postId, self::META_DRAFT_ORIGIN_JOB, true);
+            if ($currentJobId !== '') {
+                $history = self::readHistory($postId);
+                foreach ($history as &$entry) {
+                    if (!is_array($entry) || ($entry['id'] ?? '') !== $currentJobId) {
+                        continue;
+                    }
+                    $entry['status']     = self::STATUS_DRAFTED;
+                    $entry['step']       = self::STEP_REVIEW;
+                    $entry['updated_at'] = time();
+                    break;
+                }
+                unset($entry);
+                self::writeHistory($postId, $history);
+            }
 
             return true;
         });
@@ -668,137 +1003,124 @@ final class AppRegistry
     }
 
     /**
-     * Promote a never-pushed draft to publish status after a successful
-     * GitHub push. Sets the github coordinates, bumps version, and
-     * clears the draft payload meta.
+     * Record a successful iterate/repair push. Bumps the version meta,
+     * marks the current job's history entry as status=success, and
+     * clears the pending stash.
      *
-     * @param array<string,mixed> $githubData { owner_repo, repo_id, html_url }
-     * @param array<string,mixed> $jobMeta
+     * @param array<string,mixed> $result
      */
-    /**
-     * Atomic "we just pushed version X" record. Updates the stored
-     * version meta AND appends a `pushed` history entry inside the
-     * per-post lock, then clears the pending payload. Replaces the
-     * inline read-modify-write cycle that used to live in
-     * GenerationJob::commitIterate — that bypassed the lock and was
-     * racey with any other writer touching the same post's history.
-     *
-     * @param array<string,mixed> $jobMeta
-     */
-    public static function recordPush(string $slug, string $newVersion, array $jobMeta = []): bool
+    public static function recordPush(string $slug, string $newVersion, array $result = []): bool
     {
         $post = self::getPost($slug);
         if (!$post) {
             return false;
         }
-        return self::withPostMetaLock((int) $post->ID, static function () use ($post, $slug, $newVersion, $jobMeta): bool {
-            update_post_meta($post->ID, '_ep_version', $newVersion);
+        $postId = (int) $post->ID;
 
-            $history = self::getDraftHistory($slug);
-            $entry = self::buildHistoryEntry($jobMeta, 'pushed');
-            $entry['version'] = $newVersion;
-            $history[] = $entry;
-            update_post_meta($post->ID, self::META_DRAFT_HISTORY, wp_json_encode($history));
+        return self::withPostMetaLock($postId, static function () use ($postId, $newVersion, $result): bool {
+            update_post_meta($postId, '_ep_version', $newVersion);
 
-            // clearDraftPayload is itself lock-aware (takes its own lock
-            // via the re-entrant static flag), so calling it from inside
-            // the held lock is safe and keeps the state transition
-            // atomic with the version + history write.
-            self::clearDraftPayload($slug);
+            $currentJobId = (string) get_post_meta($postId, self::META_DRAFT_ORIGIN_JOB, true);
+            if ($currentJobId !== '') {
+                $history = self::readHistory($postId);
+                foreach ($history as &$entry) {
+                    if (!is_array($entry) || ($entry['id'] ?? '') !== $currentJobId) {
+                        continue;
+                    }
+                    $entry['status']     = self::STATUS_SUCCESS;
+                    $entry['step']       = self::STEP_DONE;
+                    $entry['result']     = array_merge(['version' => $newVersion], $result);
+                    $entry['updated_at'] = time();
+                    break;
+                }
+                unset($entry);
+                self::writeHistory($postId, $history);
+            }
+
+            self::clearDraftPayload($postId);
             return true;
         });
     }
 
-    public static function promoteToPublished(string $slug, array $githubData, array $jobMeta = []): bool
+    /**
+     * Promote a never-pushed draft to publish after a successful push.
+     * Records the github coordinates, flips the post status, marks
+     * the current job's history entry as success, and clears the
+     * pending payload.
+     *
+     * @param array<string,mixed> $githubData { owner_repo, repo_id, html_url }
+     * @param array<string,mixed> $result     Extra result fields merged into history entry.
+     */
+    public static function promoteToPublished(string $slug, array $githubData, array $result = []): bool
     {
         $post = self::getPost($slug);
         if (!$post) {
             return false;
         }
+        $postId = (int) $post->ID;
+        $wasPublished = $post->post_status === 'publish';
 
-        return self::withPostMetaLock((int) $post->ID, static function () use ($post, $slug, $githubData, $jobMeta): bool {
-            $updateArgs = ['ID' => $post->ID];
-            if ($post->post_status !== 'publish') {
-                $updateArgs['post_status'] = 'publish';
-            }
-            if (count($updateArgs) > 1) {
-                wp_update_post($updateArgs);
+        return self::withPostMetaLock($postId, static function () use ($postId, $wasPublished, $githubData, $result): bool {
+            if (!$wasPublished) {
+                wp_update_post(['ID' => $postId, 'post_status' => 'publish']);
             }
 
             // Pull the version from the stashed payload before clearing it.
-            $payload = self::getDraftPayload($slug) ?? [];
-            if (!empty($payload['manifest']['version'])) {
-                update_post_meta($post->ID, '_ep_version', (string) $payload['manifest']['version']);
+            $raw = (string) get_post_meta($postId, self::META_DRAFT_PAYLOAD, true);
+            $payload = $raw !== '' ? (json_decode($raw, true) ?: []) : [];
+            $version = (string) ($payload['manifest']['version'] ?? '');
+            if ($version !== '') {
+                update_post_meta($postId, '_ep_version', $version);
             }
 
-            // Stamp GitHub coords.
             if (!empty($githubData['owner_repo'])) {
-                update_post_meta($post->ID, '_ep_github_owner_repo', (string) $githubData['owner_repo']);
+                update_post_meta($postId, '_ep_github_owner_repo', (string) $githubData['owner_repo']);
             }
             if (isset($githubData['repo_id'])) {
-                update_post_meta($post->ID, '_ep_github_repo_id', (string) $githubData['repo_id']);
+                update_post_meta($postId, '_ep_github_repo_id', (string) $githubData['repo_id']);
             }
             if (!empty($githubData['html_url'])) {
-                update_post_meta($post->ID, '_ep_github_html_url', (string) $githubData['html_url']);
+                update_post_meta($postId, '_ep_github_html_url', (string) $githubData['html_url']);
             }
 
-            // Append a history entry recording the push BEFORE we clear the payload.
-            $history = self::getDraftHistory($slug);
-            $history[] = self::buildHistoryEntry($jobMeta, 'pushed');
-            update_post_meta($post->ID, self::META_DRAFT_HISTORY, wp_json_encode($history));
+            $currentJobId = (string) get_post_meta($postId, self::META_DRAFT_ORIGIN_JOB, true);
+            if ($currentJobId !== '') {
+                $history = self::readHistory($postId);
+                foreach ($history as &$entry) {
+                    if (!is_array($entry) || ($entry['id'] ?? '') !== $currentJobId) {
+                        continue;
+                    }
+                    $entry['status']     = self::STATUS_SUCCESS;
+                    $entry['step']       = self::STEP_DONE;
+                    $entry['result']     = array_merge(['version' => $version], $githubData, $result);
+                    $entry['updated_at'] = time();
+                    break;
+                }
+                unset($entry);
+                self::writeHistory($postId, $history);
+            }
 
-            self::clearDraftPayload($slug);
+            self::clearDraftPayload($postId);
             return true;
         });
     }
 
     /**
-     * Drop the stashed payload + status meta. Called after a successful
-     * push (the live state IS the canonical version now) or when the
-     * user explicitly discards a pending revision.
+     * Drop the stashed payload + transient per-job meta (status, step,
+     * errors, log, prompt, updated_at, origin_job_id). History is
+     * preserved. Called after a successful push or when the user
+     * explicitly discards the pending work.
      */
-    public static function clearDraftPayload(string $slug): bool
+    private static function clearDraftPayload(int $postId): void
     {
-        $post = self::getPost($slug);
-        if (!$post) {
-            return false;
-        }
-        delete_post_meta($post->ID, self::META_DRAFT_PAYLOAD);
-        delete_post_meta($post->ID, self::META_DRAFT_STATUS);
-        delete_post_meta($post->ID, self::META_DRAFT_ERRORS);
-        delete_post_meta($post->ID, self::META_DRAFT_PROMPT);
-        delete_post_meta($post->ID, self::META_DRAFT_LOG);
-        delete_post_meta($post->ID, self::META_DRAFT_UPDATED_AT);
-        return true;
-    }
-
-    /**
-     * Record a draft failure on the post (validator errors, push errors,
-     * etc.) so the UI can show what went wrong without consulting the
-     * Action Scheduler job state.
-     *
-     * @param array<int,string>   $errors
-     * @param array<string,mixed> $jobMeta
-     */
-    public static function recordDraftFailure(string $slug, array $errors, array $jobMeta = []): bool
-    {
-        $post = self::getPost($slug);
-        if (!$post) {
-            return false;
-        }
-        return self::withPostMetaLock((int) $post->ID, static function () use ($post, $slug, $errors, $jobMeta): bool {
-            update_post_meta($post->ID, self::META_DRAFT_STATUS, 'failed');
-            update_post_meta($post->ID, self::META_DRAFT_ERRORS, wp_json_encode(array_values($errors)));
-            update_post_meta($post->ID, self::META_DRAFT_UPDATED_AT, (int) time());
-
-            $history = self::getDraftHistory($slug);
-            $entry = self::buildHistoryEntry($jobMeta, 'failed');
-            $entry['errors'] = array_values($errors);
-            $history[] = $entry;
-            update_post_meta($post->ID, self::META_DRAFT_HISTORY, wp_json_encode($history));
-
-            return true;
-        });
+        delete_post_meta($postId, self::META_DRAFT_PAYLOAD);
+        delete_post_meta($postId, self::META_DRAFT_STATUS);
+        delete_post_meta($postId, self::META_DRAFT_STEP);
+        delete_post_meta($postId, self::META_DRAFT_ERRORS);
+        delete_post_meta($postId, self::META_DRAFT_LOG);
+        delete_post_meta($postId, self::META_DRAFT_PROMPT);
+        delete_post_meta($postId, self::META_DRAFT_UPDATED_AT);
+        delete_post_meta($postId, self::META_DRAFT_ORIGIN_JOB);
     }
 
     /**
@@ -846,10 +1168,9 @@ final class AppRegistry
     }
 
     /**
-     * Discard a draft entirely. If the post has never been pushed
-     * (status = draft), the post is deleted. If it's already been
-     * pushed once (status = publish), only the pending payload is
-     * dropped — the live app stays.
+     * Discard a draft entirely. If the post has never been pushed,
+     * delete it. If it's already published, just drop the pending
+     * payload. History is preserved when the post survives.
      */
     public static function discardDraft(string $slug): bool
     {
@@ -861,11 +1182,12 @@ final class AppRegistry
             wp_delete_post($post->ID, true);
             return true;
         }
-        return self::clearDraftPayload($slug);
+        self::clearDraftPayload((int) $post->ID);
+        return true;
     }
 
     /**
-     * Read the audit trail of every draft action against this app.
+     * Read the audit trail of every job against this app (in order).
      *
      * @return array<int,array<string,mixed>>
      */
@@ -875,48 +1197,37 @@ final class AppRegistry
         if (!$post) {
             return [];
         }
-        $raw = (string) get_post_meta($post->ID, self::META_DRAFT_HISTORY, true);
-        if ($raw === '') {
-            return [];
-        }
-        $decoded = json_decode($raw, true);
-        return is_array($decoded) ? $decoded : [];
+        return self::readHistory((int) $post->ID);
     }
 
     /**
-     * List every app that has a stashed pending payload (regardless of
-     * post status). Used by the Drafts surface in the admin.
+     * List every app with in-flight or pending draft work. Used by
+     * the Drafts surface in the admin page.
      *
      * @return array<int,array<string,mixed>>
      */
     public static function listDraftsPending(): array
     {
-        // Find every post that is either:
-        // 1. A never-pushed draft (post_status=draft) — always show so
-        //    orphaned placeholders are visible and can be discarded.
-        // 2. A published app with a stashed payload or draft status
-        //    (pending iteration/repair).
-        // Single query: every ep_app post that is either an unpushed
-        // draft OR a published app with pending draft work. Using 'any'
-        // post_status catches orphans regardless of status.
         $posts = get_posts([
             'post_type'      => 'ep_app',
             'post_status'    => 'any',
             'posts_per_page' => 100,
             'no_found_rows'  => true,
         ]);
-        // Filter down to posts that belong in the drafts panel:
-        // - Never-pushed drafts (post_status !== publish)
-        // - Published apps with a stashed payload or draft status
+
         $posts = array_filter($posts, static function (\WP_Post $post): bool {
             if ($post->post_status !== 'publish') {
-                return true; // All non-published posts show (draft, trash, etc.)
+                return true;
             }
-            // Published: only show if pending draft work exists.
             $hasPayload = metadata_exists('post', $post->ID, self::META_DRAFT_PAYLOAD);
             $hasStatus  = metadata_exists('post', $post->ID, self::META_DRAFT_STATUS);
             return $hasPayload || $hasStatus;
         });
+
+        $inFlightStates = [
+            self::STATUS_PENDING,
+            self::STATUS_RUNNING,
+        ];
 
         $out = [];
         foreach ($posts as $post) {
@@ -924,51 +1235,41 @@ final class AppRegistry
             if ($slug === '') {
                 continue;
             }
-            $payload      = self::getDraftPayload($slug) ?? [];
-            $files        = is_array($payload['files'] ?? null) ? $payload['files'] : [];
-            $draftStatus  = (string) get_post_meta($post->ID, self::META_DRAFT_STATUS, true);
-            $errorsRaw    = (string) get_post_meta($post->ID, self::META_DRAFT_ERRORS, true);
-            $errors       = $errorsRaw !== '' ? (json_decode($errorsRaw, true) ?: []) : [];
-            $prompt       = (string) get_post_meta($post->ID, self::META_DRAFT_PROMPT, true);
+            $payload     = self::getDraftPayload($slug) ?? [];
+            $files       = is_array($payload['files'] ?? null) ? $payload['files'] : [];
+            $draftStatus = (string) get_post_meta($post->ID, self::META_DRAFT_STATUS, true);
+            $draftStep   = (string) get_post_meta($post->ID, self::META_DRAFT_STEP, true);
+            $errorsRaw   = (string) get_post_meta($post->ID, self::META_DRAFT_ERRORS, true);
+            $errors      = $errorsRaw !== '' ? (json_decode($errorsRaw, true) ?: []) : [];
+            $prompt      = (string) get_post_meta($post->ID, self::META_DRAFT_PROMPT, true);
+            $updatedAt   = (int) get_post_meta($post->ID, self::META_DRAFT_UPDATED_AT, true);
 
+            $rawErrors = is_array($errors) ? array_values($errors) : [];
             $out[] = [
-                'slug'           => $slug,
-                'name'           => $post->post_title,
-                'post_status'    => $post->post_status,
-                'draft_status'   => $draftStatus,
-                'prompt'         => $prompt,
-                'has_payload'    => !empty($files),
-                'in_flight'      => in_array($draftStatus, ['queued', 'drafting', 'iterating', 'repairing', 'pushing'], true),
-                'stalled'        => in_array($draftStatus, ['queued', 'drafting', 'iterating', 'repairing'], true)
-                                    && ((int) get_post_meta($post->ID, self::META_DRAFT_UPDATED_AT, true)) < (time() - 300),
-                'updated_at'     => (int) get_post_meta($post->ID, self::META_DRAFT_UPDATED_AT, true),
-                'version'        => (string) ($payload['manifest']['version'] ?? ''),
-                'files_count'    => count($files),
-                'change_summary' => is_array($payload['change_summary'] ?? null) ? $payload['change_summary'] : null,
-                'origin_job_id'  => (string) get_post_meta($post->ID, self::META_DRAFT_ORIGIN_JOB, true),
-                'errors'         => is_array($errors) ? $errors : [],
-                'log'            => self::getDraftLog($slug),
+                'slug'            => $slug,
+                'name'            => $post->post_title,
+                'post_status'     => $post->post_status,
+                'draft_status'    => $draftStatus,
+                'draft_step'      => $draftStep,
+                'prompt'          => $prompt,
+                'has_payload'     => !empty($files),
+                'in_flight'       => in_array($draftStatus, $inFlightStates, true),
+                'stalled'         => in_array($draftStatus, $inFlightStates, true)
+                                     && $updatedAt > 0
+                                     && $updatedAt < (time() - 300),
+                'updated_at'      => $updatedAt,
+                'version'         => (string) ($payload['manifest']['version'] ?? ''),
+                'files_count'     => count($files),
+                'change_summary'  => is_array($payload['change_summary'] ?? null) ? $payload['change_summary'] : null,
+                'origin_job_id'   => (string) get_post_meta($post->ID, self::META_DRAFT_ORIGIN_JOB, true),
+                'errors'          => $rawErrors,
+                'friendly_errors' => !empty($rawErrors) ? \ExamplePress\MU\Governance\AppValidator::humanizeErrors($rawErrors) : [],
+                'log'             => self::getDraftLog($slug),
             ];
         }
 
-        // Newest first so the in-flight job is at the top.
         usort($out, static fn($a, $b) => ($b['updated_at'] ?? 0) <=> ($a['updated_at'] ?? 0));
         return $out;
-    }
-
-    /**
-     * @param array<string,mixed> $jobMeta
-     * @return array<string,mixed>
-     */
-    private static function buildHistoryEntry(array $jobMeta, string $event): array
-    {
-        return [
-            'event'      => $event,
-            'job_id'     => (string) ($jobMeta['job_id'] ?? ''),
-            'mode'       => (string) ($jobMeta['mode'] ?? ''),
-            'prompt'     => (string) ($jobMeta['prompt'] ?? ''),
-            'created_at' => (int) time(),
-        ];
     }
 
     public static function forget(string $slug): bool

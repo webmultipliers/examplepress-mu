@@ -320,13 +320,13 @@ if (!defined('ABSPATH')) exit;
 							<span class="ep-modal__subtitle" id="ep-agent-iterate-draft-summary"></span>
 						</div>
 						<div id="ep-agent-iterate-draft-files" class="ep-agent-draft-files"></div>
+						<div id="ep-agent-iterate-draft-file-viewer" class="ep-agent-file-viewer" style="display:none"></div>
 					</div>
 				</div>
 				<input type="hidden" id="ep-agent-iterate-target-slug" />
 				<input type="hidden" id="ep-agent-iterate-current-job-id" />
 			</div>
 			<div class="ep-modal__footer">
-				<button class="ep-btn ep-btn--danger" id="ep-agent-iterate-eject-btn">Eject…</button>
 				<button class="ep-btn ep-btn--secondary" data-modal="ep-agent-iterate-modal">Close</button>
 				<button class="ep-btn ep-btn--danger" id="ep-agent-iterate-discard-btn" style="display:none">Discard draft</button>
 				<button class="ep-btn ep-btn--primary" id="ep-agent-iterate-submit">Send</button>
@@ -381,6 +381,7 @@ if (!defined('ABSPATH')) exit;
 					</div>
 					<div id="ep-agent-repair-change-badges" class="ep-agent-change-badges"></div>
 					<div id="ep-agent-repair-draft-files" class="ep-agent-draft-files"></div>
+					<div id="ep-agent-repair-draft-file-viewer" class="ep-agent-file-viewer" style="display:none"></div>
 				</div>
 				<input type="hidden" id="ep-agent-repair-target-slug" />
 				<input type="hidden" id="ep-agent-repair-current-job-id" />
@@ -390,40 +391,6 @@ if (!defined('ABSPATH')) exit;
 				<button class="ep-btn ep-btn--danger" id="ep-agent-repair-discard-btn" style="display:none">Discard draft</button>
 				<button class="ep-btn ep-btn--primary" id="ep-agent-repair-submit">Diagnose &amp; Draft Fix</button>
 				<button class="ep-btn ep-btn--primary ep-btn--success" id="ep-agent-repair-commit-btn" style="display:none">Push fix to GitHub</button>
-			</div>
-		</div>
-	</div>
-
-	<!-- Eject Confirmation Modal (separate, hardened) -->
-	<div class="ep-modal__overlay" id="ep-agent-eject-modal" style="display:none">
-		<div class="ep-modal ep-modal--sm">
-			<div class="ep-modal__header">
-				<div>
-					<span class="ep-modal__title ep-modal__title--danger">⚠ Eject to Developer Mode</span>
-					<span class="ep-modal__subtitle">This is irreversible from the UI.</span>
-				</div>
-				<button class="ep-modal__close" data-modal="ep-agent-eject-modal">&times;</button>
-			</div>
-			<div class="ep-modal__body">
-				<p class="ep-section__desc">Ejecting <strong id="ep-agent-eject-slug-display"></strong> will:</p>
-				<ul class="ep-list">
-					<li>Set <code>supports_ai_iteration: false</code> in the manifest</li>
-					<li>Commit the change and tag a new patch release</li>
-					<li>Permanently lock the AI chat interface for this app</li>
-					<li>Hand the GitHub repo to developer-mode-only workflows</li>
-				</ul>
-				<div class="ep-form">
-					<div class="ep-form__row">
-						<label class="ep-form__label" for="ep-agent-eject-confirm">Type the app slug to confirm</label>
-						<input type="text" id="ep-agent-eject-confirm" autocomplete="off" />
-					</div>
-				</div>
-				<div id="ep-agent-eject-error" class="ep-form__error" style="display:none"></div>
-				<input type="hidden" id="ep-agent-eject-target-slug" />
-			</div>
-			<div class="ep-modal__footer">
-				<button class="ep-btn ep-btn--secondary" data-modal="ep-agent-eject-modal">Cancel</button>
-				<button class="ep-btn ep-btn--primary ep-btn--danger" id="ep-agent-eject-confirm-btn" disabled>Eject</button>
 			</div>
 		</div>
 	</div>

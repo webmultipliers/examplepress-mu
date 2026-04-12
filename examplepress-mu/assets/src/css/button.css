@@ -5,11 +5,21 @@
  */
 
 /*
- * Base rule scoped to `.ep-btn` rather than `button.ep-btn` so anchors
- * styled as buttons (e.g. <a class="ep-btn ep-btn--primary">Open →</a>)
+ * Base rule intentionally NOT scoped under `.ep-page` so that the
+ * modifier selectors below (`.ep-btn--primary`, `.ep-btn--secondary`
+ * etc.) sit at the same specificity. If we used `.ep-page .ep-btn`
+ * (specificity 0,2,0) while the modifiers stayed unprefixed at
+ * (0,1,0), the base's `border: 1px solid transparent` would win the
+ * specificity fight and every colored variant would lose its
+ * `border-color` override. Keeping both base and modifiers at
+ * (0,1,0) lets source order decide — modifiers come after the base,
+ * so they correctly override.
+ *
+ * Scoped to `.ep-btn` rather than `button.ep-btn` so anchors styled
+ * as buttons (e.g. <a class="ep-btn ep-btn--primary">Open →</a>)
  * pick up the same padding, typography, and border-radius as <button>.
  */
-.ep-page .ep-btn {
+.ep-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -17,7 +27,9 @@
   transition: background 0.15s, border-color 0.15s, color 0.15s;
   cursor: pointer;
   box-shadow: var(--shadow-sm);
-  border: 1px solid transparent;
+  border-width: 1px;
+  border-style: solid;
+  border-color: transparent;
   border-radius: var(--radius-md);
   padding: 0.5rem 1rem;
   font-weight: 500;
@@ -28,12 +40,12 @@
   white-space: nowrap;
 }
 
-.ep-page .ep-btn:disabled {
+.ep-btn:disabled {
   cursor: not-allowed;
   opacity: 0.5;
 }
 
-.ep-page a.ep-btn:hover {
+a.ep-btn:hover {
   text-decoration: none;
 }
 

@@ -398,7 +398,7 @@ final class GitHub
     /**
      * Push an arbitrary in-memory file list as a new commit.
      *
-     * Used by the Generative UI Agent for both initial generation
+     * Used by the Agent for both initial generation
      * (parentSha = null, creates main branch) and iteration
      * (parentSha = current HEAD, advances main).
      *
@@ -775,7 +775,7 @@ final class GitHub
     // ── Releases ───────────────────────────────────────────────────
 
     /**
-     * Create a GitHub release on a repo. Used by the Generative UI Agent
+     * Create a GitHub release on a repo. Used by the Agent
      * to tag immutable versions after each generation/iteration.
      *
      * @return array{tag_name:string,html_url:string,id:int}|\WP_Error
@@ -832,7 +832,7 @@ final class GitHub
 
     /**
      * Fetch the full file tree of a repo at HEAD of the default branch.
-     * Used by the Generative UI Agent to feed current code as context
+     * Used by the Agent to feed current code as context
      * to the LLM during iteration.
      *
      * @return array{files:array<int,array{path:string,contents:string}>,sha:string}|\WP_Error

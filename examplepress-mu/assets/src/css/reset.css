@@ -28,8 +28,19 @@ ul#adminmenu > li.current > a.current:after {
   border-right-color: var(--bg);
 }
 
-/* Form element resets */
-.ep-page button,
+/*
+ * Form element resets — neutralize WordPress admin's default form
+ * styling so our design-system rules start from a clean baseline.
+ *
+ * IMPORTANT: the `:not(.ep-btn)` exclusion is load-bearing. Without
+ * it, this rule (specificity 0,1,1) outweighs the `.ep-btn` design
+ * system (specificity 0,1,0) and strips every button of its border,
+ * padding, background, and color. Anything wearing `.ep-btn` is
+ * intentionally excluded so button.css can own those buttons end
+ * to end. The `.ep-modal__close` button is kept under the reset
+ * on purpose — modal.css bumps its specificity back up.
+ */
+.ep-page button:not(.ep-btn),
 .ep-page input,
 .ep-page select,
 .ep-page textarea {

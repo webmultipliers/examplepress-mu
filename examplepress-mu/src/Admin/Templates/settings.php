@@ -115,7 +115,7 @@ $ep_github_app_available = \ExamplePress\MU\Infrastructure\GitHub::appIsConfigur
 		<!-- AI Agent -->
 		<div class="ep-panel" id="p-agent" role="tabpanel" aria-hidden="true">
 			<section class="ep-section">
-				<div class="ep-section__header"><span class="ep-section__title">Generative UI Agent</span><div class="ep-section__line"></div></div>
+				<div class="ep-section__header"><span class="ep-section__title">Agent</span><div class="ep-section__line"></div></div>
 				<p class="ep-section__desc">Configure the LLM provider that powers the "Generate with AI" flow on the Apps page. Generated apps live entirely in private GitHub repos &mdash; nothing is written to <code>wp_posts</code> or <code>wp_options</code> beyond the standard app registry.</p>
 				<div class="ep-form">
 					<div class="ep-form__row">

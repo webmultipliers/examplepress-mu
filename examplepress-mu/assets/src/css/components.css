@@ -503,8 +503,6 @@
   font-size: 0.78rem;
 }
 
-.ep-modal__title--danger { color: var(--red); }
-
 /* Modal section patterns (emitted by system/blocks.js, features.js, etc.) */
 .ep-modal-section {
   margin-top: var(--space-4);
@@ -787,14 +785,6 @@
 }
 
 .ep-link:hover { text-decoration: underline; }
-
-.ep-list {
-  margin: 0 0 var(--space-3);
-  padding-left: var(--space-5);
-  color: var(--text-light);
-  font-size: 0.85rem;
-  line-height: 1.6;
-}
 
 /* ── Agent draft / chat / job list panels (Apps → Generate modal) ── */
 

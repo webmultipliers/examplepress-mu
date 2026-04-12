@@ -7,7 +7,7 @@
 
 # ExamplePress MU
 
-**The platform kernel for the ExamplePress ecosystem.** A self-updating WordPress MU plugin that provides governance enforcement, companion app lifecycle management, a 10-page admin dashboard, REST APIs, and an optional AI-powered generative UI agent — all in a single zero-procedural, fully namespaced PHP package.
+**The platform kernel for the ExamplePress ecosystem.** A self-updating WordPress MU plugin that provides governance enforcement, companion app lifecycle management, a 10-page admin dashboard, REST APIs, and an optional AI-powered agent — all in a single zero-procedural, fully namespaced PHP package.
 
 ---
 
@@ -15,7 +15,7 @@
 
 - **Self-Updating Kernel** — Auto-downloads from GitHub releases with SHA-256 verification, atomic swaps, and automatic rollback on failure
 - **Zero-Trust Plugin Governance** — Validates every companion plugin's manifest, permissions, and code before WordPress loads it
-- **Generative UI Agent** — Describe an app in plain English; the agent scaffolds, validates, pushes to GitHub, and installs it automatically (powered by Claude or GPT-4)
+- **Generative App Agent** — Describe an app in plain English; the agent scaffolds the PHP/Blockstudio code, validates it against 20 zero-trust rules, pushes to GitHub, and installs it automatically. Iterate and repair modes use a partial-tree output contract so large apps don't run into LLM output token limits (powered by Claude or GPT-4)
 - **Skill Curriculum System** — The agent's instructions are plain markdown files with live merge tags, not hardcoded prompts — fully extensible by operators
 - **Platform Immutability** — The running site is a read-only artifact of a Git ref; all changes flow through PRs via Codespaces or the in-admin proposer
 - **10-Page Admin Dashboard** — Apps, Theme, Navigation, Dependencies, Library, Settings, Notifications, System, and Docs
@@ -47,7 +47,7 @@ Download the [latest release](../../releases/latest) `.zip` and extract it into 
 | WordPress | **6.4+** | |
 | Composer | Latest | PSR-4 fallback autoloader included |
 | ext-fileinfo | — | Required by Prism |
-| Server-side cron | — | Only needed if the Generative UI Agent is enabled |
+| Server-side cron | — | Only needed if the agent is enabled |
 
 ---
 
@@ -140,9 +140,9 @@ Bypasses the FSE EditorGuard and surfaces a notification in the admin UI.
 
 ---
 
-## Generative UI Agent
+## Generative App Agent
 
-The agent lets site owners describe a companion app in natural language and have it scaffolded, validated, pushed to GitHub, tagged as a release, and installed — without writing any code.
+The agent lets site owners describe a companion app in natural language and have it scaffolded, validated, pushed to GitHub, tagged as a release, and installed — without writing any code. It produces PHP + Blockstudio source code; it does not render a live visual preview.
 
 ### Setup
 
@@ -151,20 +151,29 @@ The agent lets site owners describe a companion app in natural language and have
 3. Select a provider (`anthropic` or `openai`), model, and API key
 4. Reload — the **Generate with AI** button appears on the Apps page
 
-### Generation Pipeline
+### Generation pipeline (two async phases)
 
 ```
 User prompt
-  → Action Scheduler job enqueued
-  → LLMClient calls Prism (structured JSON output)
-  → AppValidator.validateGenerated() — 20 zero-trust rules
-  → GitHub.createRepo() → pushFiles() → createRelease()
-  → AppRegistry.set() → installed on next update tick
+  → AppRegistry::openJob() — history entry appended to ep_app post
+  → Action Scheduler: ep_agent_generate
+      → LLMClient calls Prism (structured JSON, partial-tree output)
+      → GeneratedApp::mergeOnto(parentTree) — merge layer
+      → AppValidator::validateGenerated() — 20 zero-trust rules
+      → auto-repair pass if validation fails
+      → AppRegistry::stashDraftPayload() — status=drafted, awaiting review
+  → User clicks Push
+  → Action Scheduler: ep_agent_commit
+      → GitHub::createRepo() → pushFiles() → createRelease()
+      → AppRegistry::promoteToPublished() / recordPush()
+      → AppUpdateProvider::flush() — installed on next update tick
 ```
 
-**Iteration mode** loads the current repo tree, sends a follow-up prompt, and pushes a new commit chained from the parent SHA.
+**Partial-tree output contract** — iterate and repair modes return only the files the LLM actually touched (`files_changed`) plus explicit removals (`files_deleted`). The merge layer applies the diff against the parent tree so large apps never hit LLM output token limits.
 
-**Eject to Developer Mode** flips `supports_ai_iteration` to `false`, commits, and releases a new patch. The chat panel locks — the repo is now developer-only.
+**Async commit** — the "Push to GitHub" click enqueues `ep_agent_commit` and returns immediately. Slow GitHub responses cannot 504 the REST request.
+
+**State** — every agent job is a history entry on the `ep_app` Custom Post Type. There is no separate `ep_agent_jobs` option. The post is the job record, the audit trail, and the polling source for the UI.
 
 ### Skill Curriculum
 
@@ -200,7 +209,9 @@ add_filter( 'examplepress_mu_agent_merge_tags', function ( array $tags ): array 
 | `ep_agent_provider` | `anthropic` | `anthropic` or `openai` |
 | `ep_agent_model` | `claude-sonnet-4-6` | Model identifier |
 | `ep_agent_api_key` | — | Stored in `wp_options` |
-| `ep_agent_jobs` | `[]` | Job state (capped at 50 entries, FIFO) |
+
+Job state lives on the `ep_app` CPT (per-post history meta) — there
+is no separate job options table.
 
 ---
 
@@ -295,7 +306,7 @@ wp examplepress init --force  # Overwrite existing config
 ### Running Agent Jobs Manually
 
 ```bash
-wp action-scheduler run --hooks=ep_agent_generate
+wp action-scheduler run --hooks=ep_agent_generate,ep_agent_commit
 ```
 
 ---
@@ -364,12 +375,14 @@ All MU-owned hooks use the `examplepress_mu_` prefix. Theme-owned hooks (`exampl
 | Hook | Type | Description |
 |---|---|---|
 | `examplepress_mu_feature_agent` | filter | Toggle the agent on/off |
-| `examplepress_mu_validate_generated_app` | filter | Accept/reject AI-generated payload |
+| `examplepress_mu_validate_generated_app` | filter | Accept/reject post-validation merged tree |
+| `examplepress_mu_agent_default_model` | filter | Default model when `ep_agent_model` option is unset |
 | `examplepress_mu_agent_iterate_max_files` | filter | Max repo files fed to LLM during iteration (default: 80) |
 | `examplepress_mu_agent_skill_paths` | filter | Directories scanned for skill files |
 | `examplepress_mu_agent_skill_files` | filter | Final skill file map |
 | `examplepress_mu_agent_skill_body` | filter | Final compiled curriculum body |
 | `examplepress_mu_agent_merge_tags` | filter | Add/override merge-tag resolvers |
+| `examplepress_mu_agent_escape_allowlist` | filter | Extra function names allowed in the template `echo` allowlist |
 
 </details>
 

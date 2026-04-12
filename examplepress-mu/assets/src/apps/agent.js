@@ -1,12 +1,12 @@
 /**
- * Generative UI Agent — Apps page module.
+ * Generative Agent — Apps page module.
  *
  * Wires:
  *   - "✨ Generate with AI" button → ep-agent-modal → POST /agent/generate
  *     → poll → STEP_REVIEW pause → preview pane → Push (commit) or Discard
  *   - Per-app "✨ Iterate" affordance → ep-agent-iterate-modal (chat thread)
  *     → POST /agent/iterate/{slug} → same draft/commit dance
- *   - Eject → separate ep-agent-eject-modal with type-to-confirm
+ *   - Repair → ep-agent-repair-modal for surgical error fixes
  *   - Jobs & History button → ep-agent-jobs-modal
  *   - Discoverability: button shows DISABLED when feature is enabled but
  *     not configured (vs hidden entirely).
@@ -73,12 +73,11 @@ export function initAgent(data) {
 	// signal that the feature is broken.
 	if (warningEl && agent.enabled && !agent.ready && agent.error) {
 		warningEl.style.display = '';
-		warningEl.textContent = '⚠ Generative UI Agent runtime failed to boot: ' + agent.error;
+		warningEl.textContent = '⚠ Agent runtime failed to boot: ' + agent.error;
 	}
 
 	bindGenerate();
 	bindIterate();
-	bindEject();
 	bindJobs();
 	bindRepair();
 
@@ -261,6 +260,7 @@ async function onGenerateSubmit() {
 	const promptEl = document.getElementById('ep-agent-prompt');
 	const errorEl  = document.getElementById('ep-agent-error');
 	const submitEl = document.getElementById('ep-agent-submit');
+	const stepsEl  = document.getElementById('ep-agent-steps');
 
 	const name   = (nameEl?.value || '').trim();
 	const slug   = (slugEl?.value || '').trim();
@@ -286,41 +286,123 @@ async function onGenerateSubmit() {
 
 	submitEl.disabled = true;
 	submitEl.textContent = 'Starting…';
+	renderStep(stepsEl, 'queued');
 
+	let jobId;
 	try {
-		await apiFetch(appData.agentGenerateUrl, { method: 'POST', body: { app_name: name, app_slug: slug, app_description: description, prompt } });
-
-		closeAppModal('ep-agent-modal');
-		await refreshDrafts();
-		startDraftsPolling();
-
-		// Brief flash on the drafts section so the user notices the
-		// new placeholder card appearing.
-		const sectionEl = document.getElementById('ep-agent-drafts-section');
-		if (sectionEl) {
-			sectionEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+		const res = await apiFetch(appData.agentGenerateUrl, {
+			method: 'POST',
+			body: { app_name: name, app_slug: slug, app_description: description, prompt },
+		});
+		jobId = res.job_id;
+		currentGenerateJobId = jobId;
+		// Stash the slug on the modal so onGenerateCommit can find it.
+		const pushContext = document.querySelector('[data-current-generate-slug]');
+		if (pushContext) {
+			pushContext.dataset.currentGenerateSlug = slug;
+		} else {
+			document.body.dataset.currentGenerateSlug = slug;
 		}
+		// Drafts panel reflects the job too.
+		refreshDrafts();
 	} catch (err) {
 		log.error('[agent] generate failed', err);
 		showError(errorEl, err.message || 'Generation failed to start.');
-	} finally {
+		submitEl.disabled = false;
+		submitEl.textContent = 'Generate Draft';
+		return;
+	}
+
+	submitEl.textContent = 'Working…';
+
+	// Poll inline — the modal stays open and the user watches the
+	// progress pill, then the draft preview is rendered right here
+	// in the same modal when the LLM returns.
+	try {
+		const finalJob = await pollJob(jobId, (tick) => {
+			renderStep(stepsEl, tick.step || 'queued');
+		});
+
+		if (finalJob.status === 'drafted') {
+			renderStep(stepsEl, 'awaiting_review');
+			renderDraftPreview(finalJob, 'ep-agent');
+			hide(submitEl);
+			document.getElementById('ep-agent-commit-btn').style.display = '';
+			document.getElementById('ep-agent-discard-btn').style.display = '';
+		} else if (finalJob.status === 'success') {
+			renderStep(stepsEl, 'done');
+			postDraftReadyToast(name, slug, 'success');
+			setTimeout(() => {
+				closeAppModal('ep-agent-modal');
+				refreshAppsTable();
+			}, 800);
+		} else if (finalJob.status === 'failed') {
+			renderStep(stepsEl, 'failed');
+			showFriendlyErrors(errorEl, finalJob);
+			submitEl.disabled = false;
+			submitEl.textContent = 'Generate Draft';
+			document.getElementById('ep-agent-retry-btn').style.display = '';
+		}
+	} catch (err) {
+		log.error('[agent] poll failed', err);
+		showError(errorEl, err.message || 'Polling failed. Check the drafts panel for status.');
 		submitEl.disabled = false;
 		submitEl.textContent = 'Generate Draft';
 	}
 }
 
+/**
+ * Render a friendly, user-facing summary of validation errors in
+ * place of the raw technical strings. Falls back to raw errors if
+ * the server didn't return friendly_errors (older jobs, etc.).
+ */
+function showFriendlyErrors(errorEl, job) {
+	if (!errorEl) return;
+	const friendly = job.friendly_errors || [];
+	if (friendly.length === 0) {
+		showError(errorEl, (job.errors || []).join(' ') || 'Job failed.');
+		return;
+	}
+	const lines = friendly.map(f => `• ${f.summary}`).join('\n');
+	errorEl.style.display = '';
+	errorEl.style.whiteSpace = 'pre-line';
+	errorEl.textContent = lines;
+}
+
+/**
+ * Minimal, unobtrusive toast so users who navigate away from the
+ * modal during drafting still get notified when their draft is
+ * ready. Auto-dismisses after 6 seconds; click to dismiss sooner.
+ */
+function postDraftReadyToast(appName, slug, kind) {
+	let host = document.getElementById('ep-agent-toast-host');
+	if (!host) {
+		host = document.createElement('div');
+		host.id = 'ep-agent-toast-host';
+		host.style.cssText = 'position:fixed;bottom:20px;right:20px;z-index:99999;display:flex;flex-direction:column;gap:8px;';
+		document.body.appendChild(host);
+	}
+	const bg = kind === 'success' ? '#16a34a' : (kind === 'failed' ? '#9b2c2c' : '#7c3aed');
+	const icon = kind === 'success' ? '✓' : (kind === 'failed' ? '✗' : '✨');
+	const label = kind === 'success'
+		? `${appName} released`
+		: (kind === 'failed' ? `${appName} failed to generate` : `${appName} draft ready`);
+	const toast = document.createElement('div');
+	toast.style.cssText = `background:${bg};color:white;padding:12px 18px;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,0.15);font-size:13px;cursor:pointer;max-width:320px;`;
+	toast.innerHTML = `<strong>${icon} ${escapeHtml(label)}</strong><br><span style="opacity:0.85;font-size:11px;">${escapeHtml(slug)}</span>`;
+	toast.addEventListener('click', () => toast.remove());
+	host.appendChild(toast);
+	setTimeout(() => toast.remove(), 6000);
+}
+
 async function onGenerateCommit() {
-	// In the new flow, the Generate modal closes immediately after
-	// submit so this button is rarely reached — but keep it for the
-	// case where the user happens to still have the modal open when
-	// the LLM returns. Push routes through the draft-commit endpoint
-	// (post-meta payload, slug-keyed) instead of the job ID.
 	const errorEl = document.getElementById('ep-agent-error');
 	const stepsEl = document.getElementById('ep-agent-steps');
 	const commitBtn = document.getElementById('ep-agent-commit-btn');
-	const slug = document.querySelector('[data-current-generate-slug]')?.dataset.currentGenerateSlug;
+	const slug = document.body.dataset.currentGenerateSlug
+		|| document.querySelector('[data-current-generate-slug]')?.dataset.currentGenerateSlug;
 	if (!slug) {
-		showError(errorEl, 'No draft slug — refresh the panel below and use the Resume button.');
+		showError(errorEl, 'No draft slug — use the drafts panel to push.');
 		return;
 	}
 	commitBtn.disabled = true;
@@ -328,25 +410,52 @@ async function onGenerateCommit() {
 	hide(errorEl);
 	renderStep(stepsEl, 'pushing');
 	try {
+		// commitDraft enqueues an async push. Poll the draft endpoint
+		// until it either succeeds (draft cleared, payload gone) or
+		// reports a failure state.
 		const url = appData.agentDraftCommitUrl.replace('__SLUG__', encodeURIComponent(slug));
-		const res = await apiFetch(url, { method: 'POST' });
-		if (res.success) {
-			renderStep(stepsEl, 'done');
-			setTimeout(async () => {
-				closeAppModal('ep-agent-modal');
-				await refreshDrafts();
-				refreshAppsTable();
-			}, 600);
-		} else {
-			showError(errorEl, res.message || 'Push failed.');
-			commitBtn.disabled = false;
-			commitBtn.textContent = 'Push to GitHub';
-		}
+		await apiFetch(url, { method: 'POST' });
+		await pollDraftUntilDone(slug, stepsEl);
+		renderStep(stepsEl, 'done');
+		postDraftReadyToast(slug, slug, 'success');
+		setTimeout(async () => {
+			closeAppModal('ep-agent-modal');
+			await refreshDrafts();
+			refreshAppsTable();
+		}, 600);
 	} catch (err) {
 		showError(errorEl, err.message || 'Push failed.');
 		commitBtn.disabled = false;
 		commitBtn.textContent = 'Push to GitHub';
 	}
+}
+
+/**
+ * Poll /agent/drafts/{slug} until it stops returning a payload
+ * (success) or its draft_status goes to 'failed'. Throws on
+ * terminal failure so callers can surface an error.
+ */
+async function pollDraftUntilDone(slug, stepsEl) {
+	const start = Date.now();
+	const url = appData.agentDraftUrl.replace('__SLUG__', encodeURIComponent(slug));
+	while (Date.now() - start < POLL_TIMEOUT_MS) {
+		await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
+		try {
+			const draft = await apiFetch(url);
+			if (draft && draft.draft_status === 'failed') {
+				throw new Error((draft.errors || []).join(' ') || 'Push failed.');
+			}
+			if (stepsEl) renderStep(stepsEl, draft.draft_step || 'pushing');
+		} catch (err) {
+			// 404 on the draft endpoint means the stash was cleared
+			// after a successful push — we're done.
+			if ((err.code || err.message || '').toString().match(/no_draft|404/)) {
+				return;
+			}
+			throw err;
+		}
+	}
+	throw new Error('Push timed out.');
 }
 
 async function onGenerateDiscard() {
@@ -374,10 +483,6 @@ function bindIterate() {
 	document.getElementById('ep-agent-iterate-submit')?.addEventListener('click', onIterateSubmit);
 	document.getElementById('ep-agent-iterate-commit-btn')?.addEventListener('click', onIterateCommit);
 	document.getElementById('ep-agent-iterate-discard-btn')?.addEventListener('click', onIterateDiscard);
-	document.getElementById('ep-agent-iterate-eject-btn')?.addEventListener('click', () => {
-		const slug = document.getElementById('ep-agent-iterate-target-slug')?.value;
-		if (slug) openEjectModal(slug);
-	});
 }
 
 let currentIterateJobId = null;
@@ -409,20 +514,22 @@ async function openIterateModal(slug) {
 	}
 
 	// If the user is resuming a draft that already has a stashed
-	// payload (status=review), render the preview pane + Push button
-	// so they can review what's there before either pushing or
-	// iterating further. This is the canonical "I left and came back"
-	// experience.
+	// payload, render the preview pane so they can review what's
+	// there before pushing or iterating further. The draft endpoint
+	// returns the real origin_job_id (if the originating job is
+	// still in history), which we use as the preview's job id so
+	// file clicks route through the normal /jobs/{id}/file endpoint.
 	try {
 		const draftUrl = appData.agentDraftUrl.replace('__SLUG__', encodeURIComponent(slug));
 		const draft = await apiFetch(draftUrl);
 		if (draft && draft.payload) {
-			const fakeJob = {
-				id:    'resume-' + slug,
-				draft: draft.payload,
-			};
-			currentIterateJobId = fakeJob.id;
-			renderDraftPreview(fakeJob, 'ep-agent-iterate');
+			// Use the real current-job-id from the server. If it's
+			// been evicted from history, fall back to a slug-based
+			// synthetic id; the /jobs/{id}/file endpoint handles
+			// the "resume-<slug>" prefix as a recognised fallback.
+			const jobId = draft.origin_job_id || ('resume-' + slug);
+			currentIterateJobId = jobId;
+			renderDraftPreview({ id: jobId, draft: draft.payload }, 'ep-agent-iterate');
 		}
 	} catch (_err) {
 		// No stashed draft — first iteration on a published app.
@@ -453,7 +560,14 @@ function renderChatThread(jobs) {
 			const v = j.result?.version || '';
 			agentBubble = `<div style="display:flex;margin-bottom:14px;"><div style="max-width:75%;background:white;border:1px solid #e5e7eb;padding:8px 12px;border-radius:12px 12px 12px 2px;font-size:13px;">✓ Released <strong>v${escapeHtml(v)}</strong></div></div>`;
 		} else if (j.status === 'failed') {
-			agentBubble = `<div style="display:flex;margin-bottom:14px;"><div style="max-width:75%;background:#fef2f2;border:1px solid #fecaca;color:#9b2c2c;padding:8px 12px;border-radius:12px 12px 12px 2px;font-size:13px;">✗ ${escapeHtml((j.errors || []).join(' ') || 'Failed')}</div></div>`;
+			// Prefer the friendly summaries returned by the server
+			// when available — raw validator output is too technical
+			// for the chat surface.
+			const friendly = j.friendly_errors || [];
+			const summary = friendly.length > 0
+				? friendly.map(f => f.summary).join(' · ')
+				: ((j.errors || []).join(' ') || 'Failed');
+			agentBubble = `<div style="display:flex;margin-bottom:14px;"><div style="max-width:75%;background:#fef2f2;border:1px solid #fecaca;color:#9b2c2c;padding:8px 12px;border-radius:12px 12px 12px 2px;font-size:13px;">✗ ${escapeHtml(summary)}</div></div>`;
 		} else if (j.status === 'drafted') {
 			agentBubble = `<div style="display:flex;margin-bottom:14px;"><div style="max-width:75%;background:#fefce8;border:1px solid #fde047;padding:8px 12px;border-radius:12px 12px 12px 2px;font-size:13px;">⏸ Draft awaiting review</div></div>`;
 		} else if (j.status === 'running' || j.status === 'pending') {
@@ -472,6 +586,7 @@ async function onIterateSubmit() {
 	const prompt = (promptEl?.value || '').trim();
 	const errorEl = document.getElementById('ep-agent-iterate-error');
 	const submitEl = document.getElementById('ep-agent-iterate-submit');
+	const stepsEl  = document.getElementById('ep-agent-iterate-steps');
 
 	hide(errorEl);
 
@@ -482,6 +597,7 @@ async function onIterateSubmit() {
 
 	submitEl.disabled = true;
 	submitEl.textContent = 'Starting…';
+	renderStep(stepsEl, 'queued');
 
 	// Optimistically append the user bubble to the chat thread.
 	const threadEl = document.getElementById('ep-agent-chat-thread');
@@ -490,20 +606,57 @@ async function onIterateSubmit() {
 	threadEl.appendChild(optimistic.firstChild);
 	threadEl.scrollTop = threadEl.scrollHeight;
 
+	let jobId;
 	try {
 		const url = appData.agentIterateUrl.replace('__SLUG__', encodeURIComponent(slug));
-		await apiFetch(url, { method: 'POST', body: { prompt } });
-
-		// Fire-and-track: close modal, refresh panel, start polling.
-		// The user can leave and come back; the iteration result lives
-		// on the post and shows up in the drafts panel when ready.
+		const res = await apiFetch(url, { method: 'POST', body: { prompt } });
+		jobId = res.job_id;
+		currentIterateJobId = jobId;
 		promptEl.value = '';
-		closeAppModal('ep-agent-iterate-modal');
-		await refreshDrafts();
-		startDraftsPolling();
+		refreshDrafts();
 	} catch (err) {
 		log.error('[agent] iterate failed', err);
 		showError(errorEl, err.message || 'Iteration failed to start.');
+		submitEl.disabled = false;
+		submitEl.textContent = 'Send';
+		return;
+	}
+
+	submitEl.textContent = 'Working…';
+
+	// Stay in the modal and poll inline — same pattern as
+	// onGenerateSubmit. Chat thread gets refreshed on completion
+	// so the agent bubble reflects the real terminal state.
+	try {
+		const finalJob = await pollJob(jobId, (tick) => {
+			renderStep(stepsEl, tick.step || 'queued');
+		});
+
+		// Refresh chat thread from server so the agent bubble
+		// shows success/failed/drafted consistently.
+		try {
+			const refreshUrl = appData.agentJobsForSlugUrl.replace('__SLUG__', encodeURIComponent(slug));
+			const refreshed = await apiFetch(refreshUrl);
+			renderChatThread(refreshed.jobs || []);
+		} catch (_e) { /* non-fatal */ }
+
+		if (finalJob.status === 'drafted') {
+			renderStep(stepsEl, 'awaiting_review');
+			renderDraftPreview(finalJob, 'ep-agent-iterate');
+		} else if (finalJob.status === 'success') {
+			renderStep(stepsEl, 'done');
+			postDraftReadyToast(slug, slug, 'success');
+			setTimeout(() => {
+				closeAppModal('ep-agent-iterate-modal');
+				refreshAppsTable();
+			}, 800);
+		} else if (finalJob.status === 'failed') {
+			renderStep(stepsEl, 'failed');
+			showFriendlyErrors(errorEl, finalJob);
+		}
+	} catch (err) {
+		log.error('[agent] iterate poll failed', err);
+		showError(errorEl, err.message || 'Polling failed. Check the drafts panel.');
 	} finally {
 		submitEl.disabled = false;
 		submitEl.textContent = 'Send';
@@ -521,28 +674,22 @@ async function onIterateCommit() {
 	hide(errorEl);
 	renderStep(stepsEl, 'pushing');
 	try {
-		// The iterate modal's Push button always commits whatever is
-		// stashed on the draft post for this slug — that includes both
-		// freshly-iterated drafts (job still in flight) and resumed
-		// drafts (original job long gone). The draft-commit endpoint
-		// reads the post-meta payload, no job state required.
+		// Async commit — enqueue then poll the draft endpoint until
+		// the stash is cleared (success) or draft_status goes failed.
 		const url = appData.agentDraftCommitUrl.replace('__SLUG__', encodeURIComponent(slug));
-		const res = await apiFetch(url, { method: 'POST' });
-		if (res.success) {
-			renderStep(stepsEl, 'done');
-			hide(document.getElementById('ep-agent-iterate-draft-preview'));
-			hide(commitBtn);
-			hide(document.getElementById('ep-agent-iterate-discard-btn'));
-			currentIterateJobId = null;
-			closeAppModal('ep-agent-iterate-modal');
-			await refreshDrafts();
-			refreshAppsTable();
-		} else {
-			showError(errorEl, res.message || 'Push failed.');
-		}
+		await apiFetch(url, { method: 'POST' });
+		await pollDraftUntilDone(slug, stepsEl);
+		renderStep(stepsEl, 'done');
+		postDraftReadyToast(slug, slug, 'success');
+		hide(document.getElementById('ep-agent-iterate-draft-preview'));
+		hide(commitBtn);
+		hide(document.getElementById('ep-agent-iterate-discard-btn'));
+		currentIterateJobId = null;
+		closeAppModal('ep-agent-iterate-modal');
+		await refreshDrafts();
+		refreshAppsTable();
 	} catch (err) {
 		showError(errorEl, err.message || 'Push failed.');
-	} finally {
 		commitBtn.disabled = false;
 		commitBtn.textContent = 'Push to GitHub';
 	}
@@ -565,52 +712,6 @@ async function onIterateDiscard() {
 		renderChatThread(refreshed.jobs || []);
 	} catch (err) {
 		showError(document.getElementById('ep-agent-iterate-error'), err.message || 'Discard failed.');
-	}
-}
-
-// ── Eject (separate hardened modal) ─────────────────────────────
-
-function bindEject() {
-	document.getElementById('ep-agent-eject-confirm')?.addEventListener('input', (e) => {
-		const expected = document.getElementById('ep-agent-eject-target-slug').value;
-		const btn = document.getElementById('ep-agent-eject-confirm-btn');
-		btn.disabled = e.target.value !== expected;
-	});
-	document.getElementById('ep-agent-eject-confirm-btn')?.addEventListener('click', onEjectConfirm);
-}
-
-function openEjectModal(slug) {
-	document.getElementById('ep-agent-eject-target-slug').value = slug;
-	document.getElementById('ep-agent-eject-slug-display').textContent = slug;
-	document.getElementById('ep-agent-eject-confirm').value = '';
-	document.getElementById('ep-agent-eject-confirm-btn').disabled = true;
-	hide(document.getElementById('ep-agent-eject-error'));
-	openAppModal('ep-agent-eject-modal');
-}
-
-async function onEjectConfirm() {
-	const slug = document.getElementById('ep-agent-eject-target-slug').value;
-	const errorEl = document.getElementById('ep-agent-eject-error');
-	const btn = document.getElementById('ep-agent-eject-confirm-btn');
-	hide(errorEl);
-	btn.disabled = true;
-	btn.textContent = 'Ejecting…';
-	try {
-		const url = appData.agentEjectUrl.replace('__SLUG__', encodeURIComponent(slug));
-		const res = await apiFetch(url, { method: 'POST' });
-		if (res.success) {
-			closeAppModal('ep-agent-eject-modal');
-			closeAppModal('ep-agent-iterate-modal');
-			refreshAppsTable();
-		} else {
-			showError(errorEl, res.message || 'Eject failed.');
-			btn.disabled = false;
-			btn.textContent = 'Eject';
-		}
-	} catch (err) {
-		showError(errorEl, err.message || 'Eject failed.');
-		btn.disabled = false;
-		btn.textContent = 'Eject';
 	}
 }
 
@@ -653,6 +754,7 @@ async function onRepairSubmit() {
 	const prompt    = document.getElementById('ep-agent-repair-prompt').value.trim();
 	const errorEl   = document.getElementById('ep-agent-repair-error-msg');
 	const submitEl  = document.getElementById('ep-agent-repair-submit');
+	const stepsEl   = document.getElementById('ep-agent-repair-steps');
 
 	hide(errorEl);
 
@@ -663,10 +765,12 @@ async function onRepairSubmit() {
 
 	submitEl.disabled = true;
 	submitEl.textContent = 'Starting…';
+	renderStep(stepsEl, 'queued');
 
+	let jobId;
 	try {
 		const url = appData.agentRepairUrl.replace('__SLUG__', encodeURIComponent(slug));
-		await apiFetch(url, {
+		const res = await apiFetch(url, {
 			method: 'POST',
 			body: {
 				error_message: errorMsg,
@@ -675,14 +779,41 @@ async function onRepairSubmit() {
 				prompt:        prompt,
 			},
 		});
-
-		// Fire-and-track. Close immediately, panel takes over.
-		closeAppModal('ep-agent-repair-modal');
-		await refreshDrafts();
-		startDraftsPolling();
+		jobId = res.job_id;
+		currentRepairJobId = jobId;
+		refreshDrafts();
 	} catch (err) {
 		log.error('[agent] repair failed', err);
 		showError(errorEl, err.message || 'Repair failed to start.');
+		submitEl.disabled = false;
+		submitEl.textContent = 'Diagnose & Draft Fix';
+		return;
+	}
+
+	submitEl.textContent = 'Working…';
+
+	// Stay in the modal and poll inline — surgical fixes benefit
+	// from the user watching progress, and the change summary is
+	// rendered in the preview as soon as the job hits drafted.
+	try {
+		const finalJob = await pollJob(jobId, (tick) => {
+			renderStep(stepsEl, tick.step || 'queued');
+		});
+
+		if (finalJob.status === 'drafted') {
+			renderStep(stepsEl, 'awaiting_review');
+			renderRepairDraft(finalJob);
+		} else if (finalJob.status === 'success') {
+			renderStep(stepsEl, 'done');
+			postDraftReadyToast(slug, slug, 'success');
+			setTimeout(() => { closeAppModal('ep-agent-repair-modal'); refreshAppsTable(); }, 800);
+		} else if (finalJob.status === 'failed') {
+			renderStep(stepsEl, 'failed');
+			showFriendlyErrors(errorEl, finalJob);
+		}
+	} catch (err) {
+		log.error('[agent] repair poll failed', err);
+		showError(errorEl, err.message || 'Polling failed. Check the drafts panel.');
 	} finally {
 		submitEl.disabled = false;
 		submitEl.textContent = 'Diagnose & Draft Fix';
@@ -691,6 +822,7 @@ async function onRepairSubmit() {
 
 async function onRepairCommit() {
 	if (!currentRepairJobId) return;
+	const slug = document.getElementById('ep-agent-repair-target-slug').value;
 	const errorEl = document.getElementById('ep-agent-repair-error-msg');
 	const stepsEl = document.getElementById('ep-agent-repair-steps');
 	const commitBtn = document.getElementById('ep-agent-repair-commit-btn');
@@ -699,16 +831,14 @@ async function onRepairCommit() {
 	hide(errorEl);
 	renderStep(stepsEl, 'pushing');
 	try {
-		const url = appData.agentJobCommitUrl.replace('__ID__', encodeURIComponent(currentRepairJobId));
-		const res = await apiFetch(url, { method: 'POST' });
-		if (res.success) {
-			renderStep(stepsEl, 'done');
-			setTimeout(() => { closeAppModal('ep-agent-repair-modal'); refreshAppsTable(); }, 800);
-		} else {
-			showError(errorEl, res.message || 'Push failed.');
-			commitBtn.disabled = false;
-			commitBtn.textContent = 'Push fix to GitHub';
-		}
+		// Async commit via the draft-commit endpoint — same path as
+		// iterate, so slow GitHub responses don't hang the REST call.
+		const url = appData.agentDraftCommitUrl.replace('__SLUG__', encodeURIComponent(slug));
+		await apiFetch(url, { method: 'POST' });
+		await pollDraftUntilDone(slug, stepsEl);
+		renderStep(stepsEl, 'done');
+		postDraftReadyToast(slug, slug, 'success');
+		setTimeout(() => { closeAppModal('ep-agent-repair-modal'); refreshAppsTable(); }, 600);
 	} catch (err) {
 		showError(errorEl, err.message || 'Push failed.');
 		commitBtn.disabled = false;
@@ -771,8 +901,28 @@ function renderRepairDraft(job) {
 			unchanged: '<span style="display:inline-block;width:60px;color:#9ca3af;">[ ]</span>',
 		}[change];
 		const dim = change === 'unchanged' ? 'color:#9ca3af;' : '';
-		return `<div style="padding:2px 0;${dim}">${tag} ${escapeHtml(f.path)} <span style="color:#9ca3af;float:right;">${formatBytes(f.bytes || 0)}</span></div>`;
+		return `<div style="padding:2px 0;cursor:pointer;${dim}" data-file-path="${escapeHtml(f.path)}">${tag} ${escapeHtml(f.path)} <span style="color:#9ca3af;float:right;">${formatBytes(f.bytes || 0)}</span></div>`;
 	}).join('');
+
+	// Click a row → fetch and render contents in the repair viewer.
+	// Modified files are far more interesting than unchanged — this
+	// is the whole point of the surgical review.
+	const viewerEl = document.getElementById('ep-agent-repair-draft-file-viewer');
+	filesEl.querySelectorAll('[data-file-path]').forEach(row => {
+		row.addEventListener('click', async () => {
+			if (!viewerEl) return;
+			const path = row.dataset.filePath;
+			try {
+				const url = appData.agentJobFileUrl.replace('__ID__', encodeURIComponent(job.id)) + '?path=' + encodeURIComponent(path);
+				const res = await apiFetch(url);
+				viewerEl.style.display = '';
+				viewerEl.textContent = '// ' + path + '\n\n' + res.contents;
+			} catch (err) {
+				viewerEl.style.display = '';
+				viewerEl.textContent = '// Error loading ' + path + ': ' + err.message;
+			}
+		});
+	});
 }
 
 // ── Jobs & History ──────────────────────────────────────────────
@@ -816,13 +966,15 @@ function renderJobsList(jobs) {
 		// failure error message so the user can re-attempt as a
 		// surgical fix instead of a wholesale re-generation.
 		const errorText = (j.errors || []).join(' ');
+		const friendlyText = (j.friendly_errors || []).map(f => f.summary).join(' · ');
 		const showRepair = j.status === 'failed' && j.target_slug;
 		const repairBtn = showRepair
 			? `<a href="#" data-agent-repair="${escapeHtml(j.target_slug)}" data-agent-repair-error="${escapeAttr(errorText)}" style="font-size:11px;color:#7c3aed;text-decoration:underline;margin-left:8px;">🛠 Repair</a>`
 			: '';
 
-		const errorLine = j.status === 'failed' && errorText
-			? `<div style="font-size:11px;color:#9b2c2c;margin-top:4px;background:#fef2f2;border-left:2px solid #fecaca;padding:4px 8px;">${escapeHtml(errorText.slice(0, 200))}${errorText.length > 200 ? '…' : ''}</div>`
+		const displayError = friendlyText || errorText;
+		const errorLine = j.status === 'failed' && displayError
+			? `<div style="font-size:11px;color:#9b2c2c;margin-top:4px;background:#fef2f2;border-left:2px solid #fecaca;padding:4px 8px;">${escapeHtml(displayError.slice(0, 300))}${displayError.length > 300 ? '…' : ''}</div>`
 			: '';
 
 		return `
@@ -866,12 +1018,32 @@ function renderDraftPreview(job, prefix) {
 		</div>
 	`).join('');
 
-	// Click a row → fetch and show its contents in the viewer
+	// Resolve a file viewer element. Generate modal has its own
+	// viewer; iterate/repair modals share one through the review
+	// path, so clicks in those prefixes fall back to the generate
+	// viewer if the prefix-specific one is absent.
+	const viewerEl =
+		document.getElementById(prefix + '-draft-file-viewer') ||
+		document.getElementById('ep-agent-draft-file-viewer');
+
+	// Click a row → fetch (or inline) the file contents and show
+	// them in the viewer. For payloads that already have inline
+	// contents attached (resume flow), skip the REST call entirely.
 	filesEl.querySelectorAll('[data-file-path]').forEach(row => {
 		row.addEventListener('click', async () => {
+			if (!viewerEl) return;
 			const path = row.dataset.filePath;
-			const viewerEl = document.getElementById(prefix === 'ep-agent' ? 'ep-agent-draft-file-viewer' : null);
-			if (!viewerEl) return; // iterate modal omits the viewer for space
+
+			// Inline lookup first — when renderDraftPreview is given
+			// a payload straight from /agent/drafts/{slug}, every
+			// file already carries its contents.
+			const inline = (draft.files || []).find(f => f && f.path === path);
+			if (inline && typeof inline.contents === 'string') {
+				viewerEl.style.display = '';
+				viewerEl.textContent = '// ' + path + '\n\n' + inline.contents;
+				return;
+			}
+
 			try {
 				const url = appData.agentJobFileUrl.replace('__ID__', encodeURIComponent(job.id)) + '?path=' + encodeURIComponent(path);
 				const res = await apiFetch(url);
@@ -886,17 +1058,14 @@ function renderDraftPreview(job, prefix) {
 
 	if (prefix === 'ep-agent') {
 		hide(document.getElementById('ep-agent-submit'));
-	} else {
-		// iterate flow keeps the submit button visible so the user can
-		// abandon the draft and send a new prompt instead.
 	}
 }
 
 // ── Drafts panel ────────────────────────────────────────────────
 //
 // The panel is the canonical view of draft state. It polls /agent/drafts
-// every 3s while ANY draft is in flight (queued/drafting/iterating/
-// repairing/pushing) and stops when everything is in a terminal state.
+// every 3s while ANY draft is in flight (status=pending or running)
+// and stops when everything is in a terminal state (drafted/success/failed).
 // This is what makes "click Generate, close the modal, walk away" work:
 // the panel keeps tracking state independently of any open modal.
 
@@ -959,13 +1128,11 @@ function renderDraftsFromData(drafts) {
 
 		const status = d.draft_status || '';
 		const statusColor = {
-			review:    '#16a34a',
-			failed:    '#9b2c2c',
-			drafting:  '#2563eb',
-			iterating: '#2563eb',
-			repairing: '#2563eb',
-			pushing:   '#2563eb',
-			queued:    '#6b7280',
+			drafted: '#16a34a',
+			success: '#16a34a',
+			failed:  '#9b2c2c',
+			running: '#2563eb',
+			pending: '#6b7280',
 		}[status] || '#6b7280';
 
 		const cs = d.change_summary || {};
@@ -996,9 +1163,16 @@ function renderDraftsFromData(drafts) {
 			</div>`
 			: '';
 
-		// Errors panel for failed drafts.
-		const errorBlock = (status === 'failed' && Array.isArray(d.errors) && d.errors.length)
-			? `<div style="font-size:11px;color:#9b2c2c;margin-bottom:8px;background:#fef2f2;border-left:2px solid #fecaca;padding:6px 10px;border-radius:0 4px 4px 0;">${escapeHtml(d.errors.join(' · ').slice(0, 300))}</div>`
+		// Errors panel for failed drafts. Prefer the server-rendered
+		// friendly_errors summary when available — raw validator
+		// output is too technical for the panel.
+		const friendlyDraft = Array.isArray(d.friendly_errors) && d.friendly_errors.length
+			? d.friendly_errors.map(f => f.summary).join(' · ')
+			: '';
+		const rawDraft = Array.isArray(d.errors) ? d.errors.join(' · ') : '';
+		const draftErrorText = friendlyDraft || rawDraft;
+		const errorBlock = (status === 'failed' && draftErrorText)
+			? `<div style="font-size:11px;color:#9b2c2c;margin-bottom:8px;background:#fef2f2;border-left:2px solid #fecaca;padding:6px 10px;border-radius:0 4px 4px 0;">${escapeHtml(draftErrorText.slice(0, 300))}</div>`
 			: '';
 
 		// Action gating:
@@ -1007,7 +1181,7 @@ function renderDraftsFromData(drafts) {
 		// - review → Resume + Push (always actionable on success)
 		// - failed with payload → Resume + Repair
 		// - failed without payload → Retry Generate
-		const canAct = status === 'review' || status === 'failed';
+		const canAct = status === 'drafted' || status === 'failed';
 		const hasPayload = !!d.has_payload;
 		let resumeAction, repairAction, pushAction;
 		pushAction = '';
@@ -1021,7 +1195,7 @@ function renderDraftsFromData(drafts) {
 		} else if (!canAct) {
 			resumeAction = `<span style="font-size:12px;color:#9ca3af;">Working… (you can leave this page)</span>`;
 			repairAction = '';
-		} else if (status === 'review') {
+		} else if (status === 'drafted') {
 			resumeAction = `<a href="#" data-agent-resume-draft="${escapeHtml(d.slug)}" style="font-size:12px;color:#7c3aed;text-decoration:underline;">Review Files</a>`;
 			pushAction = `<a href="#" data-agent-push-draft="${escapeHtml(d.slug)}" style="font-size:12px;color:#16a34a;font-weight:600;text-decoration:underline;">Push to GitHub</a>`;
 			repairAction = `<a href="#" data-agent-iterate-draft="${escapeHtml(d.slug)}" style="font-size:12px;color:#2563eb;text-decoration:underline;">Iterate</a>`;

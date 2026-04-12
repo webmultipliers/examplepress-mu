@@ -917,4 +917,123 @@ final class AppValidator
             $reason
         ));
     }
+
+    /**
+     * Translate raw validator error strings into a small number of
+     * human-readable summaries. The raw errors are aimed at the
+     * auto-repair LLM (precise, technical, file-specific); the UI
+     * should show these plain-English summaries alongside the first
+     * two raw lines so the user knows what to try next without
+     * having to decode PHP jargon.
+     *
+     * Returns a list of { category, summary, details[] } objects.
+     *
+     * @param array<int,string> $errors
+     * @return array<int,array{category:string,summary:string,details:array<int,string>}>
+     */
+    public static function humanizeErrors(array $errors): array
+    {
+        $buckets = [
+            'security' => [
+                'match'   => '/banned token:|base64_decode|eval|shell_exec|exec\(|system\(|passthru|proc_open|popen|backtick|create_function/i',
+                'summary' => 'The generated code used a banned PHP function (eval, exec, shell access, etc.).',
+            ],
+            'templates_write_api' => [
+                'match'   => '/write API:|\$_(?:GET|POST|REQUEST|COOKIE|SERVER)|forbidden in templates/i',
+                'summary' => 'A template file tried to use write APIs or request superglobals. Those belong in rpc.php or cron.php.',
+            ],
+            'escaping' => [
+                'match'   => '/unescaped echo|escaping|esc_html|esc_attr/i',
+                'summary' => 'One or more template values were echoed without escaping. Every variable output needs esc_html / esc_attr / esc_url.',
+            ],
+            'design_tokens' => [
+                'match'   => '/hardcoded hex color|hardcoded pixel font size|Tailwind color class|Tailwind size class|Tailwind font-family/i',
+                'summary' => 'The styles used hardcoded colors or sizes. The design system requires CSS variables (var(--wp--preset--*)).',
+            ],
+            'file_count' => [
+                'match'   => '/File count exceeds|Block folder .* contains .* files/i',
+                'summary' => 'The generated app has too many files. Simplify the architecture — fewer blocks with more attributes beats more blocks.',
+            ],
+            'path_safety' => [
+                'match'   => '/File path is unsafe|not a safe directory name/i',
+                'summary' => 'A file path was unsafe (absolute, contained ..).',
+            ],
+            'slug_consistency' => [
+                'match'   => '/Slug consistency|bootstrap Text Domain|does not reference the manifest slug/i',
+                'summary' => 'The app\'s slug, bootstrap filename, and text domain do not match.',
+            ],
+            'block_naming' => [
+                'match'   => '/Block name derivation|block\.json/i',
+                'summary' => 'A block.json has the wrong name for the folder it lives in.',
+            ],
+            'block_context' => [
+                'match'   => '/unknown block|usesContext|parent references/i',
+                'summary' => 'A block references another block (via parent or usesContext) that does not exist in this app.',
+            ],
+            'route_origin' => [
+                'match'   => '/Route origin correspondence|registers route slug/i',
+                'summary' => 'The bootstrap registers a route that has no matching template block.',
+            ],
+            'manifest' => [
+                'match'   => '/Manifest missing|Manifest requests banned|supports_ai_iteration must be/i',
+                'summary' => 'The manifest is missing required fields or has invalid values.',
+            ],
+            'attribute_type' => [
+                'match'   => '/attribute type .* is not in the allowlist/i',
+                'summary' => 'A block attribute used a type that is not supported. See skill 40 for the allowlist.',
+            ],
+            'db_schema' => [
+                'match'   => '/db\.php must explicitly declare/i',
+                'summary' => 'db.php is missing the userScoped declaration. It must be explicitly true or false.',
+            ],
+            'block_props' => [
+                'match'   => '/useBlockProps/i',
+                'summary' => 'A template index.php is missing the useBlockProps directive on its root element.',
+            ],
+            'filesystem_routes' => [
+                'match'   => '/REST route under \/fs\//i',
+                'summary' => 'The generated code tried to register a filesystem write REST route. Platform immutability forbids that.',
+            ],
+            'react_imports' => [
+                'match'   => '/@wordpress\/element|@wordpress\/blocks|@wordpress\/block-editor|registerBlockType/i',
+                'summary' => 'The generated code imported React or the Gutenberg JS stack. The view layer is Blockstudio PHP templates only.',
+            ],
+        ];
+
+        $categorized = [];
+        $leftover = [];
+        foreach ($errors as $error) {
+            if (!is_string($error)) {
+                continue;
+            }
+            $matched = false;
+            foreach ($buckets as $key => $bucket) {
+                if (preg_match($bucket['match'], $error)) {
+                    $categorized[$key][] = $error;
+                    $matched = true;
+                    break;
+                }
+            }
+            if (!$matched) {
+                $leftover[] = $error;
+            }
+        }
+
+        $out = [];
+        foreach ($categorized as $key => $details) {
+            $out[] = [
+                'category' => $key,
+                'summary'  => $buckets[$key]['summary'],
+                'details'  => array_values(array_slice($details, 0, 3)),
+            ];
+        }
+        if (!empty($leftover)) {
+            $out[] = [
+                'category' => 'other',
+                'summary'  => 'Additional validator issues.',
+                'details'  => array_values(array_slice($leftover, 0, 3)),
+            ];
+        }
+        return $out;
+    }
 }

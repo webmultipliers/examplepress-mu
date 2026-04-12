@@ -383,12 +383,12 @@ final class FeatureRegistry
             'setup'   => [self::class, 'setupGlobalStylesTokens'],
         ]);
 
-        // Generative UI Agent — gates PrismContainer boot, Prism wiring,
+        // Agent — gates PrismContainer boot, Prism wiring,
         // AgentController routes, Action Scheduler hook registration,
         // and the "Generate with AI" admin surfaces. Off by default
         // until the site owner configures a provider + API key.
         self::register('agent', [
-            'label'   => 'Generative UI Agent',
+            'label'   => 'Agent',
             'group'   => 'platform',
             'default' => false,
         ]);

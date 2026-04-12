@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Minimal Prism config for the ExamplePress Generative UI Agent.
+ * Minimal Prism config for the ExamplePress Agent.
  *
  * Provider/model/key are resolved at call-time from WordPress options
  * (ep_agent_provider, ep_agent_model, ep_agent_api_key) by LLMClient,

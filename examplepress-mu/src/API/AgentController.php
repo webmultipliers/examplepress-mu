@@ -9,32 +9,36 @@ use ExamplePress\MU\Agent\LLMClient;
 use ExamplePress\MU\Agent\MergeTags;
 use ExamplePress\MU\Agent\SkillRegistry;
 use ExamplePress\MU\Config\FeatureRegistry;
+use ExamplePress\MU\Governance\AppValidator;
 use ExamplePress\MU\Infrastructure\PrismContainer;
 use ExamplePress\MU\Infrastructure\AppRegistry;
-use ExamplePress\MU\Infrastructure\AppUpdateProvider;
-use ExamplePress\MU\Infrastructure\GitHub;
 
 /**
- * REST API for the Generative UI Agent.
+ * REST API for the Agent.
+ *
+ * All state lives on the ep_app CPT via AppRegistry — there is no
+ * ep_agent_jobs option, no per-request wp_options lock, and no
+ * "transient worker state" separate from "canonical draft state".
+ * The post is the job record.
  *
  * Routes (all require manage_options):
  *   POST   /agent/generate                  { prompt }            → { job_id }
  *   POST   /agent/iterate/{slug}            { prompt }            → { job_id }
- *   POST   /agent/repair/{slug}             { error_message, error_file?, error_line?, prompt? } → { job_id }
- *   POST   /agent/eject/{slug}                                    → { ok, version }
+ *   POST   /agent/repair/{slug}             { error_message, ... } → { job_id }
  *   POST   /agent/jobs/{id}/commit                                → { ok }
  *   POST   /agent/jobs/{id}/discard                               → { ok }
- *   POST   /agent/jobs/{id}/retry                                 → { job_id }  (new job, same prompt)
- *   GET    /agent/jobs/{id}                                       → job state (summarized)
+ *   POST   /agent/jobs/{id}/retry                                 → { job_id }
+ *   GET    /agent/jobs/{id}                                       → job snapshot
  *   GET    /agent/jobs/{id}/file?path=...                         → { path, contents }
  *   GET    /agent/jobs                                            → recent jobs
- *   GET    /agent/jobs/by-slug/{slug}                             → all jobs for an app (chat thread)
+ *   GET    /agent/jobs/by-slug/{slug}                             → chat thread for an app
  *   GET    /agent/providers                                       → provider catalog
  *   POST   /agent/test                                            → { ok, message }
- *   GET    /agent/skills                                          → compiled curriculum + resolved merge tags
+ *   GET    /agent/skills                                          → compiled curriculum + merge tags
  *   GET    /agent/drafts                                          → list pending stashed drafts
- *   GET    /agent/drafts/{slug}                                   → fetch a single draft payload + history
+ *   GET    /agent/drafts/{slug}                                   → single draft payload + history
  *   DELETE /agent/drafts/{slug}                                   → discard a pending draft
+ *   POST   /agent/drafts/{slug}/commit                            → push a stashed draft (async)
  */
 final class AgentController
 {
@@ -131,15 +135,6 @@ final class AgentController
                     'sanitize_callback' => 'sanitize_textarea_field',
                     'default'           => '',
                 ],
-            ],
-        ]);
-
-        register_rest_route('examplepress-mu/v1', '/agent/eject/(?P<slug>[a-z0-9-]+)', [
-            'methods'             => 'POST',
-            'callback'            => [self::class, 'eject'],
-            'permission_callback' => [self::class, 'permissionCheck'],
-            'args'                => [
-                'slug' => ['required' => true, 'type' => 'string', 'sanitize_callback' => 'sanitize_title'],
             ],
         ]);
 
@@ -243,45 +238,38 @@ final class AgentController
     }
 
     /**
-     * Verify the app exists and is iterable (not ejected). Allows
-     * draft-only apps that have a stashed payload but no plugin on disk.
+     * Verify the app's post exists. The eject one-way door no longer
+     * exists, so there is no AI-lock state to gate on. Any app with
+     * a CPT row — draft, published, orphan — is iterable.
+     * GenerationJob::loadIterationContext is responsible for finding
+     * an actual source tree to iterate against and erroring out
+     * clearly if neither a stash nor a GitHub repo is available.
      */
     private static function ensureIterable(string $slug): ?\WP_Error
     {
-        $post = AppRegistry::getPost($slug);
-        if (!$post) {
+        if (!AppRegistry::getPost($slug)) {
             return new \WP_Error('app_not_found', "App {$slug} not found.", ['status' => 404]);
         }
-
-        // Draft-only apps (never pushed) won't have a manifest on disk.
-        // They iterate/repair against their stashed payload, so skip the
-        // disk check when a stash exists.
-        if (AppRegistry::hasDraftPayload($slug)) {
-            return null;
-        }
-
-        $manifestPath = WP_PLUGIN_DIR . '/' . $slug . '/examplepress.json';
-        if (!is_readable($manifestPath)) {
-            return new \WP_Error('manifest_missing', 'App manifest missing on disk and no draft payload stashed.', ['status' => 404]);
-        }
-        $manifest = (array) json_decode((string) file_get_contents($manifestPath), true);
-        if (empty($manifest['supports_ai_iteration'])) {
-            return new \WP_Error('not_iterable', 'This app has been ejected from AI iteration.', ['status' => 409]);
-        }
-
         return null;
     }
 
     private static function ensureFeature(): ?\WP_Error
     {
         if (!FeatureRegistry::enabled('agent')) {
-            return new \WP_Error('agent_disabled', 'The Generative UI Agent feature is disabled.', ['status' => 403]);
+            return new \WP_Error('agent_disabled', 'The Agent feature is disabled.', ['status' => 403]);
         }
         if (!PrismContainer::isAvailable()) {
             return new \WP_Error('agent_unavailable', PrismContainer::lastError() ?? 'Agent runtime unavailable.', ['status' => 503]);
         }
         if ($err = LLMClient::selfTest()) {
             return new \WP_Error('agent_unconfigured', $err, ['status' => 400]);
+        }
+        if (!function_exists('as_enqueue_async_action')) {
+            return new \WP_Error(
+                'no_scheduler',
+                'Action Scheduler is not loaded. The agent requires an async worker to run LLM calls without blocking the REST request. Install or activate Action Scheduler (ships with WooCommerce, or can be installed standalone).',
+                ['status' => 503]
+            );
         }
         return null;
     }
@@ -294,12 +282,14 @@ final class AgentController
 
         $slug = (string) $request->get_param('app_slug');
 
-        // Early conflict check — don't waste an LLM call if the slug exists.
-        if (AppRegistry::getPost($slug)) {
-            return new \WP_Error('slug_exists', "An app with slug \"{$slug}\" already exists. Choose a different slug or use iterate mode.", ['status' => 409]);
+        // Early conflict check for PUBLISHED apps only. A failed draft
+        // on the same slug is fine — openJob() will reuse it.
+        $existing = AppRegistry::getPost($slug);
+        if ($existing && $existing->post_status === 'publish') {
+            return new \WP_Error('slug_exists', "A published app with slug \"{$slug}\" already exists. Choose a different slug or use iterate mode.", ['status' => 409]);
         }
 
-        $jobId = GenerationJob::enqueue([
+        $result = GenerationJob::enqueue([
             'mode'            => 'generate',
             'prompt'          => (string) $request->get_param('prompt'),
             'target_slug'     => $slug,
@@ -308,9 +298,13 @@ final class AgentController
             'user_id'         => get_current_user_id(),
         ]);
 
+        if (is_wp_error($result)) {
+            return $result;
+        }
+
         return rest_ensure_response([
             'success' => true,
-            'job_id'  => $jobId,
+            'job_id'  => $result,
         ]);
     }
 
@@ -325,16 +319,20 @@ final class AgentController
             return $err;
         }
 
-        $jobId = GenerationJob::enqueue([
+        $result = GenerationJob::enqueue([
             'mode'        => 'iterate',
             'prompt'      => (string) $request->get_param('prompt'),
             'target_slug' => $slug,
             'user_id'     => get_current_user_id(),
         ]);
 
+        if (is_wp_error($result)) {
+            return $result;
+        }
+
         return rest_ensure_response([
             'success' => true,
-            'job_id'  => $jobId,
+            'job_id'  => $result,
         ]);
     }
 
@@ -357,7 +355,7 @@ final class AgentController
             'reported_at'   => time(),
         ];
 
-        $jobId = GenerationJob::enqueue([
+        $result = GenerationJob::enqueue([
             'mode'          => 'repair',
             'prompt'        => (string) $request->get_param('prompt'),
             'target_slug'   => $slug,
@@ -365,95 +363,35 @@ final class AgentController
             'error_context' => $errorContext,
         ]);
 
-        return rest_ensure_response([
-            'success' => true,
-            'job_id'  => $jobId,
-        ]);
-    }
-
-    public static function eject(\WP_REST_Request $request): \WP_REST_Response|\WP_Error
-    {
-        $slug = (string) $request->get_param('slug');
-        $record = AppRegistry::get($slug);
-        if (!$record || empty($record['github']['owner_repo'])) {
-            return new \WP_Error('app_not_found', "App {$slug} not found or has no repo.", ['status' => 404]);
+        if (is_wp_error($result)) {
+            return $result;
         }
-        $ownerRepo = (string) $record['github']['owner_repo'];
-
-        $tree = GitHub::fetchRepoTree($ownerRepo);
-        if (is_wp_error($tree)) {
-            return $tree;
-        }
-
-        // Patch the manifest in-place inside the file list.
-        $patched = false;
-        $newVersion = '';
-        foreach ($tree['files'] as &$file) {
-            if ($file['path'] === 'examplepress.json') {
-                $manifest = (array) json_decode($file['contents'], true);
-                $manifest['supports_ai_iteration'] = false;
-                $newVersion = self::bumpPatch((string) ($manifest['version'] ?? '1.0.0'));
-                $manifest['version'] = $newVersion;
-                $file['contents'] = wp_json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
-                $patched = true;
-                break;
-            }
-        }
-        unset($file);
-
-        if (!$patched) {
-            return new \WP_Error('no_manifest_in_repo', 'examplepress.json not found in repo root.', ['status' => 500]);
-        }
-
-        $push = GitHub::pushFiles(
-            ownerRepo: $ownerRepo,
-            files: $tree['files'],
-            message: 'chore: eject from AI iteration (handoff to developer mode)',
-            parentSha: $tree['sha'],
-        );
-        if (is_wp_error($push)) {
-            return $push;
-        }
-
-        $release = GitHub::createRelease(
-            ownerRepo: $ownerRepo,
-            tag: 'v' . $newVersion,
-            name: 'v' . $newVersion,
-            body: 'Ejected from AI iteration.',
-        );
-        if (is_wp_error($release)) {
-            return $release;
-        }
-
-        AppRegistry::set($slug, ['version' => $newVersion]);
-        AppUpdateProvider::flush();
 
         return rest_ensure_response([
             'success' => true,
-            'version' => $newVersion,
-            'message' => "App {$slug} ejected. AI iteration is now locked.",
+            'job_id'  => $result,
         ]);
     }
 
     public static function job(\WP_REST_Request $request): \WP_REST_Response|\WP_Error
     {
-        $job = GenerationJob::getJob((string) $request->get_param('id'));
+        $job = AppRegistry::getJobSnapshot((string) $request->get_param('id'));
         if (!$job) {
             return new \WP_Error('job_not_found', 'Job not found.', ['status' => 404]);
         }
-        return rest_ensure_response(GenerationJob::summarize($job));
+        return rest_ensure_response(self::summarizeJob($job));
     }
 
     public static function jobs(): \WP_REST_Response
     {
-        $jobs = array_map([GenerationJob::class, 'summarize'], GenerationJob::recent(20));
+        $jobs = array_map([self::class, 'summarizeJob'], AppRegistry::recentJobSnapshots(20));
         return rest_ensure_response(['jobs' => $jobs]);
     }
 
     public static function jobsForSlug(\WP_REST_Request $request): \WP_REST_Response
     {
         $slug = (string) $request->get_param('slug');
-        $jobs = array_map([GenerationJob::class, 'summarize'], GenerationJob::forSlug($slug, 20));
+        $jobs = array_map([self::class, 'summarizeJob'], AppRegistry::jobSnapshotsForSlug($slug, 20));
         return rest_ensure_response(['slug' => $slug, 'jobs' => $jobs]);
     }
 
@@ -463,37 +401,54 @@ final class AgentController
             return $err;
         }
         $jobId = (string) $request->get_param('id');
-        $job = GenerationJob::getJob($jobId);
-        if (!$job) {
-            return new \WP_Error('job_not_found', 'Job not found.', ['status' => 404]);
+        $result = GenerationJob::enqueueCommit($jobId);
+        if (is_wp_error($result)) {
+            return $result;
         }
-        if (($job['status'] ?? '') !== 'drafted') {
-            return new \WP_Error('not_drafted', 'Job is not in a drafted state and cannot be committed.', ['status' => 409]);
-        }
-        $ok = GenerationJob::commit($jobId);
-        if (!$ok) {
-            $job = GenerationJob::getJob($jobId);
-            return new \WP_Error('commit_failed', $job['errors'][0] ?? 'Commit failed.', ['status' => 500]);
-        }
+        $refreshed = AppRegistry::getJobSnapshot($jobId);
         return rest_ensure_response([
             'success' => true,
-            'job'     => GenerationJob::summarize(GenerationJob::getJob($jobId) ?? []),
+            'job'     => $refreshed ? self::summarizeJob($refreshed) : null,
         ]);
     }
 
     public static function discardJob(\WP_REST_Request $request): \WP_REST_Response|\WP_Error
     {
         $jobId = (string) $request->get_param('id');
-        $job = GenerationJob::getJob($jobId);
+        $job = AppRegistry::getJobSnapshot($jobId);
         if (!$job) {
             return new \WP_Error('job_not_found', 'Job not found.', ['status' => 404]);
         }
-        // Discard is allowed at any stage except mid-commit (status = running with step = pushing).
-        if (($job['status'] ?? '') === 'running' && ($job['step'] ?? '') === GenerationJob::STEP_PUSHING) {
+        if ($job['status'] === AppRegistry::STATUS_RUNNING && $job['step'] === AppRegistry::STEP_PUSHING) {
             return new \WP_Error('discard_blocked', 'Cannot discard a job mid-push.', ['status' => 409]);
         }
         GenerationJob::discard($jobId);
         return rest_ensure_response(['success' => true]);
+    }
+
+    /**
+     * Lightweight projection of a job snapshot for the UI. Strips
+     * full file contents from the draft payload (which can be large)
+     * but keeps paths + bytes + change markers so the preview pane
+     * can render without bloating the JSON payload. Also attaches
+     * a human-readable error summary via AppValidator::humanizeErrors.
+     *
+     * @param array<string,mixed> $job
+     * @return array<string,mixed>
+     */
+    public static function summarizeJob(array $job): array
+    {
+        if (isset($job['draft']['files']) && is_array($job['draft']['files'])) {
+            $job['draft']['files'] = array_map(static fn($f) => [
+                'path'   => (string) ($f['path'] ?? ''),
+                'bytes'  => (int) ($f['bytes'] ?? 0),
+                'change' => isset($f['change']) ? (string) $f['change'] : null,
+            ], $job['draft']['files']);
+        }
+        if (!empty($job['errors']) && is_array($job['errors'])) {
+            $job['friendly_errors'] = AppValidator::humanizeErrors($job['errors']);
+        }
+        return $job;
     }
 
     public static function retryJob(\WP_REST_Request $request): \WP_REST_Response|\WP_Error
@@ -502,17 +457,25 @@ final class AgentController
             return $err;
         }
         $jobId = (string) $request->get_param('id');
-        $job = GenerationJob::getJob($jobId);
+        $job = AppRegistry::getJobSnapshot($jobId);
         if (!$job) {
             return new \WP_Error('job_not_found', 'Job not found.', ['status' => 404]);
         }
-        $newId = GenerationJob::enqueue([
-            'mode'        => (string) ($job['mode'] ?? 'generate'),
-            'prompt'      => (string) ($job['prompt'] ?? ''),
-            'target_slug' => (string) ($job['target_slug'] ?? ''),
-            'user_id'     => get_current_user_id(),
+        // Preserve every field from the original attempt so the user
+        // doesn't have to re-type the app name or error context.
+        $result = GenerationJob::enqueue([
+            'mode'            => (string) $job['mode'],
+            'prompt'          => (string) $job['prompt'],
+            'target_slug'     => (string) $job['target_slug'],
+            'app_name'        => (string) $job['app_name'],
+            'app_description' => (string) $job['app_description'],
+            'user_id'         => get_current_user_id(),
+            'error_context'   => $job['error_context'],
         ]);
-        return rest_ensure_response(['success' => true, 'job_id' => $newId]);
+        if (is_wp_error($result)) {
+            return $result;
+        }
+        return rest_ensure_response(['success' => true, 'job_id' => $result]);
     }
 
     public static function jobFile(\WP_REST_Request $request): \WP_REST_Response|\WP_Error
@@ -522,20 +485,43 @@ final class AgentController
         if ($path === '' || str_contains($path, '..') || str_starts_with($path, '/')) {
             return new \WP_Error('invalid_path', 'Invalid file path.', ['status' => 400]);
         }
-        $job = GenerationJob::getJob($jobId);
-        if (!$job) {
-            return new \WP_Error('job_not_found', 'Job not found.', ['status' => 404]);
-        }
-        $files = $job['draft']['files'] ?? [];
-        foreach ((array) $files as $f) {
-            if (($f['path'] ?? '') === $path) {
-                return rest_ensure_response([
-                    'path'     => $path,
-                    'contents' => (string) ($f['contents'] ?? ''),
-                    'bytes'    => (int) ($f['bytes'] ?? strlen((string) ($f['contents'] ?? ''))),
-                ]);
+
+        // Try the job snapshot first — active jobs have full contents
+        // in the draft. If the job has been evicted from history or
+        // is a "resume-<slug>" synthetic id from the UI, fall back
+        // to reading the stashed post-meta payload directly.
+        $job = AppRegistry::getJobSnapshot($jobId);
+        if ($job && is_array($job['draft']) && !empty($job['draft']['files'])) {
+            foreach ($job['draft']['files'] as $f) {
+                if (is_array($f) && ($f['path'] ?? '') === $path) {
+                    return rest_ensure_response([
+                        'path'     => $path,
+                        'contents' => (string) ($f['contents'] ?? ''),
+                        'bytes'    => (int) ($f['bytes'] ?? strlen((string) ($f['contents'] ?? ''))),
+                    ]);
+                }
             }
         }
+
+        // Fallback: the caller may be polling a job whose slug is
+        // encoded in the id (e.g. "resume-team-directory"). Try to
+        // extract the slug and read the post-meta payload.
+        if (str_starts_with($jobId, 'resume-')) {
+            $slug = substr($jobId, strlen('resume-'));
+            $payload = AppRegistry::getDraftPayload($slug);
+            if ($payload && is_array($payload['files'] ?? null)) {
+                foreach ($payload['files'] as $f) {
+                    if (is_array($f) && ($f['path'] ?? '') === $path) {
+                        return rest_ensure_response([
+                            'path'     => $path,
+                            'contents' => (string) ($f['contents'] ?? ''),
+                            'bytes'    => (int) ($f['bytes'] ?? strlen((string) ($f['contents'] ?? ''))),
+                        ]);
+                    }
+                }
+            }
+        }
+
         return new \WP_Error('file_not_found', "File {$path} not in draft.", ['status' => 404]);
     }
 
@@ -566,22 +552,26 @@ final class AgentController
         }
 
         $post = AppRegistry::getPost($slug);
+        $rawErrors = $post ? (json_decode((string) get_post_meta($post->ID, AppRegistry::META_DRAFT_ERRORS, true), true) ?: []) : [];
         return rest_ensure_response([
-            'slug'        => $slug,
-            'payload'     => $payload,
-            'history'     => AppRegistry::getDraftHistory($slug),
-            'post_status' => $post ? $post->post_status : '',
-            'draft_status' => $post ? (string) get_post_meta($post->ID, AppRegistry::META_DRAFT_STATUS, true) : '',
-            'errors'      => $post ? json_decode((string) get_post_meta($post->ID, AppRegistry::META_DRAFT_ERRORS, true), true) ?: [] : [],
-            'updated_at'  => $post ? (int) get_post_meta($post->ID, AppRegistry::META_DRAFT_UPDATED_AT, true) : 0,
+            'slug'           => $slug,
+            'payload'        => $payload,
+            'history'        => AppRegistry::getDraftHistory($slug),
+            'post_status'    => $post ? $post->post_status : '',
+            'draft_status'   => $post ? (string) get_post_meta($post->ID, AppRegistry::META_DRAFT_STATUS, true) : '',
+            'draft_step'     => $post ? (string) get_post_meta($post->ID, AppRegistry::META_DRAFT_STEP, true) : '',
+            'origin_job_id'  => $post ? (string) get_post_meta($post->ID, AppRegistry::META_DRAFT_ORIGIN_JOB, true) : '',
+            'errors'         => is_array($rawErrors) ? $rawErrors : [],
+            'friendly_errors' => is_array($rawErrors) && !empty($rawErrors) ? AppValidator::humanizeErrors($rawErrors) : [],
+            'updated_at'     => $post ? (int) get_post_meta($post->ID, AppRegistry::META_DRAFT_UPDATED_AT, true) : 0,
         ]);
     }
 
     /**
-     * Push a stashed draft directly to GitHub. Used when the user
-     * resumes a draft from the panel after the originating job has
-     * been GC'd from the ep_agent_jobs option. The post-meta payload
-     * is the source of truth.
+     * Enqueue an async push of a stashed draft. Returns immediately —
+     * the actual GitHub calls happen inside the HOOK_COMMIT worker,
+     * so the REST response can't 504 on a slow GitHub response.
+     * The UI polls /agent/drafts/{slug} for completion.
      */
     public static function commitDraft(\WP_REST_Request $request): \WP_REST_Response|\WP_Error
     {
@@ -592,9 +582,9 @@ final class AgentController
         if (!AppRegistry::hasDraftPayload($slug)) {
             return new \WP_Error('no_draft', "No pending draft for {$slug}.", ['status' => 404]);
         }
-        $ok = GenerationJob::commitFromStash($slug);
-        if (!$ok) {
-            return new \WP_Error('commit_failed', 'Push failed. Check the agent logs.', ['status' => 500]);
+        $result = GenerationJob::enqueueCommitFromStash($slug);
+        if (is_wp_error($result)) {
+            return $result;
         }
         return rest_ensure_response(['success' => true, 'slug' => $slug]);
     }
@@ -688,11 +678,4 @@ final class AgentController
         ]);
     }
 
-    private static function bumpPatch(string $version): string
-    {
-        $parts = array_map('intval', explode('.', ltrim($version, 'v')));
-        $parts = array_pad($parts, 3, 0);
-        $parts[2]++;
-        return implode('.', $parts);
-    }
 }

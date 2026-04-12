@@ -53,22 +53,22 @@ final class ConnectionsController
                 ],
                 'agent_provider' => [
                     'type'              => 'string',
-                    'description'       => 'Generative UI Agent provider (anthropic|openai).',
+                    'description'       => 'Agent provider (anthropic|openai).',
                     'sanitize_callback' => 'sanitize_text_field',
                 ],
                 'agent_model' => [
                     'type'              => 'string',
-                    'description'       => 'Generative UI Agent model id.',
+                    'description'       => 'Agent model id.',
                     'sanitize_callback' => 'sanitize_text_field',
                 ],
                 'agent_api_key' => [
                     'type'              => 'string',
-                    'description'       => 'Generative UI Agent API key.',
+                    'description'       => 'Agent API key.',
                     'sanitize_callback' => 'sanitize_text_field',
                 ],
                 'agent_enabled' => [
                     'type'              => 'boolean',
-                    'description'       => 'Whether the Generative UI Agent feature is enabled.',
+                    'description'       => 'Whether the Agent feature is enabled.',
                 ],
             ],
         ]);

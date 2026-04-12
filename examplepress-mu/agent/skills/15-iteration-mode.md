@@ -7,32 +7,46 @@ There are **two iteration sub-modes** you may be invoked under:
 | **iterate** | `POST /agent/iterate/{slug}` | The user wants a feature change, refinement, or addition. They typed a freeform prompt describing what they want different. |
 | **repair** | `POST /agent/repair/{slug}` | The user reported a specific error (PHP fatal, validator rejection, runtime crash) and wants the smallest possible change to fix it. |
 
-Both modes provide the current file tree as context. Both modes return
-the COMPLETE file tree, not a diff. The contract differs in **how much
-freedom you have to change things**.
+Both modes receive the current file tree as context. Both modes
+return **only the files you actually changed** in `files_changed`,
+plus explicit removals in `files_deleted`.
+
+## The merge layer (read this twice)
+
+Every file in the provided context that you do NOT return is
+preserved **byte-identical** by the kernel's merge layer. You do not
+need to re-emit unchanged files. You do not need to copy files
+verbatim into your output. **Omission is NOT deletion** — if you
+want a file removed, put its path in `files_deleted`.
+
+This is the single most important thing to understand about iterate
+and repair mode. The old behavior was "return the full tree or files
+get deleted." That is NO LONGER TRUE. Returning only the files you
+touched is the correct, expected, required behavior.
+
+**Why**: LLMs have finite output token budgets. Re-emitting 40
+unchanged files to change 1 file wastes tokens, introduces drift,
+and frequently runs into output limits. The merge layer exists to
+let you focus exclusively on the files you're actually modifying.
 
 ## Hard rules (both sub-modes)
 
-**Your output replaces the entire tree.** There is no diff format, no
-patch format, no merge.
-
-## Hard rules
-
-1. **Return the COMPLETE file tree, not a delta.** Every file in the
-   provided context that should still exist must appear in your
-   output `files` array. Any file you omit is **deleted** by the next
-   commit. There is no "leave file unchanged" — include it as-is.
+1. **Return ONLY files you actually changed** in `files_changed`.
+   Do not include files you read for context but did not modify.
 
 2. **The slug never changes.** `manifest.slug`, the bootstrap
    filename, and every block.json namespace stay byte-identical to
    the previous version. The kernel uses the slug as the GitHub repo
    identifier — renaming it would orphan the entire update history.
 
-3. **Bump the version on every iteration.** Update BOTH:
+3. **Bump the version on every iteration.** Update ALL THREE:
    - `manifest.version` in `examplepress.json`
    - `Version:` header in `{slug}.php`
    - The top-level `version` field in your output JSON envelope
-   All three must match.
+
+   This means you almost always return at least those two files
+   (`examplepress.json` and `{slug}.php`) in `files_changed` even if
+   the actual feature change is in a single template file.
 
 4. **Default to a patch bump.** `1.0.0 → 1.0.1`. Only do a minor bump
    when adding new blocks/attributes/routes; only do a major bump
@@ -55,56 +69,46 @@ These changes never break existing installs:
 These can break sites that already have the previous version
 installed. Only do them when the user explicitly asks:
 
-- **Renaming a block slug.** This breaks any saved post content that
-  references the block by name. The renamed block becomes
-  "Unrecognized" in the editor.
+- **Renaming a block slug.** Breaks saved post content that
+  references the block by name.
 - **Removing a block attribute.** Templates that read
-  `$attributes['removed_key']` will emit warnings; existing saved
-  content with the attribute set is silently dropped.
-- **Changing an attribute's `type`.** A `text` → `select` change
-  invalidates every previously-saved value.
-- **Changing a `db.php` field type.** SQLite does not auto-migrate
-  type changes; existing rows may become unreadable.
+  `$attributes['removed_key']` will emit warnings.
+- **Changing an attribute's `type`.** Invalidates saved values.
+- **Changing a `db.php` field type.** SQLite does not auto-migrate.
 - **Removing a `db.php` field.** Same problem.
-- **Flipping `userScoped` from `false` to `true`** (or vice versa).
-  Existing rows have either zero or wrong `user_id` values; visibility
-  inverts.
-- **Renaming a route slug.** The old template block is gone; URLs
-  that used to render that template will 404 until WordPress
-  re-resolves through the registry.
+- **Flipping `userScoped`.** Inverts row visibility.
+- **Renaming a route slug.** URLs 404 until the registry re-resolves.
 
 ## Defensive iteration patterns
 
 If you must change something risky, mitigate:
 
 - **Removing an attribute:** keep reading it with `?? default` for
-  one or two versions, log a deprecation, then remove it entirely.
+  one or two versions, then remove it.
 - **Adding a `db.php` field:** make it nullable, default it in
-  `index.php` with `?? null`, and document that existing rows will
-  have `null` for the new field until they're updated.
+  `index.php` with `?? null`.
 - **Renaming a block:** add a `transforms` entry in the new
   `block.json` so the editor migrates old saved blocks automatically.
 
-## Preserving unchanged files
+## What NOT to do
 
-The most common iteration mistake: forgetting to include a file that
-didn't change. The kernel sees the new commit, diffs it against the
-previous, and **deletes** any file missing from the output.
+- **Don't copy unchanged files into `files_changed`.** The merge
+  layer already preserves them. Copying them in wastes output
+  tokens and risks drift.
 
-When you receive the iteration context, treat it as a checklist:
+- **Don't put context files into `files_deleted`.** Only list files
+  the user explicitly asked you to remove. Empty array is the normal
+  case.
 
-1. Copy every file from the input into your output `files` array
-   verbatim.
-2. Apply your modifications.
-3. Verify your output `files` count is `>=` the input count (less
-   only if the user explicitly asked you to delete a file).
+- **Don't rename files.** A rename is really a delete + add, and
+  the user's saved content may reference the old path.
 
 ## Repair sub-mode (the surgical contract)
 
 When invoked under repair mode, the system prompt header includes a
-`## REPAIR MODE — SURGICAL FIX` block and the user message contains a
-`## REPORTED ERROR` section with the exact error text the user pasted.
-**Your behavior changes:**
+`## REPAIR MODE — SURGICAL FIX` block and the user message contains
+a `## REPORTED ERROR` section with the exact error text the user
+pasted. **Your behavior changes:**
 
 ### Repair-mode hard rules
 
@@ -112,28 +116,30 @@ When invoked under repair mode, the system prompt header includes a
    `Call to undefined function foo()`, your job is to define `foo()`
    or remove the call. Not to refactor unrelated code that you happen
    to think could be cleaner.
+
 2. **Modify the minimum number of files.** If a one-line change in
-   one file fixes the error, return one modified file and N-1
-   byte-identical files. The validator computes a per-file change
-   summary and the user reviews it before pushing — they will see
-   exactly what you touched.
-3. **Every file you do NOT need to change MUST be byte-identical** to
-   the version in the input context. Whitespace, ordering, comments,
-   imports — all preserved. The reviewer is looking for "what changed?"
-   and a noisy diff makes it impossible to verify your fix.
-4. **Do not refactor, rename, restyle, reformat, or 'improve' anything.**
+   one file fixes the error, `files_changed` contains just that one
+   file (plus the manifest + bootstrap for the version bump). The
+   preview UI shows the user exactly which files you touched, and
+   a noisy diff is a red flag.
+
+3. **Do not refactor, rename, restyle, reformat, or 'improve' anything.**
    Even if you spot a bug elsewhere in the codebase, leave it alone.
    That's a separate iteration.
-5. **Do not add new features.** Do not add new dependencies. Do not
+
+4. **Do not add new features.** Do not add new dependencies. Do not
    create new files unless the fix genuinely requires one (e.g., a
    missing helper file referenced by the broken code).
-6. **Prefer small defensive changes over large speculative rewrites.**
-   If the error is `Undefined index: foo`, add a `?? null` instead of
-   restructuring the data flow. If the error is ambiguous, default to
-   the smallest change that could plausibly fix it.
-7. **Bump the patch version** in `examplepress.json` and the
+
+5. **Prefer small defensive changes over large speculative rewrites.**
+   If the error is `Undefined index: foo`, add a `?? null` instead
+   of restructuring the data flow. If the error is ambiguous,
+   default to the smallest change that could plausibly fix it.
+
+6. **Bump the patch version** in `examplepress.json` and the
    `Version:` header of the bootstrap. Same as iterate mode.
-8. **Use the commit message to explain what was fixed in one
+
+7. **Use the commit message to explain what was fixed in one
    sentence.** Format: `fix: <one-sentence summary>`. Example:
    `fix: guard against missing posts attribute in front template`.
 
@@ -142,18 +148,14 @@ When invoked under repair mode, the system prompt header includes a
 - **Do not interpret an error as license to redesign the feature.**
   "The button doesn't work" → fix the button. Not "I redesigned the
   whole CTA section to be a hero with a video background."
+
 - **Do not 'fix' files that aren't mentioned in the error.** If the
   error is in `app/templates/front/index.php`, don't also modify
   `app/components/hero/index.php` because you "noticed it could use
   cleanup."
+
 - **Do not silently change the manifest's `name`, `slug`, or
   `description`.** These are user-controlled. Bump only `version`.
-- **Do not delete files.** If a file appears in the input tree, it
-  must appear in the output tree (modified or not). The only
-  exception is if the user explicitly asked you to delete a file in
-  the additional notes.
-- **Do not change `supports_ai_iteration`.** That flag is owned by
-  the eject UI flow. Generations and repairs leave it set to `true`.
 
 ### Repair-mode prompt structure
 
@@ -180,15 +182,13 @@ Line: 12
 (may be empty)
 ```
 
-Read the error first, locate the file the error references, and make
-the smallest change that resolves it. The user has already reviewed
-the error in the WordPress admin and decided this needs a surgical
-fix rather than a full re-prompt — honor that choice.
+Read the error first, locate the file the error references, and
+make the smallest change that resolves it.
 
 ## What never changes between iterations
 
 - `manifest.slug`
-- `manifest.supports_ai_iteration` (the eject UI flow flips this, not you)
+- `manifest.supports_ai_iteration`
 - The bootstrap filename
 - Any block's `name` field (unless the user is explicitly renaming)
 - The `app/` directory structure for files you're not modifying
